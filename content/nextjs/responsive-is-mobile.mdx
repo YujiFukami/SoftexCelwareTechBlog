@@ -1,0 +1,129 @@
+---
+title: "Next.jsでJavaScriptによるレスポンシブ判定（isMobile）を実装する方法"
+category: "nextjs"
+slug: "responsive-is-mobile"
+tags: ["Next.js", "React", "レスポンシブ", "カスタムフック", "matchMedia"]
+description: "TailwindのCSSだけでは対応できない描画ロジックの分岐に。matchMediaを使ったisMobile判定フックの実装。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+Next.jsとTailwind CSSで開発していると、`md:hidden` や `md:flex` でほとんどのレスポンシブ対応はできてしまいます。
+
+でも、**CSSの表示切り替えだけでは対応しきれない場面**に遭遇したことはありませんか？ たとえば、スマホではグラフのサイズを小さくしたい、テーブルの列数を減らしたい、そもそも別のコンポーネントを描画したい、といったケースです。
+
+そんなときに使えるのが、`matchMedia` を使ったJavaScriptベースのスマホ判定です。カスタムフックにしておけば、プロジェクト全体で手軽に再利用できます。
+
+## こんな場面で使えます
+
+- Rechartsなどのグラフの `height` やフォントサイズをスマホ時に変えたいとき
+- テーブルの表示列数をデバイスに応じて切り替えたいとき
+- スマホとPCでまったく異なるレイアウトコンポーネントを出し分けたいとき
+- データの取得件数をスマホでは減らしてパフォーマンスを最適化したいとき
+
+## 実装コード
+
+### コンポーネント内で直接使うパターン
+
+まずはシンプルに、コンポーネント内で `useState` と `useEffect` を使う方法です。
+
+```tsx
+'use client'
+
+import { useState, useEffect } from 'react'
+
+export default function MyComponent() {
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    setIsMobile(mq.matches)
+
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+
+  return isMobile ? <MobileLayout /> : <DesktopLayout />
+}
+```
+
+`window.matchMedia` は、CSSのメディアクエリと同じ条件をJavaScriptで評価できるAPIです。`addEventListener('change', ...)` でウィンドウサイズの変化もリアルタイムに検知します。
+
+### カスタムフックにするパターン（おすすめ）
+
+複数のコンポーネントで使い回す場合は、カスタムフックとして切り出しておくのがおすすめです。
+
+```tsx
+// hooks/useIsMobile.ts
+import { useState, useEffect } from 'react'
+
+export function useIsMobile(breakpoint = 767) {
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint}px)`)
+    setIsMobile(mq.matches)
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [breakpoint])
+
+  return isMobile
+}
+```
+
+使う側は1行で呼び出すだけです。
+
+```tsx
+// 使用側
+const isMobile = useIsMobile()
+
+// ブレークポイントを変えたい場合は引数で指定
+const isTablet = useIsMobile(1023)
+```
+
+## 使い方・カスタマイズ
+
+### Tailwind CSSとの使い分け
+
+どちらを使うか迷ったときの判断基準をまとめました。
+
+| 方法 | 用途 |
+|------|------|
+| Tailwind `md:hidden` / `md:flex` | 単純な表示/非表示の切り替え |
+| `isMobile` フック | 描画ロジック・データ量・レイアウト構造の分岐 |
+
+基本的には、CSSで済むものはCSSで対応し、JSでの分岐が必要なケースだけこのフックを使うのがベストプラクティスです。
+
+### Rechartsでの活用例
+
+グラフライブラリと組み合わせるとこんな使い方ができます。
+
+```tsx
+const isMobile = useIsMobile()
+
+<ResponsiveContainer width="100%" height={isMobile ? 200 : 400}>
+  <BarChart data={data}>
+    <XAxis
+      dataKey="name"
+      tick={{ fontSize: isMobile ? 10 : 12 }}
+    />
+    {/* ... */}
+  </BarChart>
+</ResponsiveContainer>
+```
+
+## 注意点・ハマりポイント
+
+- **767pxの理由**: Tailwind CSSの `md` ブレークポイントは768pxです。`max-width: 767px` にすることで、Tailwindの `md:` と判定基準が一致します
+- **SSRとの兼ね合い**: 初期値は `false`（PC想定）にしています。サーバーサイドレンダリング時には `window` が存在しないため、クライアントで修正されるまでPC表示になります。ちらつきが気になる場合は、CSSで初期非表示にしておくとよいでしょう
+- **`matchMedia` vs `resize` イベント**: `resize` イベントはスクロールのたびに発火しますが、`matchMedia` の `change` リスナーは**条件に合致したときだけ発火**するので、パフォーマンスに優れています
+- **`'use client'` を忘れずに**: `window` を使うため、Next.jsではクライアントコンポーネントとして宣言する必要があります
+
+## まとめ
+
+- Tailwind CSSだけでは対応できないレスポンシブ分岐には `matchMedia` が便利
+- カスタムフック `useIsMobile` にしておけば、**1行で呼び出せて**プロジェクト全体で再利用可能
+- `resize` イベントより `matchMedia` の方がパフォーマンスが良く、Tailwindのブレークポイントとも一致させやすい

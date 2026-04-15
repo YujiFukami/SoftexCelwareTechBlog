@@ -1,0 +1,128 @@
+---
+title: "google.script.runのエラーハンドリング完全パターン【GAS Webアプリ】"
+category: "gas"
+slug: "script-run-error-handling"
+tags: ["GAS", "JavaScript", "エラーハンドリング", "google.script.run", "非同期処理"]
+description: "GASのgoogle.script.runで失敗時にエラーが握りつぶされる問題を防ぐ。ボタン制御・ローディング付きの実装パターン。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+GAS（Google Apps Script）でWebアプリを作っていると、`google.script.run` でサーバー側の関数を呼び出す場面が必ず出てきますよね。
+
+ところが、エラーハンドリングを忘れると厄介なことが起きます。サーバー側でエラーが発生しても**画面には何も表示されず、ボタンも反応しなくなる**。ユーザーからすると「壊れた？」としか思えない状態です。
+
+この記事では、`google.script.run` を安全に使うための**エラーハンドリング + ボタン制御 + ローディング表示**をセットにした実装パターンを紹介します。コピペで使えるコード付きです。
+
+## こんな場面で使えます
+
+- スプレッドシートへのデータ保存ボタンを実装するとき
+- サーバー側でデータを取得して画面に表示するとき
+- フォーム送信後にサーバー処理を実行するとき
+- 二重送信を防止したいとき
+
+## 実装コード
+
+### 基本パターン（JavaScript）
+
+以下が `google.script.run` を安全に呼び出すための基本パターンです。
+
+```javascript
+function doAction() {
+  var btn = document.getElementById('actionBtn');
+  btn.disabled = true;           // 二重送信防止
+  showLoading('処理中...');       // ローディング表示
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      btn.disabled = false;       // ボタン復帰
+      renderResult(result);       // 成功時の表示
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;       // ボタン復帰
+      showMessage('エラーが発生しました: ' + err.message);
+    })
+    .serverFunction(param1, param2);  // サーバー側関数の呼び出し
+}
+```
+
+処理の流れはこうです。
+
+1. ボタンを `disabled` にして二重送信を防ぐ
+2. ローディング表示を出す
+3. サーバー関数を呼び出す
+4. 成功時 → 結果を表示してボタンを復帰
+5. 失敗時 → エラーメッセージを表示してボタンを復帰
+
+ポイントは、**成功・失敗どちらの場合もボタンを復帰させる**ことです。これを忘れると、エラー時にボタンが押せなくなったまま固まります。
+
+### ボタンのCSS（disabled状態）
+
+ボタンが無効化されていることをユーザーに視覚的に伝えましょう。
+
+```css
+button:disabled {
+  background: #93c5fd;     /* 薄い色でグレーアウト */
+  cursor: not-allowed;     /* 禁止カーソル */
+}
+```
+
+### ローディング・メッセージ表示関数
+
+```javascript
+function showLoading(msg) {
+  document.getElementById('content').innerHTML =
+    '<div class="loading"><div class="spinner"></div><div>' + msg + '</div></div>';
+}
+
+function showMessage(msg) {
+  document.getElementById('content').innerHTML =
+    '<div class="message">' + escapeHtml(msg) + '</div>';
+}
+```
+
+`showMessage` では `escapeHtml` を使っている点に注目してください。エラーメッセージをそのまま `innerHTML` に入れると、XSS（クロスサイトスクリプティング）のリスクがあります。必ずエスケープ処理を入れましょう。
+
+## 使い方・カスタマイズ
+
+### 実際のボタンHTMLとの組み合わせ
+
+```html
+<button id="actionBtn" onclick="doAction()">データを保存</button>
+<div id="content"></div>
+```
+
+### サーバー側関数の例
+
+```javascript
+// GAS側（Code.gs）
+function serverFunction(param1, param2) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  sheet.appendRow([param1, param2, new Date()]);
+  return '保存が完了しました';
+}
+```
+
+### チェックリスト
+
+`google.script.run` を書くたびに、以下を確認してみてください。
+
+- `withSuccessHandler` を設定したか
+- `withFailureHandler` を設定したか
+- 呼び出し前にボタンを `disabled = true` にしたか
+- 成功/失敗の両方でボタンを `disabled = false` に戻しているか
+- 呼び出し中にローディング表示を出しているか
+- エラーメッセージを `escapeHtml` してHTMLに表示しているか
+
+## 注意点・ハマりポイント
+
+- **`withFailureHandler` を付けないとエラーが握りつぶされます**。これが最大の落とし穴です。サーバー側で例外が発生しても、画面には何も起きません
+- GASのサーバー関数には**最大6分のタイムアウト**があります。大量データを処理する場合は分割処理を検討してください
+- サーバー関数が返せるデータは**JSON互換の型のみ**です。`Date` 型はそのまま返せないので、`.toISOString()` などで文字列に変換してから返しましょう
+
+## まとめ
+
+- `google.script.run` には必ず **`withSuccessHandler`** と **`withFailureHandler`** の両方を設定する
+- ボタンの **disabled 制御**と**ローディング表示**をセットで実装すると、ユーザー体験が大きく改善する
+- エラーメッセージの表示には **`escapeHtml`** を忘れずに

@@ -1,0 +1,111 @@
+---
+title: "GAS CacheServiceでスプレッドシートの読み込みを高速化する方法"
+category: "gas"
+slug: "cache-service"
+tags: ["GAS", "CacheService", "パフォーマンス", "スプレッドシート"]
+description: "Google Apps ScriptのCacheServiceでスプレッドシートのデータをキャッシュし、2回目以降の読み込みを高速化する方法を解説。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+GAS（Google Apps Script）でスプレッドシートのデータを読み込むと、数百行でも1〜3秒かかることがありますよね。ユーザーが画面を開くたびに毎回この待ち時間が発生すると、体感的にかなり重く感じてしまいます。
+
+実は、GASには `CacheService` という組み込みのキャッシュ機能があります。これを使えば、一度読み込んだデータをメモリに保持しておき、**2回目以降はスプレッドシートへのアクセスをスキップ**できます。数秒かかっていた処理がほぼ一瞬になるので、効果は絶大です。
+
+## こんな場面で使えます
+
+- Webアプリの初期表示でスプレッドシートからマスターデータを読み込む場面
+- 同じデータを複数のユーザーが繰り返し参照するダッシュボード
+- 検索機能で毎回全件データを取得している場合
+- データの更新頻度が低く、多少古いデータでも問題ないケース
+
+## 実装コード
+
+以下の関数は、キャッシュにデータがあればそこから返し、なければスプレッドシートから取得してキャッシュに保存します。
+
+```javascript
+function getAllData_() {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get('allData');
+  if (cached) {
+    return JSON.parse(cached);
+  }
+
+  // スプレッドシートからデータ取得
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(SHEET_NAME);
+  var lastRow = sheet.getLastRow();
+  var values = sheet.getRange(DATA_START_ROW, 1, lastRow - DATA_START_ROW + 1, 8).getValues();
+
+  var data = [];
+  for (var i = 0; i < values.length; i++) {
+    // データ加工処理...
+    data.push({ /* ... */ });
+  }
+
+  // キャッシュに保存（最大6時間 = 21600秒）
+  try {
+    cache.put('allData', JSON.stringify(data), 21600);
+  } catch (e) {
+    // データが100KBを超える場合はキャッシュできない → そのまま続行
+  }
+
+  return data;
+}
+```
+
+処理の流れはこうです。
+
+1. `CacheService.getScriptCache()` でキャッシュオブジェクトを取得
+2. `cache.get('allData')` でキャッシュ済みデータがあるかチェック
+3. あれば `JSON.parse` してそのまま返す（スプレッドシートにはアクセスしない）
+4. なければスプレッドシートから取得し、`cache.put` でキャッシュに保存
+
+`try-catch` で囲んでいるのは、キャッシュの容量制限（約100KB）を超えた場合にエラーで止まらないようにするためです。
+
+## 使い方・カスタマイズ
+
+### キャッシュの有効期限を変える
+
+`cache.put` の第3引数が有効期限（秒）です。用途に合わせて調整してみましょう。
+
+| 用途 | 秒数 | 設定値 |
+|---|---|---|
+| 短期間だけキャッシュ | 10分 | `600` |
+| 標準的な設定 | 1時間 | `3600` |
+| 最大（6時間） | 6時間 | `21600` |
+
+### データ更新時にキャッシュをクリアする
+
+データを更新したら、古いキャッシュを消しておかないと更新が反映されません。
+
+```javascript
+function clearCache() {
+  var cache = CacheService.getScriptCache();
+  cache.remove('allData');
+}
+```
+
+データの保存処理と一緒に呼び出すようにしておくと安心です。
+
+### ユーザーごとにキャッシュを分ける
+
+全ユーザー共通のデータなら `getScriptCache()` でOKですが、ユーザーごとに異なるデータをキャッシュしたい場合は `getUserCache()` を使います。
+
+```javascript
+var cache = CacheService.getUserCache();
+```
+
+## 注意点・ハマりポイント
+
+- **容量制限は約100KB**です。数千行のデータだと超える可能性があるため、`try-catch` は必ず入れておきましょう
+- キャッシュに保存できるのは**文字列だけ**です。オブジェクトや配列は `JSON.stringify` で文字列に変換する必要があります
+- 最大有効期限は**6時間（21600秒）**です。それ以上保持することはできません
+- キャッシュはあくまで一時的なものです。確実にデータが必要な場面では、キャッシュミス時のフォールバック処理を忘れずに
+
+## まとめ
+
+- `CacheService` を使えば、スプレッドシートの読み込みを**2回目以降ほぼ一瞬**にできる
+- 容量制限（100KB）があるため、`try-catch` で囲んで安全に使う
+- データ更新時には `cache.remove()` でキャッシュクリアを忘れずに

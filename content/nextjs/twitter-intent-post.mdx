@@ -1,0 +1,100 @@
+---
+title: "OAuth不要！X（Twitter）Intent URLでポストボタンを実装する方法"
+category: "nextjs"
+slug: "twitter-intent-post"
+tags: ["Next.js", "X", "Twitter", "SNSシェア", "React"]
+description: "OAuth不要でXへのポストボタンを実装。Intent URLを使えばAPI設定なしでシェア機能が作れます。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+Webアプリに「Xでシェア」ボタンを付けたいけど、OAuth認証やAPIキーの設定が面倒...と感じたことはありませんか？
+
+実は、**Intent URL**という仕組みを使えば、APIの設定は一切不要で、ユーザーのXアカウントからポストさせることができます。URLを開くだけで、テキストが入力済みのポスト画面が表示される、とてもシンプルな方法です。
+
+## こんな場面で使えます
+
+- アプリの実績や結果をユーザーにSNSでシェアしてもらいたいとき
+- 「今日の作業を記録しました！」のような定型文付きポストボタンを置きたいとき
+- OAuthの設定やAPI利用申請をせずに、手軽にシェア機能を実装したいとき
+- ハッシュタグやURLを自動で含めたポストを促したいとき
+
+## 実装コード
+
+### ポスト関数
+
+まず、Xのポスト画面を開く関数を用意します。
+
+```tsx
+const postToX = (message: string) => {
+  const text = encodeURIComponent(message)
+  window.open(
+    `https://twitter.com/intent/tweet?text=${text}`,
+    '_blank',
+    'noopener,noreferrer'
+  )
+}
+```
+
+`encodeURIComponent`で本文をURLエンコードし、Intent URLのパラメータとして渡しているだけです。これだけで、ユーザーのX画面にテキスト入力済みのポスト画面が開きます。
+
+### ボタンの使用例
+
+```tsx
+<button onClick={() => postToX(
+  '今日の作業を記録しました！\n#らくログタスク\nhttps://rakulog.vercel.app'
+)}>
+  Xでポスト
+</button>
+```
+
+### Xブランドに合わせたボタンUI
+
+見た目もXらしくしたい場合は、以下のようにスタイリングしてみましょう。
+
+```tsx
+<button
+  onClick={() => postToX(message)}
+  className="flex items-center gap-1.5 bg-black text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-gray-800"
+>
+  <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current">
+    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+  </svg>
+  ポスト
+</button>
+```
+
+Xのロゴアイコン（SVG）を直接埋め込んでいるので、外部リソースの読み込みは不要です。
+
+## 使い方・カスタマイズ
+
+### Intent URLのパラメータ一覧
+
+`text`以外にも、いくつかのパラメータを組み合わせて使えます。
+
+| パラメータ | 説明 | 使用例 |
+|-----------|------|--------|
+| `text` | ポスト本文 | `encodeURIComponent('Hello!')` |
+| `url` | 共有URL（本文とは別に指定） | `encodeURIComponent('https://...')` |
+| `hashtags` | ハッシュタグ（カンマ区切り、#は不要） | `hashtags=らくログ,作業日誌` |
+| `via` | ツイート元のアカウント名 | `via=myapp` |
+
+複数のパラメータを組み合わせる場合は、`&`でつなぎます。
+
+```typescript
+const url = `https://twitter.com/intent/tweet?text=${text}&hashtags=らくログ,作業日誌&via=myapp`
+```
+
+## 注意点・ハマりポイント
+
+- **エンコードは必須です**。日本語、改行（`\n`）、URLなどは必ず`encodeURIComponent`で変換してください。変換しないと文字化けや意図しないパラメータの区切りが発生します
+- **`window.open`はユーザー操作（クリック）のイベント内で呼ぶこと**。`useEffect`内など、ユーザー操作なしで呼び出すとポップアップブロッカーにブロックされます
+- ドメインは`twitter.com/intent/tweet`でも`x.com/intent/tweet`でも、どちらでも動作します
+- 改行文字`\n`はエンコードされると`%0A`になり、Xのポスト画面では正しく改行として表示されます
+
+## まとめ
+
+- **Intent URL**を使えば、OAuth不要・API設定不要でXへのポストボタンが作れる
+- `encodeURIComponent`でテキストをエンコードしてURLパラメータに渡すだけのシンプルな実装
+- `text`、`url`、`hashtags`、`via`のパラメータで柔軟にカスタマイズ可能

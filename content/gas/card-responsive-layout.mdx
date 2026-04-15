@@ -1,0 +1,132 @@
+---
+title: "GASでカード型レスポンシブレイアウトを実装する方法"
+category: "gas"
+slug: "card-responsive-layout"
+tags: ["GAS", "CSS", "レスポンシブ", "カードUI", "スマホ対応"]
+description: "GAS WebアプリでPC中央寄せ・スマホ全幅のカード型レイアウトを実装。コピペで使えるCSS付き。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+GAS（Google Apps Script）でWebアプリを作ったとき、PCでは良い感じに見えるのに、スマホで開くとレイアウトが崩れてしまった、という経験はありませんか？
+
+特にデータの一覧表示では、テーブル（`<table>`）をそのままスマホで表示すると横スクロールが発生して非常に見づらくなります。
+
+この記事では、**PCでは中央寄せで読みやすく、スマホでは画面幅いっぱいに広がるカード型レイアウト**のパターンを紹介します。CSSだけで実現できて、コピペですぐに使えます。
+
+## こんな場面で使えます
+
+- スプレッドシートから取得したデータを一覧表示するとき
+- 名前・日付・ステータスなどのメタ情報をラベル付きで表示するとき
+- テーブル表示をやめてスマホでも見やすいUIに変えたいとき
+- GAS Webアプリ全般のベースレイアウトとして
+
+## 実装コード
+
+### CSS部分
+
+以下のCSSをHTMLファイルの `<style>` タグ内に追加します。
+
+```css
+/* コンテナ: PC中央寄せ + スマホ全幅 */
+.container {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 10px;
+}
+
+/* カード */
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+
+/* カード内のメタ情報（ラベル＋値の2列グリッド） */
+.card-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  font-size: 13px;
+}
+.meta-label {
+  color: #888;
+  white-space: nowrap;
+}
+.meta-value {
+  color: #333;
+  word-break: break-all;
+}
+
+/* スマホ時の余白縮小 */
+@media (max-width: 480px) {
+  .container { padding: 6px; }
+  .card { border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+}
+```
+
+仕組みを簡単に説明します。
+
+- `.container` は `max-width: 640px` と `margin: 0 auto` で、PCでは中央寄せ、スマホでは自動的に画面幅いっぱいになります
+- `.card` は白背景 + 角丸 + 控えめな影で、見た目のまとまりを作ります
+- `.card-meta` は CSS Grid の2列レイアウト（`auto 1fr`）で、ラベルは幅固定、値は残りの幅をすべて使います
+- `@media (max-width: 480px)` でスマホ時は余白や角丸を少し小さくして、画面を有効活用します
+
+### HTML部分
+
+```html
+<div class="container">
+  <div class="card">
+    <div class="card-meta">
+      <span class="meta-label">名前</span>
+      <span class="meta-value">山田太郎</span>
+      <span class="meta-label">日付</span>
+      <span class="meta-value">2026/04/15</span>
+    </div>
+  </div>
+</div>
+```
+
+### JavaScriptでカードを動的に生成する例
+
+スプレッドシートから取得したデータをカードとして表示する場合は、このように書けます。
+
+```javascript
+function renderCards(dataArray) {
+  var html = '';
+  dataArray.forEach(function(row) {
+    html += '<div class="card"><div class="card-meta">'
+      + '<span class="meta-label">名前</span>'
+      + '<span class="meta-value">' + escapeHtml(row[0]) + '</span>'
+      + '<span class="meta-label">日付</span>'
+      + '<span class="meta-value">' + escapeHtml(row[1]) + '</span>'
+      + '</div></div>';
+  });
+  document.getElementById('content').innerHTML = html;
+}
+```
+
+## 使い方・カスタマイズ
+
+| カスタマイズ | 変更箇所 | 例 |
+|---|---|---|
+| **カードの最大幅** | `.container` の `max-width` | `480px` で狭く、`800px` で広く |
+| **カードの影** | `.card` の `box-shadow` | `0 2px 8px rgba(0,0,0,0.15)` で強めに |
+| **角丸** | `.card` の `border-radius` | `4px` でシャープに、`16px` で丸く |
+| **ラベルと値の間隔** | `.card-meta` の `gap` | `8px 16px` で広めに |
+
+## 注意点・ハマりポイント
+
+- `max-width: 640px` はスマホ横幅（360〜414px）とPC画面の両方で最適なバランスです。むやみに広げるとスマホで余白が消え、狭めるとPCでスカスカになります
+- `box-shadow` は控えめに設定しましょう。影が強すぎるとくどい印象になります
+- `word-break: break-all` は長いURLやメールアドレスがカードからはみ出すのを防ぎます。この指定がないと横スクロールが発生することがあります
+- テーブル（`<table>`）よりカード型の方がスマホで圧倒的に見やすいです。データ一覧はカード型を検討してみてください
+
+## まとめ
+
+- **`max-width` + `margin: 0 auto`** で、PCでもスマホでも最適な幅になるコンテナが作れる
+- **CSS Grid の `auto 1fr`** で、ラベルと値をきれいに2列表示できる
+- テーブルよりカード型の方がスマホでは圧倒的に見やすく、GAS Webアプリのベースレイアウトとしておすすめ

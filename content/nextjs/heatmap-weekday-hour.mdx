@@ -1,0 +1,130 @@
+---
+title: "Next.jsでライブラリ不要のヒートマップを実装する方法（曜日×時間帯）"
+category: "nextjs"
+slug: "heatmap-weekday-hour"
+tags: ["Next.js", "React", "ヒートマップ", "可視化", "Tailwind CSS"]
+description: "HTMLテーブルとCSSだけで曜日×時間帯のヒートマップを描画。ライブラリ不要でコピペですぐ使えるコード付き。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+ダッシュボードや分析画面を作っていると、「曜日ごと・時間帯ごとの傾向を一目で把握したい」という要件に出会うことがありますよね。
+
+ヒートマップはそんな場面にぴったりの可視化手法ですが、D3.jsやRechartsなどのライブラリを導入するほどでもない、というケースも多いのではないでしょうか。
+
+実は、**HTMLテーブルと背景色のグラデーションだけ**で、見栄えのよいヒートマップが作れます。外部ライブラリは一切不要で、Tailwind CSSがあればすぐに使えます。
+
+## こんな場面で使えます
+
+- 作業時間の曜日×時間帯分布を可視化したいとき
+- アクセスログの集中時間帯を把握したいとき
+- 予約・注文データの曜日別パターンを見せたいとき
+- ダッシュボードに軽量なチャートを追加したいとき
+
+## 実装コード
+
+### データの準備
+
+まず、7曜日 x 24時間の2次元配列を用意して、データを集計します。
+
+```typescript
+// 7曜日 × 24時間 の2次元配列
+const heatmap: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0))
+
+// 作業履歴からヒートマップデータを生成
+histories.forEach(h => {
+  const start = new Date(h.started_at)
+  const dayOfWeek = start.getDay()  // 0=日, 1=月, ...
+  const hour = start.getHours()
+  heatmap[dayOfWeek][hour] += h.duration_sec
+})
+```
+
+`getDay()` は日曜日が `0`、月曜日が `1` で返ってきます。これをそのまま配列のインデックスとして使えるので便利です。
+
+### 表示コンポーネント
+
+集計したデータをテーブルとして描画します。各セルの背景色の濃さでデータの大小を表現する仕組みです。
+
+```tsx
+const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土']
+const maxVal = Math.max(...heatmap.flat())
+
+// 色の濃さを計算（0〜1の範囲に正規化）
+const intensity = (val: number) => maxVal > 0 ? val / maxVal : 0
+
+// 秒数を「○時間○分」形式に変換
+const formatTime = (sec: number) => {
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  return `${h}時間${m}分`
+}
+
+<div className="overflow-x-auto">
+  <table className="w-full text-xs border-collapse">
+    <thead>
+      <tr>
+        <th className="w-8"></th>
+        {Array.from({ length: 24 }, (_, i) => (
+          <th key={i} className="px-0.5 py-1 text-gray-500 font-normal">
+            {i}
+          </th>
+        ))}
+      </tr>
+    </thead>
+    <tbody>
+      {DAY_LABELS.map((day, di) => (
+        <tr key={di}>
+          <td className="text-gray-600 font-medium pr-1 text-right">{day}</td>
+          {heatmap[di].map((val, hi) => (
+            <td
+              key={hi}
+              className="p-0.5"
+              title={`${day}曜 ${hi}時台: ${formatTime(val)}`}
+            >
+              <div
+                className="w-full aspect-square rounded-sm"
+                style={{
+                  backgroundColor: val > 0
+                    ? `rgba(59, 130, 246, ${0.15 + intensity(val) * 0.85})`
+                    : '#f3f4f6',
+                }}
+              />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+```
+
+ポイントは `rgba(59, 130, 246, ...)` の部分です。Tailwindのblue-500に相当する色を使い、透明度（alpha値）でデータの大きさを表現しています。
+
+## 使い方・カスタマイズ
+
+このヒートマップは、いくつかのパラメータで簡単にカスタマイズできます。
+
+| カスタマイズ | 変更箇所 | 例 |
+|---|---|---|
+| **色** | `rgba()` のRGB値 | `rgba(239, 68, 68, ...)` で赤系、`rgba(34, 197, 94, ...)` で緑系 |
+| **最低濃度** | `0.15` の部分 | `0.3` にすると薄い部分も見えやすく |
+| **ゼロ値の色** | `#f3f4f6` | `#ffffff` で白、`#e5e7eb` でやや濃いグレー |
+| **セル形状** | `aspect-square` | `h-4` などで固定高さにも変更可能 |
+| **集計単位** | `duration_sec` の加算部分 | `+= 1` にすれば回数カウントに |
+
+色をブランドカラーに変えたい場合は、RGB値を差し替えるだけでOKです。
+
+## 注意点・ハマりポイント
+
+- **24時間すべて表示する**: データがない時間帯もグレー（`#f3f4f6`）で表示しましょう。空欄にすると全体像がつかめなくなります
+- **`title` 属性でツールチップ**: ホバーで詳細値を確認できます。別途ツールチップライブラリを入れる必要はありません
+- **スマホ対応**: `overflow-x-auto` を忘れずに。24列のテーブルはスマホでは横スクロールが必要です
+- **`aspect-square` の効果**: セルを正方形に保つことで、GitHubの草グラフのような見た目になります
+
+## まとめ
+
+- **ライブラリ不要**で、HTMLテーブル + Tailwind CSSだけでヒートマップが作れる
+- `rgba()` の透明度を使って色の濃淡を表現するシンプルな仕組み
+- 集計ロジックを差し替えれば、作業時間以外にもアクセスログや注文データなど様々なデータに応用可能

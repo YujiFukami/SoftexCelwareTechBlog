@@ -1,0 +1,149 @@
+---
+title: "GASでSPA風の画面遷移を実装して高速な画面切替を実現する方法"
+category: "gas"
+slug: "spa-navigation"
+tags: ["GAS", "SPA", "画面遷移", "UI", "パフォーマンス"]
+description: "Google Apps ScriptのWebアプリでinnerHTMLの書き換えによるSPA風画面遷移を実装。ページ再読み込みなしで高速な画面切替を実現。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+GAS（Google Apps Script）のWebアプリで画面を切り替えたいとき、ページ遷移（`doGet` の再実行）をすると2〜5秒も待たされてしまいます。これでは画面が複数あるアプリだと、操作するたびにストレスが溜まりますよね。
+
+そこで使えるのが、**SPA（シングルページアプリケーション）風の画面遷移**です。ページ全体を再読み込みするのではなく、`innerHTML` の書き換えで画面を切り替えることで、**瞬時に画面が切り替わる**ようになります。
+
+ReactやVueのような本格的なフレームワークは不要です。素のJavaScriptだけで実現できるパターンを紹介します。
+
+## こんな場面で使えます
+
+- 一覧画面と詳細画面を行き来するアプリ
+- 検索結果の一覧 → 個別データの詳細表示
+- タブ切り替えで複数の画面を見せたい場合
+- 「戻る」ボタンで前の画面に素早く戻りたいとき
+
+## 実装コード
+
+### 状態管理オブジェクト
+
+まず、画面間で共有するデータを保持するオブジェクトを用意します。これが画面遷移を高速にする鍵です。
+
+```javascript
+var state = {
+  searchResults: null,   // 検索結果を保持
+  comments: null,        // 詳細データを保持
+  selectedItem: null,    // 選択中のアイテム
+  sortDesc: true         // ソート順などのUI状態
+};
+```
+
+一度取得したデータを `state` に保存しておくことで、「戻る」操作のときにサーバーへ再度問い合わせる必要がなくなります。
+
+### 画面描画関数
+
+画面ごとに描画関数を作り、`innerHTML` を書き換えて表示を切り替えます。
+
+```javascript
+// 画面1: 検索結果リスト
+function renderList(data) {
+  var el = document.getElementById('content');
+  var html = '';
+  for (var i = 0; i < data.length; i++) {
+    html += '<div class="item" onclick="showDetail(\'' + data[i].id + '\')">';
+    html += escapeHtml(data[i].name);
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+// 画面2: 詳細表示
+function renderDetail(item) {
+  var el = document.getElementById('content');
+  var html = '<button onclick="goBack()">戻る</button>';
+  html += '<div>' + escapeHtml(item.detail) + '</div>';
+  el.innerHTML = html;
+  window.scrollTo(0, 0);  // ページ先頭にスクロール
+}
+```
+
+ポイントは、どちらの関数も同じ `content` 要素の `innerHTML` を書き換えているということです。ページ遷移は起きず、DOMの中身だけが変わります。
+
+### 画面遷移の処理
+
+リスト → 詳細への遷移と、詳細 → リストへの「戻る」操作を実装します。
+
+```javascript
+// リスト → 詳細
+function showDetail(id) {
+  state.selectedItem = id;
+  showLoading('読み込み中...');
+  google.script.run
+    .withSuccessHandler(function(data) {
+      state.comments = data;
+      renderDetail(data);
+    })
+    .withFailureHandler(function(err) {
+      showMessage('エラー: ' + err.message);
+    })
+    .getDetail(id);
+}
+
+// 詳細 → リストに戻る（サーバー再呼び出し不要）
+function goBack() {
+  if (state.searchResults) {
+    renderList(state.searchResults);  // キャッシュ済みデータで即描画
+  }
+}
+```
+
+`showDetail` ではサーバーにデータを取りに行きますが、`goBack` では `state.searchResults` に保持してあるデータをそのまま使うため、**一瞬で前の画面に戻れます**。
+
+## 使い方・カスタマイズ
+
+### 画面が3つ以上ある場合
+
+画面の数が増えてきたら、現在どの画面を表示しているかを管理する変数を追加しましょう。
+
+```javascript
+var state = {
+  currentView: 'list',  // 'list' | 'detail' | 'edit'
+  // ...他のデータ
+};
+
+function navigate(view) {
+  state.currentView = view;
+  switch (view) {
+    case 'list':   renderList(state.searchResults); break;
+    case 'detail': renderDetail(state.comments); break;
+    case 'edit':   renderEdit(state.selectedItem); break;
+  }
+}
+```
+
+### ローディング表示と組み合わせる
+
+`google.script.run` は非同期処理なので、サーバーからデータを取得する間はローディング表示を出しましょう。CSSスピナーの実装については[CSSスピナーの記事](/articles/gas/css-spinner)を参考にしてください。
+
+```javascript
+function showDetail(id) {
+  showLoading('読み込み中...');  // ← ローディング表示
+  google.script.run
+    .withSuccessHandler(function(data) {
+      renderDetail(data);       // ← 取得完了で画面切替
+    })
+    .getDetail(id);
+}
+```
+
+## 注意点・ハマりポイント
+
+- **`window.scrollTo(0, 0)` を忘れずに**。画面を切り替えたときにスクロール位置が前の画面のままだと、ユーザーが混乱します
+- `innerHTML` に変数を埋め込む際は、必ず `escapeHtml()` でエスケープしてください（[HTMLエスケープの記事](/articles/gas/html-escape)を参照）
+- `google.script.run` のエラーハンドリング（`withFailureHandler`）を入れておかないと、サーバーエラー時に画面が固まったままになります
+- ブラウザの「戻るボタン」には対応できません。あくまでアプリ内のボタンで画面遷移を制御する設計です
+
+## まとめ
+
+- `innerHTML` の書き換えで画面を切り替えれば、**ページ遷移なしで瞬時に画面が変わる**
+- `state` オブジェクトにデータを保持しておくことで、**「戻る」操作でサーバーへの再問い合わせが不要**になる
+- 画面が増えたら `currentView` で表示中の画面を管理するとスッキリ整理できる

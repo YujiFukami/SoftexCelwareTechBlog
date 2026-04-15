@@ -1,0 +1,122 @@
+---
+title: "SheetJSでブラウザからExcelファイルをエクスポートする方法"
+category: "nextjs"
+slug: "sheetjs-excel-export"
+tags: ["SheetJS", "Excel", "エクスポート", "TypeScript"]
+description: "SheetJS(xlsx)を使い、ブラウザだけでExcelファイルを生成・ダウンロード。複数シートや時間型の扱いも解説。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+Webアプリに「Excelダウンロード」ボタンを付けたいけれど、サーバー側でファイル生成するのは面倒...と思ったことはありませんか？
+
+**SheetJS（xlsx）**を使えば、サーバー不要、ブラウザだけでExcelファイル（.xlsx）を生成してダウンロードできます。この記事では、複数シートの作成方法から、Excelの時間型の扱いまで、実務で必要になるパターンをまとめて紹介します。
+
+## こんな場面で使えます
+
+- 作業履歴や出退勤記録をExcelでダウンロードしたい
+- 複数のデータを別々のシートに分けてエクスポートしたい
+- 合計時間を「25:30」のようなExcelの時間形式で表示したい
+- クロス集計の結果をExcelファイルとして出力したい
+
+## 実装コード
+
+### インストール
+
+```bash
+npm install xlsx
+```
+
+### 基本パターン（複数シート対応）
+
+```typescript
+import * as XLSX from 'xlsx'
+
+function exportExcel() {
+  const wb = XLSX.utils.book_new()
+
+  // シート1: 2次元配列からシートを作成
+  const ws1 = XLSX.utils.aoa_to_sheet([
+    ['作業名', '合計時間'],           // ヘッダー行
+    ['開発', secToExcelTime(3600)],   // データ行
+    ['会議', secToExcelTime(1800)],
+  ])
+  XLSX.utils.book_append_sheet(wb, ws1, '作業別合計')
+
+  // シート2: JSONオブジェクト配列からシートを作成
+  const ws2 = XLSX.utils.json_to_sheet(data, { header: ['date', 'task', 'hours'] })
+  XLSX.utils.book_append_sheet(wb, ws2, '日別詳細')
+
+  XLSX.writeFile(wb, 'export.xlsx')
+}
+```
+
+`aoa_to_sheet` は2次元配列から、`json_to_sheet` はオブジェクト配列からシートを作成します。用途に応じて使い分けてください。
+
+### Excel時間型への変換
+
+Excelでは時間を「1日 = 1.0」の数値として扱います。秒数から変換するには86400（= 24時間 x 60分 x 60秒）で割るだけです。
+
+```typescript
+const secToExcelTime = (sec: number): number => sec / 86400
+```
+
+### セルに書式を適用する
+
+時間の数値をそのまま表示すると `0.041666...` のような小数になってしまいます。「25:30」のように表示するには、セルに書式（`numFmt`）を設定します。
+
+```typescript
+function applyNumFmt(
+  ws: XLSX.WorkSheet,
+  col: number,
+  startRow: number,
+  endRow: number,
+  fmt: string
+) {
+  for (let r = startRow; r <= endRow; r++) {
+    const addr = XLSX.utils.encode_cell({ r, c: col })
+    if (ws[addr] && typeof ws[addr].v === 'number') {
+      ws[addr].t = 'n'     // 数値型
+      ws[addr].z = fmt      // 表示書式
+    }
+  }
+}
+
+// 使用例
+applyNumFmt(ws, 1, 1, 10, '[h]:mm')           // B2:B11 → 「25:30」形式
+applyNumFmt(ws, 2, 1, 10, '[h]"時間"mm"分"')  // C2:C11 → 「25時間30分」形式
+```
+
+## 使い方・カスタマイズ
+
+### よく使う書式文字列
+
+| 書式 | 表示例 | 用途 |
+|---|---|---|
+| `[h]:mm` | `25:30` | 24時間超の合計時間 |
+| `[h]"時間"mm"分"` | `25時間30分` | 日本語表記の合計時間 |
+| `h:mm` | `1:30` | 24時間以内の時間 |
+| `yyyy/mm/dd` | `2026/04/15` | 日付 |
+
+`[h]` と `h` の違いがポイントです。`[h]` は24時間を超えてもそのまま表示しますが、`h` は24時間で折り返します。合計時間には `[h]` を使いましょう。
+
+### ゼロ値を空白にする
+
+クロス集計でゼロの箇所を空欄にしたい場合は、セル値を空文字にします。
+
+```typescript
+const val = sec > 0 ? secToExcelTime(sec) : ''
+```
+
+## 注意点・ハマりポイント
+
+- **スタイル非対応**: SheetJSの無料版では、背景色・罫線・テキスト折り返しなどのセルスタイルはサポートされていません。スタイルが必要な場合は SheetJS Pro または `exceljs` パッケージを検討してください
+- **時間型の落とし穴**: `secToExcelTime` で変換しただけでは小数表示になります。必ず `applyNumFmt` でセル書式を設定しましょう
+- **シート名の制限**: Excelのシート名は31文字以内、`/ \ ? * [ ]` は使えません
+
+## まとめ
+
+- SheetJSを使えば**サーバー不要**でブラウザからExcelファイルを生成・ダウンロードできる
+- Excelの時間型は「秒数 / 86400」で変換し、セル書式 `[h]:mm` で表示する
+- `aoa_to_sheet`（2次元配列）と `json_to_sheet`（オブジェクト配列）を使い分けよう

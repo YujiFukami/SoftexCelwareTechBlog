@@ -1,0 +1,125 @@
+---
+title: "ライブラリ不要！CSSだけでガントチャート（タイムライン）を描画する方法"
+category: "nextjs"
+slug: "css-gantt-chart"
+tags: ["Next.js", "CSS", "ガントチャート", "タイムライン", "React"]
+description: "外部ライブラリなしでCSSのパーセント指定だけでタイムライン表示を実装。作業履歴の時系列表示に最適です。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+作業履歴やスケジュールをタイムライン形式で表示したいとき、ガントチャート系のライブラリを導入するのは少し大げさに感じることがありますよね。
+
+実は、**CSSの`left`と`width`をパーセントで指定するだけ**で、シンプルなタイムライン（ガントチャート）が描画できます。ライブラリのバンドルサイズを気にする必要もなく、デザインも自由にカスタマイズできます。
+
+## こんな場面で使えます
+
+- 勤怠管理アプリで1日の作業内訳をタイムラインで表示したいとき
+- タスクの開始時刻と終了時刻をバーで可視化したいとき
+- スケジュールの重なりや空き時間をビジュアルに確認したいとき
+- 軽量なチャート表示が欲しいが、Chart.jsなどのライブラリは避けたいとき
+
+## 実装コード
+
+### 時間範囲とバー位置の計算
+
+まず、タイムラインの表示範囲と各バーの位置をパーセントで計算します。
+
+```tsx
+// 時間範囲の計算
+const clockIn = parseTime(workDay.clock_in)   // 時刻を「分」に変換（例: 9:30 → 570）
+const clockOut = parseTime(workDay.clock_out)  // 時刻を「分」に変換（例: 18:00 → 1080）
+const rangeStart = Math.floor(clockIn / 60) * 60   // 開始時間を切り捨て（570 → 540 = 9:00）
+const rangeEnd = Math.ceil(clockOut / 60) * 60      // 終了時間を切り上げ（1080 → 1080 = 18:00）
+const totalRange = rangeEnd - rangeStart             // 表示範囲の合計分数
+
+// 各バーの位置計算（パーセント）
+const leftPct = ((startMin - rangeStart) / totalRange) * 100
+const widthPct = ((endMin - startMin) / totalRange) * 100
+```
+
+ポイントは、0時~24時ではなく**実際の勤務時間帯に絞って表示範囲を決める**ことです。これにより、バーが小さくなりすぎず見やすくなります。
+
+### レイアウト構造
+
+タイムラインは「時間軸ヘッダー」「グリッド線」「作業バー」の3層で構成します。
+
+```tsx
+{/* 時間軸ヘッダー */}
+<div className="relative h-6 border-b border-gray-300">
+  {hours.map(h => {
+    const pct = ((h * 60 - rangeStart) / totalRange) * 100
+    return (
+      <div key={h} className="absolute text-xs text-gray-500" style={{ left: `${pct}%` }}>
+        {h}:00
+      </div>
+    )
+  })}
+</div>
+
+{/* グリッド線（1時間ごと） */}
+<div className="absolute inset-0">
+  {hours.map(h => {
+    const pct = ((h * 60 - rangeStart) / totalRange) * 100
+    return (
+      <div
+        key={h}
+        className="absolute top-0 bottom-0 border-l border-gray-200"
+        style={{ left: `${pct}%` }}
+      />
+    )
+  })}
+</div>
+
+{/* 作業バー */}
+{histories.map(item => (
+  <div key={item.id} className="relative h-8 mb-1">
+    <div
+      className="absolute top-0 h-full rounded text-xs text-white flex items-center px-1 overflow-hidden"
+      style={{
+        left: `${leftPct}%`,
+        width: `${widthPct}%`,
+        backgroundColor: item.color || '#3B82F6',
+      }}
+    >
+      {widthPct > 15 ? (
+        <span className="truncate">{item.task_name} ({duration})</span>
+      ) : null}
+    </div>
+    {widthPct <= 15 && (
+      <div className="absolute text-[10px] text-gray-500" style={{ left: `${leftPct}%`, top: '100%' }}>
+        {item.task_name}
+      </div>
+    )}
+  </div>
+))}
+```
+
+## 使い方・カスタマイズ
+
+### パラメータの調整
+
+| カスタマイズ | 変更箇所 | 例 |
+|---|---|---|
+| **バーの高さ** | `h-8` クラス | `h-6` で細く、`h-10` で太く |
+| **バーの色** | `backgroundColor` | タスクごとにDBの`color`カラムで色分け |
+| **グリッド間隔** | `hours`配列の生成ロジック | 30分刻みにすることも可能 |
+| **ラベル表示の閾値** | `widthPct > 15` | 値を変えて、バー内にラベルを出す基準を調整 |
+
+### 狭いバーのラベル処理
+
+短い作業（数分程度）はバーの幅がとても狭くなり、中にテキストが入りきりません。上のコードでは`widthPct`が15%以下の場合、ラベルをバーの外（下側）に表示する処理を入れています。この閾値はデータに合わせて調整してください。
+
+## 注意点・ハマりポイント
+
+- **表示範囲は出勤~退勤に絞る**のがコツです。0~24時で描画すると、バーが極端に小さくなって読めなくなります
+- `parseTime`関数は自前で用意する必要があります。`"09:30"` のような文字列を分（570）に変換する関数を作っておきましょう
+- コンテナの`width`を`100%`にしておけば、画面幅に応じてバーが自動的にリサイズされるため、**レスポンシブ対応は不要**です
+- 時間の切り捨て・切り上げ（`Math.floor` / `Math.ceil`）で軸の端をキリの良い時間にすると、見た目がきれいになります
+
+## まとめ
+
+- CSSの`left`と`width`をパーセント指定するだけで、**ライブラリ不要のタイムライン表示**が実現できる
+- 表示範囲を実際の勤務時間帯に絞り、グリッド線を入れることで見やすくなる
+- 狭いバーのラベル処理やレスポンシブ対応も、シンプルなロジックで対応可能

@@ -1,0 +1,91 @@
+---
+title: "スマホ対応フォント設定 - 全OS対応のfont-family指定【GAS・Web共通】"
+category: "gas"
+slug: "mobile-font-setting"
+tags: ["GAS", "CSS", "フォント", "スマホ対応", "クロスプラットフォーム"]
+description: "iOS/Android/Windows/Macすべてで美しい日本語を表示するfont-family設定。Webフォント不要で高速。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+Webアプリのフォント設定、なんとなく `font-family: sans-serif;` だけで済ませていませんか？
+
+それでも表示はされますが、OSによってフォントがバラバラになったり、iPhoneで画面を回転させたときにフォントサイズがおかしくなったりと、地味な問題が起きがちです。
+
+この記事では、**iOS / Android / Windows / Mac すべてで美しい日本語を表示する `font-family` 設定**を紹介します。Google Fontsなどの外部Webフォントを読み込まず、各OSのシステムフォントを使うため、表示速度にも影響しません。GASに限らず、あらゆるWebアプリで使える汎用テクニックです。
+
+## こんな場面で使えます
+
+- GAS Webアプリのベースフォント設定として
+- スマホとPCの両方で使うWebアプリを作るとき
+- 外部フォントの読み込みを減らしてページ表示を高速化したいとき
+- iOSで画面回転時のフォントサイズ崩れを防ぎたいとき
+
+## 実装コード
+
+以下のCSSをHTMLファイルの `<style>` タグ内に追加します。
+
+```css
+body {
+  font-family:
+    -apple-system,           /* iOS / macOS の San Francisco */
+    BlinkMacSystemFont,      /* macOS Chrome の San Francisco */
+    'Segoe UI',              /* Windows */
+    'Hiragino Sans',         /* macOS / iOS の日本語フォント */
+    sans-serif;              /* フォールバック */
+  -webkit-text-size-adjust: 100%;  /* iOS: 横→縦回転時のフォントサイズ自動調整を防止 */
+}
+```
+
+たった数行ですが、これだけで全OSに対応できます。
+
+### 各フォントの役割
+
+ブラウザは `font-family` に書かれたフォントを**左から順に**探し、最初に見つかったものを使います。この順番がとても重要です。
+
+| フォント名 | 対象OS | 説明 |
+|---|---|---|
+| `-apple-system` | iOS / macOS | Apple公式のシステムフォント指定。San Franciscoフォントが適用されます |
+| `BlinkMacSystemFont` | macOS Chrome | macOSのChromeでAppleのシステムフォントを使うための指定です |
+| `Segoe UI` | Windows | Windows標準の欧文フォント。Windowsユーザーに馴染みのある見た目になります |
+| `Hiragino Sans` | macOS / iOS | ヒラギノ角ゴシック。日本語の表示品質が高いフォントです |
+| `sans-serif` | 全環境 | 上記のいずれにも該当しない場合のフォールバック |
+
+Androidでは `sans-serif` の指定により、端末に内蔵されている Noto Sans JP が自動的に選択されます。特別な指定は不要です。
+
+## 使い方・カスタマイズ
+
+### `-webkit-text-size-adjust: 100%` について
+
+この1行は地味ですが重要です。iOS Safariでは、端末を横画面にしてから縦画面に戻したとき、フォントサイズが勝手に大きくなることがあります。`-webkit-text-size-adjust: 100%` を指定することで、この自動調整を無効化できます。
+
+### 等幅フォントが必要な場合
+
+コードやIDなどを表示する部分には、等幅フォントを別途指定しましょう。
+
+```css
+code, pre, .mono {
+  font-family:
+    'SF Mono',             /* macOS */
+    'Cascadia Code',       /* Windows */
+    'Consolas',            /* Windows（フォールバック） */
+    monospace;             /* フォールバック */
+}
+```
+
+### body以外にも適用したい場合
+
+GASのWebアプリでは、`body` に設定しておけば基本的にすべての要素に継承されます。もし特定の要素でフォントが変わってしまう場合は、その要素に `font-family: inherit;` を追加してください。
+
+## 注意点・ハマりポイント
+
+- **フォントの順番を変えないでください**。`-apple-system` を先頭に書くことで、Apple端末で最適なフォントが選ばれます。順番を変えると意図しないフォントが適用される場合があります
+- Androidは明示的なフォント指定がなくても `sans-serif` で Noto Sans JP が自動選択されますが、これは端末にフォントが内蔵されている前提です。極端に古い端末では表示が異なる可能性があります
+- Webフォント（Google Fontsなど）を併用する場合は、このシステムフォントスタックの**前に**Webフォントを追加してください
+
+## まとめ
+
+- **5つのフォント指定**で iOS / Android / Windows / Mac すべてに対応できる
+- 外部Webフォント不要で**ページ読み込みが高速**
+- `-webkit-text-size-adjust: 100%` で **iOS の画面回転時のフォントサイズ崩れ**を防止できる

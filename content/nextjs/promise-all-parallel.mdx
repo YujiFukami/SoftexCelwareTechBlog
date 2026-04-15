@@ -1,0 +1,97 @@
+---
+title: "Promise.allでSupabaseクエリを並列化してページ表示を高速化する方法"
+category: "nextjs"
+slug: "promise-all-parallel"
+tags: ["Next.js", "Supabase", "Promise.all", "パフォーマンス", "TypeScript"]
+description: "複数のSupabaseクエリをPromise.allで並列実行し、ページの読み込み時間を劇的に短縮するテクニックを紹介します。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+Next.js + Supabaseでアプリを作っていると、1つの画面で複数のテーブルからデータを取得する場面がよくありますよね。
+
+ユーザー情報、タスク一覧、設定データ...と順番にクエリを実行していると、待ち時間がどんどん積み重なって画面表示が遅くなってしまいます。
+
+実は、**互いに依存しないクエリは`Promise.all`で並列に実行できます**。たったこれだけで、3つのクエリで600msかかっていた処理が200msに短縮できることもあります。
+
+## こんな場面で使えます
+
+- ダッシュボード画面で複数テーブルのデータをまとめて取得するとき
+- `useEffect`内でSupabaseから初期データを読み込むとき
+- Server Componentで複数のデータソースを同時にフェッチするとき
+- 表示に必要なデータが3テーブル以上に分かれているとき
+
+## 実装コード
+
+### 直列実行（遅いパターン）
+
+まず、ありがちな直列実行のコードを見てみましょう。
+
+```typescript
+// ❌ 直列: 合計 ~600ms（各200ms × 3）
+const { data: days } = await supabase.from('work_days').select('*').eq('user_id', uid)
+const { data: tasks } = await supabase.from('task_master').select('*').eq('user_id', uid)
+const { data: settings } = await supabase.from('user_settings').select('*').eq('user_id', uid)
+```
+
+各クエリが前のクエリの完了を待ってから実行されるため、待ち時間が合計されてしまいます。
+
+### 並列実行（速いパターン）
+
+`Promise.all`を使えば、すべてのクエリを同時に発行できます。
+
+```typescript
+// ✅ 並列: 合計 ~200ms（最も遅いクエリ分のみ）
+const [daysRes, tasksRes, settingsRes] = await Promise.all([
+  supabase.from('work_days').select('*').eq('user_id', uid),
+  supabase.from('task_master').select('*').eq('user_id', uid),
+  supabase.from('user_settings').select('*').eq('user_id', uid),
+])
+
+const days = daysRes.data ?? []
+const tasks = tasksRes.data ?? []
+const settings = settingsRes.data?.[0]
+```
+
+Supabaseのクエリはネットワークを介した通信（I/O待ち）なので、並列化の効果がとても大きいのがポイントです。
+
+## 使い方・カスタマイズ
+
+### エラーハンドリングを個別にしたい場合
+
+`Promise.all`は1つでも失敗すると全体がrejectされます。「失敗したクエリがあっても、成功したものは使いたい」という場合は、`Promise.allSettled`を使いましょう。
+
+```typescript
+const results = await Promise.allSettled([
+  supabase.from('work_days').select('*').eq('user_id', uid),
+  supabase.from('task_master').select('*').eq('user_id', uid),
+])
+
+results.forEach((result, i) => {
+  if (result.status === 'rejected') {
+    console.error(`Query ${i} failed:`, result.reason)
+  }
+})
+```
+
+### どちらを使うかの判断基準
+
+| 条件 | 使うべきAPI |
+|------|------------|
+| クエリ同士が独立している | `Promise.all` |
+| 後のクエリが前の結果に依存する | 直列のまま（`await`を順番に） |
+| 1つでも失敗したら画面全体をエラーにしたい | `Promise.all` |
+| 成功したデータだけでも表示したい | `Promise.allSettled` |
+
+## 注意点・ハマりポイント
+
+- **依存関係のあるクエリは並列化できません**。例えば「ユーザー情報を取得してから、そのユーザーのチームIDで別テーブルを検索する」ような場合は直列のままにしてください
+- `Promise.all`は**1つの失敗で全体がreject**されます。個別にエラーを処理したい場合は`Promise.allSettled`を使いましょう
+- 並列化の効果は**3クエリ以上**で体感速度の差がはっきり出ます
+
+## まとめ
+
+- 独立した複数のSupabaseクエリは`Promise.all`で並列実行するだけで大幅に高速化できる
+- エラーを個別に処理したい場合は`Promise.allSettled`を使う
+- 3クエリ以上あるページでは特に効果が大きく、体感速度が明確に変わる

@@ -1,0 +1,101 @@
+---
+title: "GASでCSSだけのローディングスピナーを実装する方法"
+category: "gas"
+slug: "css-spinner"
+tags: ["GAS", "CSS", "ローディング", "UI"]
+description: "Google Apps Scriptで画像不要・CSSだけで回転スピナーを実装。コピペですぐ使えるコード付き。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+GAS（Google Apps Script）でWebアプリを作っていると、スプレッドシートからデータを読み込んでいる間に画面が真っ白になってしまう、という経験はありませんか？
+
+ユーザーに「今、処理中ですよ」と伝えるローディング表示があるだけで、使い勝手は大きく変わります。
+
+ただ、GASでは外部CDNの読み込みに制約があるため、ライブラリを使うのは少し面倒です。そこで、**CSSだけで動く回転スピナー**を紹介します。画像ファイルも外部ライブラリも不要で、コピペだけですぐに使えます。
+
+## こんな場面で使えます
+
+- スプレッドシートから大量のデータを取得する間の待機表示
+- `google.script.run` でサーバー側処理を呼び出している間の表示
+- フォーム送信後の処理待ち
+- 画面の初期読み込み時
+
+## 実装コード
+
+### CSS部分
+
+以下のCSSをHTMLファイルの `<style>` タグ内に追加します。
+
+```css
+.loading {
+  text-align: center;
+  padding: 32px;
+  color: #888;
+  font-size: 14px;
+}
+.spinner {
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  border: 3px solid #ddd;
+  border-top-color: #2563eb;   /* 回転する部分の色 */
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 8px;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+```
+
+仕組みはシンプルです。円形の枠線（`border-radius: 50%`）のうち、上辺だけ色を変えて（`border-top-color`）、それをCSS アニメーションで回転させています。
+
+### JavaScript（表示用関数）
+
+ローディングを表示したいタイミングで以下の関数を呼び出します。
+
+```javascript
+function showLoading(msg) {
+  document.getElementById('content').innerHTML =
+    '<div class="loading"><div class="spinner"></div><div>' + msg + '</div></div>';
+}
+```
+
+使い方は簡単です。
+
+```javascript
+// データ読み込み開始時
+showLoading('データを読み込んでいます...');
+
+// google.script.run でサーバー処理を呼ぶ場合
+google.script.run
+  .withSuccessHandler(function(data) {
+    // 読み込み完了 → 本来のコンテンツを表示
+    document.getElementById('content').innerHTML = buildContent(data);
+  })
+  .getData();
+```
+
+## カスタマイズ例
+
+このスピナーは4つのパラメータで簡単にカスタマイズできます。
+
+| カスタマイズ | 変更箇所 | 例 |
+|---|---|---|
+| **サイズ** | `width` と `height` | `40px` で大きく、`20px` で小さく |
+| **色** | `border-top-color` | `#ef4444` で赤、`#22c55e` で緑 |
+| **速度** | `animation` の秒数 | `0.5s` で速く、`1.2s` でゆっくり |
+| **太さ** | `border` の値 | `5px` で太く、`2px` で細く |
+
+## 注意点
+
+- `content` というIDの要素が存在していることが前提です。お使いのHTMLに合わせてIDを変更してください
+- スピナーを消すには、`content` 要素の `innerHTML` を別の内容で上書きするだけでOKです
+
+## まとめ
+
+- GASでも **CSSだけ** でローディングスピナーが実装できる
+- 外部ライブラリや画像ファイルは不要、**コピペで即使える**
+- サイズ・色・速度・太さの4パラメータで簡単にカスタマイズ可能

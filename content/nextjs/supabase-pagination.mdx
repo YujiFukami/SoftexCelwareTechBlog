@@ -1,0 +1,114 @@
+---
+title: "Supabaseで1000件以上のデータを全件取得するページネーション実装"
+category: "nextjs"
+slug: "supabase-pagination"
+tags: ["Supabase", "TypeScript", "ページネーション", "データ取得"]
+description: "Supabaseのselect()は最大1000行制限。range()を使ったループで全件取得するパターンを紹介します。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+Supabaseでデータを取得していて、「あれ、1000件ちょうどしか返ってこない...？」と首をかしげた経験はありませんか？
+
+実はSupabaseの `.select()` にはデフォルトで**最大1000行**という取得制限があります。普段の画面表示では問題になりませんが、作業履歴や出退勤記録をExcelにエクスポートしたいとき、全件取得できないと困りますよね。
+
+この記事では、`.range()` を使ったページネーションで全データを確実に取得するパターンを紹介します。
+
+## こんな場面で使えます
+
+- 設定画面から全作業履歴をExcelエクスポートする
+- 全出退勤記録を一括ダウンロードする
+- 集計画面で長期間（数千件以上）のデータをまとめて取得する
+- 1000件を超える可能性があるテーブルからデータを読み出す場面全般
+
+## 実装コード
+
+1000件ずつデータを取得し、すべてを結合して返す関数です。
+
+```typescript
+const PAGE_SIZE = 1000
+
+async function fetchAll<T>(
+  query: () => SupabaseClient['from'] // クエリビルダーを返す関数
+): Promise<T[]> {
+  const all: T[] = []
+  let offset = 0
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('work_history')
+      .select('*')
+      .eq('user_id', userId)
+      .order('started_at', { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1)
+
+    if (error) throw error
+    if (!data || data.length === 0) break
+
+    all.push(...(data as T[]))
+    if (data.length < PAGE_SIZE) break  // 最終ページ
+    offset += PAGE_SIZE
+  }
+
+  return all
+}
+```
+
+### コードのポイント
+
+- **`.range(from, to)`** でオフセットベースのページネーションを行います。`from` と `to` はどちらも**inclusive（含む）**なので、`offset + PAGE_SIZE - 1` とする点に注意してください
+- **最終ページの判定**: 取得件数が `PAGE_SIZE` 未満なら、それが最後のページです。これにより余計なクエリの発行を防ぎます
+- **`order()` は必須**: 並び順を指定しないと、ページをまたいだときに行の順序が保証されません
+
+## 使い方・カスタマイズ
+
+### テーブルやフィルタ条件を変える
+
+上記コードの `.from('work_history')` や `.eq('user_id', userId)` の部分を、取得したいテーブル・条件に書き換えてください。
+
+### ページサイズを変える
+
+`PAGE_SIZE` の値は変更可能です。Supabaseの上限は1000なので、それ以下の値を設定します。ネットワーク環境が不安定な場合は `500` 程度に下げると安定します。
+
+### 汎用的に使う
+
+実際のプロジェクトでは、テーブル名やフィルタ条件を引数で受け取る汎用関数にすると再利用しやすくなります。
+
+```typescript
+async function fetchAllFrom(
+  table: string,
+  filters: Record<string, unknown> = {}
+): Promise<any[]> {
+  const all: any[] = []
+  let offset = 0
+
+  while (true) {
+    let query = supabase.from(table).select('*')
+    for (const [key, value] of Object.entries(filters)) {
+      query = query.eq(key, value)
+    }
+    const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1)
+
+    if (error) throw error
+    if (!data || data.length === 0) break
+    all.push(...data)
+    if (data.length < PAGE_SIZE) break
+    offset += PAGE_SIZE
+  }
+
+  return all
+}
+```
+
+## 注意点・ハマりポイント
+
+- **RLS（Row Level Security）が有効な場合**: `.eq('user_id', userId)` のフィルタはRLSと重複しますが、コードの意図を明確にするために明示しておくのがおすすめです
+- **大量データの場合のメモリ**: 全件をメモリに溜め込むため、数十万件規模ではブラウザのメモリ不足に注意してください。そのような場合はサーバーサイドで処理することを検討しましょう
+- **`range()` の引数は inclusive**: `range(0, 999)` で1000件取得です。`range(0, 1000)` とすると1001件になるので注意してください
+
+## まとめ
+
+- Supabaseの `.select()` には**最大1000行の取得制限**がある
+- `.range()` を使ったループで**全件取得のページネーション**が実装できる
+- `order()` の指定と `PAGE_SIZE - 1` の計算を忘れずに

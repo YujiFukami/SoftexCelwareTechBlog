@@ -1,0 +1,100 @@
+---
+title: "GASでHTMLエスケープ関数を実装してXSS対策する方法"
+category: "gas"
+slug: "html-escape"
+tags: ["GAS", "セキュリティ", "XSS", "HTML"]
+description: "Google Apps ScriptのWebアプリでXSS脆弱性を防ぐHTMLエスケープ関数の実装方法。コピペで使えるコード付き。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+GAS（Google Apps Script）でWebアプリを作ると、`innerHTML` を使ってHTMLを動的に組み立てる場面がたくさんありますよね。
+
+ReactやVueなら自動でエスケープしてくれますが、GASにはそういった仕組みがありません。ユーザーが入力したデータやスプレッドシートの値をそのままHTMLに埋め込むと、**XSS（クロスサイトスクリプティング）**という脆弱性が生まれてしまいます。
+
+たとえば、スプレッドシートのセルに `<script>alert('危険')</script>` という文字列が入っていたら、それがそのまま実行されてしまう可能性があるということです。
+
+この記事では、コピペですぐ使えるHTMLエスケープ関数を紹介します。GASでWebアプリを作るなら、必ずセットで用意しておきましょう。
+
+## こんな場面で使えます
+
+- スプレッドシートのデータをHTML上にテーブル表示するとき
+- ユーザーが入力したテキストを画面に表示するとき
+- `innerHTML` で動的にHTMLを生成するすべての場面
+- `onclick` などのイベント属性に動的な値を埋め込むとき
+
+## 実装コード
+
+### エスケープ関数
+
+以下の関数をHTMLファイルの `<script>` タグ内に追加してください。
+
+```javascript
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+```
+
+やっていることはシンプルです。HTMLで特別な意味を持つ5つの文字（`&`、`<`、`>`、`"`、`'`）を、それぞれ安全な文字参照に置き換えています。
+
+### 使い方
+
+変数をHTMLに埋め込むときは、必ず `escapeHtml()` で囲みます。
+
+```javascript
+// NG: エスケープなし → XSS脆弱性
+html += '<div>' + userData + '</div>';
+
+// OK: エスケープあり → 安全
+html += '<div>' + escapeHtml(userData) + '</div>';
+```
+
+`onclick` などの属性値に埋め込む場合も同様です。
+
+```javascript
+// onclick属性にも使う
+html += '<div onclick="fn(\'' + escapeHtml(value).replace(/'/g, "\\'") + '\')">';
+```
+
+## 使い方・カスタマイズ
+
+### どの変数にエスケープが必要？
+
+基本ルールは「**`innerHTML` に埋め込むすべての変数**」です。迷ったらエスケープしておけば間違いありません。
+
+| 場面 | エスケープ | 理由 |
+|---|---|---|
+| ユーザー入力値 | 必須 | 悪意ある入力の可能性がある |
+| スプレッドシートの値 | 必須 | 誰がどんな値を入れるかわからない |
+| 自分で定義した固定文字列 | 不要 | 内容が確定しているため |
+| URLに埋め込む値 | `encodeURIComponent()` を使う | HTMLエスケープとは別の処理が必要 |
+
+### URLの中に値を埋め込む場合
+
+HTMLエスケープとは別に、`encodeURIComponent()` を使います。
+
+```javascript
+var url = 'https://example.com/search?q=' + encodeURIComponent(userInput);
+html += '<a href="' + escapeHtml(url) + '">検索</a>';
+```
+
+URLを組み立ててから、さらにHTMLエスケープをかけるのがポイントです。
+
+## 注意点・ハマりポイント
+
+- **`&` の置換は必ず最初に行ってください**。後から置換すると、`&lt;` の `&` が `&amp;lt;` に二重変換されてしまいます
+- `null` や `undefined` が渡された場合に備えて、先頭で `if (!str) return ''` のチェックを入れています
+- この関数はあくまで**HTML文脈でのエスケープ**です。SQLインジェクション対策にはなりません（GASではスプレッドシートが主なデータソースなのであまり心配はいりませんが）
+
+## まとめ
+
+- GASのWebアプリでは自動エスケープがないため、**HTMLエスケープ関数は必須**
+- `innerHTML` に埋め込む変数には**すべて `escapeHtml()` を適用**する
+- `&` の置換を最初に行う順番を守ることが重要

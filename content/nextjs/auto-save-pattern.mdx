@@ -1,0 +1,115 @@
+---
+title: "Next.js + Supabaseで自動保存を実装するパターン（localStorage併用）"
+category: "nextjs"
+slug: "auto-save-pattern"
+tags: ["Supabase", "React", "自動保存", "localStorage", "UX"]
+description: "保存ボタン不要の自動保存パターン。SupabaseとlocalStorageの使い分けと楽観的更新の実装方法を解説。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+設定画面で値を変更するたびに「保存」ボタンを押す必要がある...これ、ちょっと面倒に感じたことはありませんか？
+
+最近のWebアプリでは、変更を即座に自動保存する**保存ボタン不要**のUIが主流になっています。ユーザーが値を変えた瞬間にデータベースに保存され、完了のフィードバックが表示される、というパターンです。
+
+この記事では、Supabaseへの自動保存とlocalStorageへの自動保存、そしてこの2つを**併用する場合の設計指針**を紹介します。
+
+## こんな場面で使えます
+
+- ユーザー設定画面（デフォルト作業、表示設定など）
+- プロフィール編集画面
+- トグルスイッチやセレクトボックスなど、操作のたびに即反映したい項目
+- デバイス固有のカスタマイズ（メッセージ文面、背景色など）
+
+## 実装コード
+
+### パターン1: Supabase自動保存（楽観的更新）
+
+「楽観的更新」とは、データベースの応答を待たずに先にUIを更新する手法です。ユーザーの体感速度が大きく向上します。
+
+```tsx
+const [saving, setSaving] = useState(false)
+
+const handleChange = async (field: string, value: string | boolean) => {
+  // 1. UIを即座に更新（楽観的更新）
+  setSettings(prev => ({ ...prev, [field]: value }))
+
+  // 2. DBに保存
+  setSaving(true)
+  const { error } = await supabase
+    .from('user_settings')
+    .upsert({ user_id: userId, [field]: value })
+
+  setSaving(false)
+
+  if (error) {
+    // 保存失敗時はUIを戻す（またはエラー表示）
+    console.error(error)
+  }
+}
+```
+
+`upsert` はレコードが存在すれば更新、なければ挿入する操作（`INSERT ... ON CONFLICT UPDATE`）です。レコードの有無を気にせず使えるので、設定の保存には最適です。
+
+### パターン2: localStorage自動保存
+
+メッセージの文面や色設定など、デバイスごとに異なる値はlocalStorageに保存します。
+
+```tsx
+const [message, setMessage] = useState(() =>
+  localStorage.getItem('rakulog-clock-in-msg') ?? 'おはようございます！'
+)
+
+const handleMessageChange = (val: string) => {
+  setMessage(val)
+  localStorage.setItem('rakulog-clock-in-msg', val)
+}
+```
+
+`useState(() => ...)` の関数形式で初期値を設定しています。これにより、SSR（サーバーサイドレンダリング）時にlocalStorageにアクセスしてエラーになるのを防ぎます。
+
+## 使い方・カスタマイズ
+
+### 保存先の使い分け
+
+どちらに保存するかは、以下の基準で判断してください。
+
+| 保存先 | 用途 | 例 |
+|---|---|---|
+| **Supabase** | ユーザー共通（別デバイスでも反映したい） | デフォルト開始作業、表示設定 |
+| **localStorage** | デバイス固有 / 見た目のカスタマイズ | メッセージ文面、背景色、文字色 |
+
+迷ったときは「別のデバイスでログインしたときにも同じ設定がいいか？」と考えてみましょう。Yesなら Supabase、NoならlocalStorageです。
+
+### localStorageのキー命名規則
+
+キー名が衝突しないように、アプリ名をプレフィックスにつけるのがおすすめです。
+
+```
+{アプリ名}-{機能}-{項目}
+```
+
+例: `rakulog-clock-in-msg`, `rakulog-clock-in-bg`, `rakulog-show-end-msg`
+
+### 保存中インジケータを表示する
+
+`saving` ステートを活用して、保存中であることをユーザーに伝えましょう。
+
+```tsx
+{saving && <span className="text-sm text-gray-400">保存中...</span>}
+```
+
+スピナーアイコンや薄い文字など、控えめなフィードバックが適しています。
+
+## 注意点・ハマりポイント
+
+- **楽観的更新の失敗時**: 保存に失敗した場合、UIを元に戻す処理（ロールバック）を入れないと、画面とデータベースの状態が不一致になります
+- **SSR対策**: `localStorage` はブラウザ専用APIです。`useState(() => ...)` の遅延初期化を使うか、`useEffect` 内でアクセスしてください
+- **連打対策**: ユーザーが高速に値を変更する場合、リクエストが大量に飛ぶ可能性があります。`debounce`（一定時間入力を待ってから送信）を導入すると効果的です
+
+## まとめ
+
+- 自動保存は**楽観的更新**で実装すると体感速度が向上する
+- SupabaseとlocalStorageは「別デバイスでも同じ設定が必要か？」で使い分ける
+- `upsert` + `saving` ステートで、シンプルかつ確実な自動保存が実現できる

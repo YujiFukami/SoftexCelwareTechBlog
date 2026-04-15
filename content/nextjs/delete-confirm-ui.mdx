@@ -1,0 +1,152 @@
+---
+title: "Reactでインライン削除確認UIを実装する方法（モーダル不要）"
+category: "nextjs"
+slug: "delete-confirm-ui"
+tags: ["React", "UI", "削除確認", "Supabase", "UX"]
+description: "モーダルを使わずにインラインで削除確認を表示するパターン。スマホでも操作しやすいUXを実現。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+リスト画面に「削除ボタン」を付けるとき、確認ダイアログをどう実装するか迷ったことはありませんか？
+
+`window.confirm()` は見た目がそっけないし、モーダルダイアログは実装が大げさ。特にスマホでは、モーダルが画面全体を覆ってしまい、「どのアイテムを消そうとしていたんだっけ？」とコンテキストを見失いがちです。
+
+そこでおすすめなのが、**削除ボタンの位置にそのまま確認UIを表示する「インライン確認パターン」**です。軽量で、コンテキストを失わず、スマホでも操作しやすい方法です。
+
+## こんな場面で使えます
+
+- ToDoリストやタスク一覧の削除操作
+- 作業履歴やログの個別削除
+- 管理画面でのレコード削除
+- カード型UIでのアイテム削除
+
+## 実装コード
+
+### ステート管理
+
+まず、「どのアイテムの削除確認が表示されているか」を管理するステートと、削除処理の関数を用意します。
+
+```tsx
+const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+const [deleting, setDeleting] = useState(false)
+
+const handleDelete = async (id: string) => {
+  setDeleting(true)
+  const { error } = await supabase
+    .from('work_history')
+    .delete()
+    .eq('history_id', id)
+
+  if (!error) {
+    // ローカルステートから除去
+    setHistories(prev => prev.filter(h => h.history_id !== id))
+  }
+  setDeleting(false)
+  setConfirmDeleteId(null)
+}
+```
+
+`confirmDeleteId` に値が入っているアイテムだけ、確認UIが表示される仕組みです。
+
+### リスト部分のJSX
+
+リスト内の各アイテムで、通常時は削除アイコン、確認時は「削除しますか？」のUIに切り替えます。
+
+```tsx
+{items.map(item => (
+  <div key={item.id} className="flex items-center justify-between p-3 border-b">
+    <div>{item.name}</div>
+
+    {confirmDeleteId === item.id ? (
+      // 確認UI（インライン表示）
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-red-600">削除しますか？</span>
+        <button
+          onClick={() => handleDelete(item.id)}
+          disabled={deleting}
+          className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+        >
+          {deleting ? '削除中...' : '削除'}
+        </button>
+        <button
+          onClick={() => setConfirmDeleteId(null)}
+          className="px-2 py-1 text-xs bg-gray-200 text-gray-600 rounded hover:bg-gray-300"
+        >
+          キャンセル
+        </button>
+      </div>
+    ) : (
+      // 通常時：削除アイコンボタン
+      <button
+        onClick={() => setConfirmDeleteId(item.id)}
+        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded"
+      >
+        <Trash2 size={16} />
+      </button>
+    )}
+  </div>
+))}
+```
+
+`Trash2` は [Lucide React](https://lucide.dev/) のアイコンです。お使いのアイコンライブラリに合わせて差し替えてください。
+
+## 使い方・カスタマイズ
+
+### 方式の比較
+
+削除確認にはいくつかの方式があります。場面に応じて選んでみてください。
+
+| 方式 | メリット | デメリット |
+|------|---------|-----------|
+| モーダルダイアログ | 注意を引く | コンテキスト切断、スマホで操作しづらい |
+| インライン確認 | コンテキスト維持、軽量 | 見落としリスク |
+| スワイプ削除 | スマホネイティブ感 | 実装が複雑 |
+
+管理画面やリスト画面では、インライン確認がもっともバランスの取れた選択肢です。
+
+### 関連データの自動補正が必要な場合
+
+時系列データのように、削除時に前後のレコードを繋ぎ直す必要がある場合は、以下のように拡張できます。
+
+```typescript
+const handleDelete = async (id: string) => {
+  const idx = histories.findIndex(h => h.history_id === id)
+  const prev = idx > 0 ? histories[idx - 1] : null
+  const next = idx < histories.length - 1 ? histories[idx + 1] : null
+
+  // 前のレコードの ended_at を次のレコードの started_at に繋ぐ
+  if (prev && next) {
+    await supabase
+      .from('work_history')
+      .update({
+        ended_at: next.started_at,
+        duration_sec: diffSec(prev.started_at, next.started_at)
+      })
+      .eq('history_id', prev.history_id)
+  } else if (prev && !next) {
+    // 末尾削除：前のレコードの ended_at をクリア
+    await supabase
+      .from('work_history')
+      .update({ ended_at: null, duration_sec: null })
+      .eq('history_id', prev.history_id)
+  }
+
+  // 本体を削除
+  await supabase.from('work_history').delete().eq('history_id', id)
+}
+```
+
+## 注意点・ハマりポイント
+
+- **`confirmDeleteId` は1つだけ**: 同時に複数のアイテムが確認状態になることを防いでいます。別のアイテムの削除ボタンを押すと、前の確認UIは自動的に閉じます
+- **`deleting` で二重クリック防止**: 削除処理中はボタンを `disabled` にして、誤って二度押しするのを防ぎます
+- **楽観的更新ではない点に注意**: この実装ではDB削除が成功してからローカルステートを更新しています。レスポンスが遅い環境では、先にUIから消して失敗時に戻す「楽観的更新」も検討してみてください
+- **赤色の統一**: 確認テキスト・削除ボタンを赤系で統一して、「これは危険な操作ですよ」と視覚的に伝えています
+
+## まとめ
+
+- モーダルの代わりに**インラインで確認UIを表示**することで、コンテキストを維持したまま削除操作ができる
+- `confirmDeleteId` と `deleting` の2つのステートだけで実装でき、**追加ライブラリは不要**
+- スマホでも操作しやすく、管理画面やリスト画面での削除確認にぴったり

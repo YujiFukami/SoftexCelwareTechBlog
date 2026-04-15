@@ -1,0 +1,117 @@
+---
+title: "Rechartsの円グラフ(PieChart)でスライス内にパーセントを表示する方法"
+category: "nextjs"
+slug: "recharts-pie-percent"
+tags: ["Recharts", "React", "円グラフ", "データ可視化"]
+description: "Rechartsの円グラフでスライス内にパーセント表示するカスタムラベルの実装方法。コピペで使えるコード付き。"
+date: "2026-04-15"
+---
+
+## はじめに
+
+Rechartsで円グラフを作ったとき、「各スライスが全体の何パーセントか、グラフの中に表示したい」と思ったことはありませんか？
+
+Rechartsの `PieChart` はデフォルトだとラベルがグラフの外側に表示されます。スライスの中にパーセンテージを表示するには、カスタムラベル関数を自作する必要があります。
+
+この記事では、コピペで使えるカスタムラベルの実装パターンを紹介します。
+
+## こんな場面で使えます
+
+- 作業時間の内訳を円グラフで可視化し、各作業の割合を表示したい
+- ダッシュボードに見やすい円グラフを配置したい
+- 小さいスライスのラベルが重ならないように制御したい
+
+## 実装コード
+
+### カスタムラベル関数
+
+スライスの中心位置を計算し、パーセンテージのテキストを描画する関数です。
+
+```tsx
+const renderLabel = (props: any) => {
+  const { cx, cy, midAngle, innerRadius, outerRadius, percent } = props
+  if (percent < 0.05) return null  // 5%未満は非表示（重なり防止）
+
+  const RADIAN = Math.PI / 180
+  const radius = innerRadius + (outerRadius - innerRadius) * 0.5
+  const x = cx + radius * Math.cos(-midAngle * RADIAN)
+  const y = cy + radius * Math.sin(-midAngle * RADIAN)
+
+  return (
+    <text x={x} y={y} fill="#fff" textAnchor="middle" dominantBaseline="central" fontSize={12}>
+      {(percent * 100).toFixed(0)}%
+    </text>
+  )
+}
+```
+
+引数の型を `any` にしているのは、Rechartsのラベル関数の型定義が複雑なためです。実用上は `any` で受けるのが最もシンプルです。
+
+### PieChartコンポーネントで使う
+
+```tsx
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
+
+const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#0088fe']
+
+<ResponsiveContainer width="100%" height={300}>
+  <PieChart>
+    <Pie
+      data={chartData}
+      dataKey="value"
+      nameKey="name"
+      cx="50%"
+      cy="50%"
+      label={renderLabel}
+      labelLine={false}
+    >
+      {chartData.map((entry, i) => (
+        <Cell key={i} fill={entry.color || COLORS[i % COLORS.length]} />
+      ))}
+    </Pie>
+    <Tooltip formatter={(val: number) => secToStr(val)} />
+  </PieChart>
+</ResponsiveContainer>
+```
+
+`label={renderLabel}` でカスタムラベル関数を渡し、`labelLine={false}` でラベルの引き出し線を非表示にしています。スライス内に表示するので引き出し線は不要です。
+
+## 使い方・カスタマイズ
+
+### 表示しきい値を変える
+
+`percent < 0.05` の部分を変更すると、非表示にするしきい値を調整できます。
+
+| 値 | 意味 |
+|---|---|
+| `0.05` | 5%未満を非表示（デフォルト） |
+| `0.03` | 3%未満を非表示（より多くのラベルを表示） |
+| `0.10` | 10%未満を非表示（ラベルをすっきりさせたい場合） |
+
+### ラベルの文字色・サイズを変える
+
+`renderLabel` 関数内の `fill` と `fontSize` を変更します。背景色が薄い場合は `fill="#333"` など暗い色にするとよいでしょう。
+
+### 色をデータから直接指定する
+
+`Cell` コンポーネントの `fill` にデータの `color` プロパティを使えば、マスタテーブルで管理している色をそのまま反映できます。
+
+```tsx
+// chartData の例
+const chartData = [
+  { name: '開発', value: 3600, color: '#8884d8' },
+  { name: '会議', value: 1800, color: '#82ca9d' },
+]
+```
+
+## 注意点・ハマりポイント
+
+- **`labelLine={false}` を忘れない**: これを付けないと、スライス内のラベルに加えて引き出し線も表示されてしまい、見た目が崩れます
+- **小さいスライスの重なり**: 5%未満の非表示処理を入れないと、小さなスライスにラベルが重なって読めなくなります
+- **`cx="50%" cy="50%"`**: Legend（凡例）を表示しない場合、中央配置にすると見栄えがよくなります
+
+## まとめ
+
+- Rechartsの円グラフにパーセント表示するには**カスタムラベル関数**を作成する
+- `percent < 0.05` で**小さいスライスのラベルを非表示**にすると読みやすくなる
+- `labelLine={false}` でスライス内表示に最適化しよう
