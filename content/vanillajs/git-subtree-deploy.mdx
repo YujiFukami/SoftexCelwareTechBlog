@@ -1,0 +1,107 @@
+---
+title: "Git Subtree Splitでサブフォルダだけを GitHub/Vercel にデプロイする方法"
+category: "vanillajs"
+slug: "git-subtree-deploy"
+tags: ["Git", "Vercel", "デプロイ", "subtree", "shell script"]
+description: "開発資料を含む親リポジトリから、Web/サブフォルダだけをGitHub main にforce pushする deploy.sh パターン。"
+date: "2026-04-17"
+---
+
+## はじめに
+
+プロジェクトのルートには開発資料・設計ドキュメント・素材などが混在していて、でも Vercel/GitHub Pages には `Web/` サブフォルダの中身だけを公開したい、というケースは多いですよね。
+
+通常の `git push` だとルート全体がアップされてしまいます。`git subtree split` を使えば、**サブフォルダだけの独立した履歴を抽出して、GitHub に push** できます。
+
+## こんな場面で使えます
+
+- 設計資料・ドキュメントをGitHubには上げたくないが、ローカルで一緒に管理したい
+- モノレポ的に複数のデプロイ対象を1リポジトリで管理している
+- 個人開発で親リポジトリが散らかっていて公開したくない
+- Vercel/GitHub Pages は特定サブフォルダをroot扱いしてくれない
+
+## 実装コード
+
+### `deploy.sh` — サブフォルダのみを main に force push
+
+```bash
+#!/usr/bin/env bash
+# deploy.sh — Web/ フォルダのみを GitHub main にプッシュ
+set -euo pipefail
+
+# 未コミットの変更チェック
+if ! git diff --quiet HEAD -- Web/; then
+  echo "[ERROR] Web/ に未コミットの変更があります。先に git commit してください。"
+  git diff --stat HEAD -- Web/
+  exit 1
+fi
+
+echo "[1/2] subtree split (Web/ のみの履歴を抽出)..."
+SPLIT_SHA=$(git subtree split --prefix=Web HEAD)
+
+echo "[2/2] push to origin/main..."
+git push origin "${SPLIT_SHA}:refs/heads/main" --force
+
+echo "Done! Vercel が自動デプロイします。"
+echo "SHA: ${SPLIT_SHA}"
+```
+
+### フォルダ構成イメージ
+
+```
+myproject/                ← ローカル親リポジトリ（GitHubには上げない）
+├── Web/                  ← ここだけGitHub/Vercelに公開
+│   ├── index.html
+│   ├── style.css
+│   └── js/
+├── docs/                 ← 設計資料（非公開）
+├── assets/               ← 素材（非公開）
+├── deploy.sh
+└── CLAUDE.md
+```
+
+### 初回セットアップ
+
+```bash
+# GitHub でリポジトリを作成済みの前提
+SPLIT_SHA=$(git subtree split --prefix=Web HEAD)
+git push origin "${SPLIT_SHA}:refs/heads/main"
+```
+
+### Vercel 設定（`Web/vercel.json`）
+
+```json
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/$1" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options",        "value": "DENY" }
+      ]
+    }
+  ]
+}
+```
+
+Vercel は GitHub main ブランチを自動検知してデプロイします。
+
+## 注意点・ハマりポイント
+
+- **`--force` push は必須**: 親リポジトリの履歴と GitHub main の履歴は互換性がないため、毎回上書きになります
+- **複数人開発には不向き**: PR運用するなら GitHub Actions で `git subtree push` する方が安全
+- **`set -euo pipefail` 必須**: エラー時に即停止させないと、不完全なデプロイで事故ります
+- **ワークフロー**: `Web/` 配下を変更 → `git commit` → `./deploy.sh` の順で実行
+
+## 実際の活用事例
+
+このテクニックは、モールス信号学習アプリ「[KochSprint モールス道場](https://morse-master-psi.vercel.app)」（[GitHub](https://github.com/YujiFukami/morse-master)）で実際に使用しています。親リポジトリには設計資料・素材が含まれますが、GitHub/Vercel には `Web/` のみが公開されています。
+
+## まとめ
+
+- `git subtree split` で **サブフォルダだけの独立コミット** を生成
+- `--force` push で GitHub main を毎回上書き（個人開発向け）
+- `set -euo pipefail` と未コミットチェックで **デプロイ事故を予防**

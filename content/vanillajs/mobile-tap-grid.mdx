@@ -1,0 +1,142 @@
+---
+title: "モバイル向けタップ入力グリッドでソフトキーボードを回避する方法"
+category: "vanillajs"
+slug: "mobile-tap-grid"
+tags: ["バニラJS", "モバイル対応", "UX", "ソフトキーボード", "UI"]
+description: "モバイルで <input>のキーボード開閉によるUX低下を回避。A-Z/0-9ボタングリッドを画面内に配置するパターン。"
+date: "2026-04-17"
+---
+
+## はじめに
+
+モバイルで `<input type="text">` を使うと、フォーカス時にソフトキーボードが開いてしまいます。問題が出るたびにキーボードを閉じて再度タップ…というフローは、特にゲーム形式（クイズ、モールス解読など）で致命的にストレスです。
+
+`inputmode="none"` は一部ブラウザで動かないことがあるので、もっと確実な方法として **画面内にA-Z / 0-9ボタングリッドを配置** するパターンを紹介します。
+
+## こんな場面で使えます
+
+- タイピングゲーム・モールス解読・クイズアプリ
+- 1文字ずつの入力が頻繁に発生するUI
+- ソフトキーボードが画面の半分を占めると困るコンテンツ
+- デスクトップ物理キーボードとモバイルタップで入力方法を切替えたい場面
+
+## 実装コード
+
+### HTML — プレースホルダー要素だけ置く
+
+```html
+<div id="char-input-grid" class="char-input-grid"></div>
+```
+
+### JS — グリッド生成関数
+
+```javascript
+function buildCharGrid(containerId, onChar, onBackspace) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890';
+  const wrapper = document.createElement('div');
+  wrapper.className = 'char-grid-keys';
+
+  for (const ch of CHARS) {
+    const btn = document.createElement('button');
+    btn.className = 'char-key';
+    btn.textContent = ch;
+    btn.addEventListener('click', () => {
+      onChar(ch);
+      btn.classList.add('pressed');            // 視覚フィードバック
+      setTimeout(() => btn.classList.remove('pressed'), 120);
+    });
+    wrapper.appendChild(btn);
+  }
+
+  // ⌫ バックスペース
+  const bsBtn = document.createElement('button');
+  bsBtn.className = 'char-key char-key--wide';
+  bsBtn.textContent = '⌫';
+  bsBtn.addEventListener('click', () => onBackspace());
+  wrapper.appendChild(bsBtn);
+
+  container.appendChild(wrapper);
+}
+```
+
+### CSS
+
+```css
+/* デスクトップでは非表示 */
+.char-input-grid { display: none; }
+
+/* モバイル (≤1024px) で表示 */
+@media (max-width: 1024px) {
+  .char-input-grid { display: block; }
+}
+
+/* グリッド本体: 9列 */
+.char-grid-keys {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  gap: 6px;
+}
+
+.char-key {
+  font-family: 'Roboto Mono', monospace;
+  font-size: .95rem;
+  font-weight: 700;
+  padding: 10px 4px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: background .1s, transform .1s;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* タップ時の視覚フィードバック */
+.char-key:active,
+.char-key.pressed {
+  background: var(--primary-dim);
+  border-color: var(--primary);
+  transform: scale(.92);
+}
+
+.char-key--wide {
+  color: var(--error);
+  font-size: 1.1rem;
+}
+```
+
+### 呼び出し例
+
+```javascript
+buildCharGrid('char-input-grid',
+  (char) => {
+    handleAnswer(char);  // 文字を受け取って判定
+  },
+  () => {
+    currentInput = currentInput.slice(0, -1);  // バックスペース
+    updateDisplay();
+  }
+);
+```
+
+## 注意点・ハマりポイント
+
+- **デスクトップではキーボード入力を優先**: `display: none` で非表示にして、物理キーボードで入力できるように
+- **`-webkit-tap-highlight-color: transparent`**: iOSの青いタップハイライトを消すとネイティブアプリ感が出ます
+- **`transform: scale(.92)`**: 押下時のアニメーションで「押した感」を演出
+- **コールバック方式**: `onChar`, `onBackspace` でページ固有ロジックと分離すると、複数ページで再利用しやすい
+- **9列グリッド**: A-Z (26) + 0-9 (10) + ⌫ (1) = 37個で3行強に収まる
+
+## 実際の活用事例
+
+このテクニックは、モールス信号学習アプリ「[KochSprint モールス道場](https://morse-master-psi.vercel.app)」（[GitHub](https://github.com/YujiFukami/morse-master)）のタイムアタック・ワードチャレンジ・コッホトレーナー3ページで共通利用しています。モバイルでもソフトキーボードで画面が隠れず、快適に回答操作ができます。
+
+## まとめ
+
+- 画面内タップグリッドで **ソフトキーボードを完全回避**
+- デスクトップは物理キーボード、モバイルはタップグリッドで **最適入力** を提供
+- コールバック方式で **複数ページでの再利用** が容易

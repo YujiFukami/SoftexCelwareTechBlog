@@ -1,0 +1,148 @@
+---
+title: "複数ページ共通UIをIIFEモジュールに集約する方法（フレームワーク不要）"
+category: "vanillajs"
+slug: "common-ui-iife"
+tags: ["バニラJS", "IIFE", "モジュール化", "DRY", "リファクタリング"]
+description: "フレームワークなしで共通UIコードを切り出すIIFEパターン。実測170行以上の重複削減事例付き。"
+date: "2026-04-17"
+---
+
+## はじめに
+
+複数ページ（トレーナー・タイムアタック・ワードチャレンジなど）に同じUIコードが重複していて、「文字タップグリッド」「シグナルフラッシュ」「設定スライダー」を各ページで170行以上コピペしている、という状況はバニラJS開発ではよくあります。
+
+Reactなどのフレームワークを使わなくても、**IIFE（即時実行関数式）モジュール** に集約すれば、フレームワーク不要でスコープ汚染なしの共通UIが作れます。
+
+## こんな場面で使えます
+
+- バニラJSで複数ページに同じUIがあるサイト
+- フレームワーク導入のコストを避けたい小〜中規模プロジェクト
+- コードの重複を削減して保守性を上げたいタイミング
+- `const` / `let` でグローバル汚染したくない場面
+
+## 実装コード
+
+### 共通化する候補の見分け方
+
+1. **同じHTML構造** が複数ページに現れる → JS生成に切り出す
+2. **同じイベントリスナー** が複数ページにある → 関数化
+3. ページ固有の判定ロジックは **コールバックで外出し**
+
+### common-ui.js の構造
+
+```javascript
+/**
+ * common-ui.js — 共有 UI コンポーネント
+ * 依存: MorseEngine (morse.js を先に読み込む)
+ */
+const CommonUI = (() => {
+
+  // ① タップ入力グリッド（モバイルキーボード代替）
+  function buildCharGrid(containerId, onChar, onBackspace) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'char-grid-keys';
+
+    for (const ch of CHARS) {
+      const btn = document.createElement('button');
+      btn.className = 'char-key';
+      btn.textContent = ch;
+      btn.addEventListener('click', () => {
+        onChar(ch);  // ★ ページ固有ロジックはコールバックへ
+        btn.classList.add('pressed');
+        setTimeout(() => btn.classList.remove('pressed'), 120);
+      });
+      wrapper.appendChild(btn);
+    }
+
+    const bsBtn = document.createElement('button');
+    bsBtn.className = 'char-key char-key--wide';
+    bsBtn.textContent = '⌫';
+    bsBtn.addEventListener('click', () => onBackspace());
+    wrapper.appendChild(bsBtn);
+    container.appendChild(wrapper);
+  }
+
+  // ② シグナルフラッシュ（音と画面点滅を連動）
+  function setupSignalFlash() {
+    const indicator = document.getElementById('signal-indicator');
+    const overlay   = document.getElementById('signal-flash-overlay');
+    MorseEngine.onSignal(
+      () => { indicator?.classList.add('active'); overlay?.classList.add('active'); },
+      () => { indicator?.classList.remove('active'); overlay?.classList.remove('active'); }
+    );
+  }
+
+  // ③ 設定スライダー（速度・周波数・音量）
+  function bindSettings() {
+    const speed  = document.getElementById('speed-range');
+    speed?.addEventListener('input', e => {
+      MorseEngine.setWpm(+e.target.value);
+      document.getElementById('speed-label').textContent = e.target.value;
+    });
+    // 周波数・音量も同様
+  }
+
+  return { buildCharGrid, setupSignalFlash, bindSettings };
+})();
+```
+
+### HTML での読み込み順
+
+```html
+<!-- 依存ライブラリが先 -->
+<script src="js/morse.js"></script>
+<script src="js/common-ui.js"></script>
+<script src="js/timeattack.js"></script>  <!-- ページ固有 -->
+```
+
+### ページ固有 JS での呼び出し
+
+```javascript
+const TimeAttackApp = (() => {
+  function init() {
+    CommonUI.setupSignalFlash();
+    CommonUI.bindSettings();
+    CommonUI.buildCharGrid(
+      'char-input-grid',
+      (char) => handleAnswer(char),        // ページ固有: 判定
+      ()     => { /* バックスペース処理 */ }
+    );
+  }
+  return { init };
+})();
+```
+
+## 設計のポイント
+
+| 設計判断 | 理由 |
+|---------|------|
+| **IIFEパターン** | フレームワーク不要でスコープ汚染なし |
+| **コールバック引数** | ページ固有ロジックを外出しして共通モジュールを汚染しない |
+| **Optional chaining (`?.`)** | 要素が存在しないページでもエラーにならない |
+| **ID で要素取得** | 呼び出し側はID名を合わせるだけで動く |
+
+## いつ共通化すべきか
+
+- **2ページ以上で同じコード** が現れたら切り出しを検討
+- **30行超の重複** はメンテコストが高くなる前に共通化
+- 共通化後は **元ページのコードを削除** してテスト（中途半端な残留が最悪）
+
+## 注意点・ハマりポイント
+
+- **読み込み順**: 依存ライブラリ（例: MorseEngine）が CommonUI より先、ページ固有JSは最後
+- **Optional chaining 必須**: `indicator?.classList.add(...)` にしないと、要素がないページでエラーになります
+- **中途半端な残留に注意**: 共通化して呼び出しは切り替えたのに、元ページに古いコードが残っていると気づきにくいバグの温床になります
+
+## 実際の活用事例
+
+このテクニックは、モールス信号学習アプリ「[KochSprint モールス道場](https://morse-master-psi.vercel.app)」（[GitHub](https://github.com/YujiFukami/morse-master)）で実際に使用しています。タイムアタック・ワードチャレンジ・トレーナーの3ページで合計 **170行以上の重複削減** を実現しました。
+
+## まとめ
+
+- `const Mod = (() => {...})()` のIIFEパターンで **フレームワーク不要のモジュール化**
+- コールバック引数で **ページ固有ロジックを汚染させない**
+- 2ページ以上・30行超の重複が共通化のサイン

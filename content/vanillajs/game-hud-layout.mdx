@@ -1,0 +1,179 @@
+---
+title: "ゲームHUD（スコア/タイマー/コンボ）と結果モーダルのCSSパターン"
+category: "vanillajs"
+slug: "game-hud-layout"
+tags: ["CSS", "ゲームUI", "HUD", "モーダル", "レイアウト"]
+description: "スコア・タイマー・コンボのHUDレイアウト + 背景ブラー付き結果モーダルのゲームUIパターン。"
+date: "2026-04-17"
+---
+
+## はじめに
+
+ゲーム画面でスコア・残り時間・コンボ数を常時表示したい、でも数値が大きく変わっても崩れない安定したレイアウトが必要、しかもモバイルでも見やすく…となると地味に悩みます。
+
+Flexbox ベースで小ラベル + 大数値の **HUD（Heads-Up Display）** と、`backdrop-filter` を使った背景ブラー付きの **結果モーダル** のセットパターンを紹介します。
+
+## こんな場面で使えます
+
+- アクション・クイズ・音ゲーなどのゲーム画面
+- スコア・タイマー・コンボなど複数の数値を常時表示
+- ゲーム終了時の結果サマリー画面
+- 数値の変動に合わせたアニメーション演出
+
+## 実装コード
+
+### HUD（画面上部に常時表示）
+
+```html
+<div class="score-hud">
+  <div class="hud-item">
+    <span class="hud-label">Time Left</span>
+    <span id="hud-timer" class="hud-value hud-value--timer">60</span>
+  </div>
+  <div class="hud-item">
+    <span class="hud-label">Score</span>
+    <span id="hud-score" class="hud-value">0</span>
+  </div>
+  <div class="hud-item">
+    <span class="hud-label">Combo</span>
+    <span id="hud-combo" class="hud-value hud-value--combo">0</span>
+  </div>
+</div>
+```
+
+```css
+.score-hud {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  margin-bottom: 24px;
+}
+
+.hud-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.hud-label {
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+}
+
+.hud-value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--primary);
+}
+
+/* 色分けバリエーション */
+.hud-value--timer { color: var(--accent); }   /* 残り時間 → 赤（緊迫感） */
+.hud-value--combo { color: var(--success); }  /* 連続正解 → 緑（達成感） */
+
+@media (max-width: 640px) {
+  .score-hud { gap: 18px; }
+  .hud-value { font-size: 1.3rem; }
+}
+```
+
+### JS — コンボアニメーション
+
+```javascript
+function flashCombo() {
+  const el = document.getElementById('hud-combo');
+  el.style.transform = 'scale(1.4)';
+  el.style.transition = 'transform .1s';
+  setTimeout(() => { el.style.transform = ''; }, 150);
+}
+```
+
+### 結果モーダル（ゲーム終了後）
+
+```html
+<div id="result-overlay" class="result-overlay">
+  <div class="result-card">
+    <div class="result-title">Result</div>
+    <div class="result-stats">
+      <div>
+        <div id="res-score" class="result-stat__value">0</div>
+        <div class="result-stat__label">Score</div>
+      </div>
+      <div>
+        <div id="res-acc" class="result-stat__value">0%</div>
+        <div class="result-stat__label">Accuracy</div>
+      </div>
+      <!-- ... -->
+    </div>
+    <div class="result-actions">
+      <button class="btn-primary">Save</button>
+      <button class="btn-secondary">Play Again</button>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.result-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.7);
+  backdrop-filter: blur(8px);   /* ★ 背景ぼかし */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .3s;
+}
+.result-overlay.show {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.result-card {
+  background: var(--bg);
+  border: 1px solid var(--primary);
+  border-radius: 24px;
+  padding: 40px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 0 60px var(--primary-dim);
+}
+
+.result-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.result-stat__value { font-size: 1.8rem; font-weight: 800; }
+.result-stat__label {
+  font-size: .75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+```
+
+## 注意点・ハマりポイント
+
+- **HUDは `flex + gap`**: `grid` より簡単で項目数に柔軟に対応できます
+- **ラベルは小さい uppercase + letter-spacing**: これだけで一気にゲームUI感が出ます
+- **数値は `font-weight: 800`** で大きく: 瞬時に読める視認性が重要
+- **色分けで意味づけ**: スコア=主色、タイマー=赤（緊張）、コンボ=緑（達成感）
+- **モーダルの `pointer-events: none` + opacity 0**: DOMに常に存在させ、表示時は `.show` で切替（ちらつきなし）
+- **`backdrop-filter: blur(8px)`**: これだけでゲームUI感が大幅に増します
+
+## 実際の活用事例
+
+このテクニックは、モールス信号学習アプリ「[KochSprint モールス道場](https://morse-master-psi.vercel.app)」（[GitHub](https://github.com/YujiFukami/morse-master)）のタイムアタック（タイマー/スコア/コンボ）とワードチャレンジ（スコア/コンボ）のHUDで実際に使用しています。
+
+## まとめ
+
+- HUDは **flex + gap** で項目数に柔軟、小ラベル+大数値でゲームUIらしく
+- 色分け（主色/赤/緑）で **数値の意味を瞬時に伝える**
+- モーダルは **`backdrop-filter: blur` + `.show` トグル** でちらつきなしの演出

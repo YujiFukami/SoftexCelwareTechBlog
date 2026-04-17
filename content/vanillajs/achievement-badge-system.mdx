@@ -1,0 +1,177 @@
+---
+title: "実績バッジシステムをlocalStorage + Supabase併用で実装する方法"
+category: "vanillajs"
+slug: "achievement-badge-system"
+tags: ["バニラJS", "Supabase", "ゲーミフィケーション", "localStorage", "バッジ"]
+description: "ゲスト時はlocalStorage、ログイン後はSupabaseに同期する実績バッジシステム。トースト通知付き。"
+date: "2026-04-17"
+---
+
+## はじめに
+
+ゲームアプリにゲーミフィケーション（バッジ・実績アンロック）を追加したい、でもログインを強制したくない、でもログイン後はデバイス間で引き継ぎたい…という複合要件はよくあります。
+
+**ゲスト時はメモリ+localStorage、ログイン時はSupabaseにINSERT** の併用パターンで、シームレスに両対応できます。
+
+## こんな場面で使えます
+
+- ログイン任意のWebゲーム・学習アプリ
+- バッジ・実績・称号などのアンロック要素を追加したい場面
+- ゲストユーザーでも達成感を体験させたいサービス
+- 複数デバイスで進捗を引き継ぎたいアプリ
+
+## 実装コード
+
+### アーキテクチャ
+
+```
+バッジアンロック
+  ├── ゲスト → メモリ（Set）に保持、離脱で消える
+  └── ログイン済み → Supabase の achievements テーブルに INSERT
+                     ↑ 重複チェックで既アンロックはスキップ
+```
+
+### バッジ定義
+
+```javascript
+const BADGE_DEFS = [
+  { id: 'first_correct', icon: '⭐' },  // 初めて正解
+  { id: 'combo_5',       icon: '🔥' },  // 5連続正解
+  { id: 'combo_10',      icon: '💥' },  // 10連続正解
+  { id: 'accuracy_90',   icon: '🎯' },  // 正答率90%以上
+  { id: 'top10',         icon: '🥇' },  // ランキングTop10
+  // ...
+];
+```
+
+### Achievements モジュール（IIFE）
+
+```javascript
+const Achievements = (() => {
+  let _unlocked = new Set();
+
+  async function load() {
+    if (!Auth.isLoggedIn) return;
+    const { data } = await DB.from('achievements')
+      .select('badge_id')
+      .eq('user_id', Auth.user.id);
+    if (data) data.forEach(r => _unlocked.add(r.badge_id));
+  }
+
+  async function unlock(badgeId) {
+    if (_unlocked.has(badgeId)) return;     // ★ 重複スキップ
+    _unlocked.add(badgeId);
+    showToast(badgeId);                     // 即座にUI通知
+    if (!Auth.isLoggedIn) return;           // ゲストはここで終了
+    await DB.from('achievements').insert({
+      user_id: Auth.user.id,
+      badge_id: badgeId
+    }).single();
+  }
+
+  async function check(context) {
+    const { correct, combo, accuracy, wpm } = context;
+    if (correct >= 1)   await unlock('first_correct');
+    if (combo >= 5)     await unlock('combo_5');
+    if (combo >= 10)    await unlock('combo_10');
+    if (accuracy >= 90) await unlock('accuracy_90');
+    if (wpm >= 30)      await unlock('wpm_30');
+  }
+
+  function has(id) { return _unlocked.has(id); }
+  function all() { return BADGE_DEFS; }
+
+  return { load, unlock, check, has, all };
+})();
+```
+
+### トースト通知（右下スライドイン）
+
+```javascript
+function showToast(badgeId) {
+  const def = BADGE_DEFS.find(b => b.id === badgeId);
+  if (!def) return;
+  const toast = document.createElement('div');
+  toast.className = 'achievement-toast';
+  toast.innerHTML = `
+    <span class="achievement-toast__icon">${def.icon}</span>
+    <div>
+      <div class="achievement-toast__label">Achievement Unlocked!</div>
+      <div class="achievement-toast__name">${I18N.t(`badge.${badgeId}.name`)}</div>
+    </div>`;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.classList.add('show'), 50);  // アニメーション発火
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 400);
+  }, 3500);
+}
+```
+
+```css
+.achievement-toast {
+  position: fixed;
+  bottom: 24px; right: 24px;
+  background: var(--card-bg);
+  border: 1px solid var(--primary);
+  border-radius: 14px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  transform: translateX(120%);                                     /* 初期: 右に隠れる */
+  transition: transform .35s cubic-bezier(.34,1.56,.64,1);         /* ★ バネ感 */
+  z-index: 9999;
+  min-width: 250px;
+}
+.achievement-toast.show { transform: translateX(0); }
+```
+
+### Supabase テーブル定義
+
+```sql
+create table achievements (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid references auth.users not null,
+  badge_id   text not null,
+  created_at timestamptz default now(),
+  unique(user_id, badge_id)    -- ★ DBレベルでも重複防止
+);
+
+alter table achievements enable row level security;
+create policy "own" on achievements using (auth.uid() = user_id);
+```
+
+### 呼び出し例
+
+```javascript
+// ページ初期化時
+await Achievements.load();
+
+// 正解処理後
+await Achievements.check({
+  correct: totalCorrect,
+  combo: currentCombo,
+  accuracy: Math.round(correct / total * 100),
+  wpm: currentWpm
+});
+```
+
+## 注意点・ハマりポイント
+
+- **`Set` で即座に重複チェック**: DB問い合わせを待たずメモリで弾くことで、UX的に即時応答できます
+- **`unique(user_id, badge_id)` でDB側も二重防御**: メモリセットが失われた場合でも重複挿入を防げます
+- **ゲストでも `unlock()` を通す**: `showToast()` の後に `if (!Auth.isLoggedIn) return` とすれば、ログインチェックでUIが阻害されません
+- **トーストの `setTimeout 50ms`**: DOM追加直後の `classList.add('show')` はアニメーションが効かないことがあります。50ms遅らせると確実にトランジションが発火
+- **cubic-bezier の `(.34,1.56,.64,1)`**: 行き過ぎて戻るバネ感のある自然な動き
+
+## 実際の活用事例
+
+このテクニックは、モールス信号学習アプリ「[KochSprint モールス道場](https://morse-master-psi.vercel.app)」（[GitHub](https://github.com/YujiFukami/morse-master)）で実際に使用しています。9種類のバッジ（コンボ/精度/進捗/特殊/ランキング系）でゲスト・ログイン両対応し、ログイン後は全デバイスで実績が引き継がれます。
+
+## まとめ
+
+- **メモリSet + DB unique制約** の二重防御で重複アンロックを防ぐ
+- ゲストはトースト表示のみ、ログインでDB保存という **段階的データ永続化**
+- バネ感のあるcubic-bezierで **達成感のあるアニメーション**

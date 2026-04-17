@@ -1,0 +1,135 @@
+---
+title: "flex-wrap + orderで2段ナビゲーションを作る方法（モバイルは下部タブバー）"
+category: "vanillajs"
+slug: "flex-wrap-two-row-nav"
+tags: ["CSS", "flexbox", "ナビゲーション", "レスポンシブ", "モバイル対応"]
+description: "overflow:hiddenやscrollに頼らず、flex-wrap + orderで自動2段ナビ。モバイルは下部タブバーに完全切替。"
+date: "2026-04-17"
+---
+
+## はじめに
+
+デスクトップのナビバーに「ロゴ」「複数のリンク」「認証ボタン」「言語切替」「テーマ切替」などを並べると、横幅が足りずにリンクが消える、という問題がありますよね。
+
+`overflow: hidden` で切れる、`overflow-x: auto` でスクロールバーが出る、どちらも見栄えがよくありません。`flex-wrap: wrap` + `order` を組み合わせると、**自動で2段折り返し** してくれる綺麗なナビバーが作れます。
+
+## こんな場面で使えます
+
+- リンク数が多く、デスクトップでも1段に収まらないナビバー
+- ロゴ / リンク / コントロール を整理して配置したいヘッダー
+- モバイルで下部タブバーに切り替えたいサイト
+- リンクが動的に増減するアプリケーション
+
+## 実装コード
+
+### HTML構造
+
+```html
+<nav id="main-nav">
+  <div class="nav-inner">
+    <a class="nav-logo" href="/">                    <!-- 1段目左 -->
+      <span class="logo-text">KochSprint</span>
+    </a>
+    <div class="nav-controls">                        <!-- 1段目右 -->
+      <!-- 言語 / テーマ / ログイン -->
+    </div>
+    <div class="nav-links">                           <!-- 2段目全幅 -->
+      <a class="nav-link" href="/trainer">Koch Trainer</a>
+      <a class="nav-link" href="/timeattack">Time Attack</a>
+      <!-- ... -->
+    </div>
+  </div>
+</nav>
+```
+
+### CSS — 核心の3要素
+
+```css
+.nav-inner {
+  width: min(95%, 1200px);
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;          /* ★ 折り返しを許可 */
+  align-items: center;
+  gap: 4px 12px;
+  padding: 8px 12px;
+}
+
+/* ロゴ: order なし（デフォルト0）→ 1段目左端 */
+.nav-logo { /* ... */ }
+
+/* コントロール: order:2 + margin-left:auto → 1段目右端 */
+.nav-controls {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  order: 2;
+}
+
+/* リンク群: order:3 + width:100% → 2段目に折り返し */
+.nav-links {
+  display: flex;
+  gap: 4px;
+  order: 3;
+  width: 100%;              /* ★ 2段目として1行まるごと使う */
+}
+```
+
+### モバイル（≤1024px）では下部タブバーに切替
+
+```css
+.mobile-tab-bar { display: none; }
+
+@media (max-width: 1024px) {
+  .nav-links { display: none !important; }
+
+  .mobile-tab-bar {
+    display: flex;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--nav-bg);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--card-border);
+    z-index: 200;
+    padding: 4px 0 max(4px, env(safe-area-inset-bottom));
+    justify-content: space-around;
+  }
+
+  .page-wrapper { padding-bottom: 60px; }
+}
+
+.mobile-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  padding: 5px 2px;
+  -webkit-tap-highlight-color: transparent;
+}
+.mobile-tab.active { color: var(--primary); }
+```
+
+## 各方法の比較
+
+| 方法 | 問題点 |
+|------|--------|
+| `overflow: hidden` | リンクが完全に見切れる（最悪パターン） |
+| `overflow-x: auto` | スクロールバーが出る・見栄え悪い |
+| **`flex-wrap + order`** | **自動で2段、どの幅でも全リンク表示** |
+
+## 注意点・ハマりポイント
+
+- **`order: 3` + `width: 100%`** が2段折り返しの核心。親が `flex-wrap: wrap` なら自動的に次の行に移ります
+- **ブレークポイントは1種類に統一**: 640/768/1024 が混在すると混乱の元。1つに決めましょう
+- **`env(safe-area-inset-bottom)`**: iPhone のホームインジケータとの被りを回避
+- **`flex-wrap: nowrap` + `overflow: hidden` は禁止**: リンクが全消えします
+
+## 実際の活用事例
+
+このテクニックは、モールス信号学習アプリ「[KochSprint モールス道場](https://morse-master-psi.vercel.app)」（[GitHub](https://github.com/YujiFukami/morse-master)）のナビゲーションで実際に使用しています。5ページのナビ（トレーナー/タイムアタック/ワード/ランキング/一覧）をデスクトップでは2段、モバイルでは下部タブバーに切替えています。
+
+## まとめ
+
+- `flex-wrap: wrap` + `order` + `width: 100%` で **自動2段ナビ** が実現可能
+- モバイルはメディアクエリで **下部タブバーに完全切替** するとUXが向上
+- `overflow: hidden` はリンクが消えるので絶対NG

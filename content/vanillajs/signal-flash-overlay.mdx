@@ -1,0 +1,113 @@
+---
+title: "pointer-events:noneの全画面オーバーレイで音と連動する視覚フィードバック"
+category: "vanillajs"
+slug: "signal-flash-overlay"
+tags: ["CSS", "アクセシビリティ", "オーバーレイ", "視覚フィードバック", "UI"]
+description: "音声再生と完全同期する全画面フラッシュを実装。pointer-events:none + opacity遷移でUI操作を邪魔しない。"
+date: "2026-04-17"
+---
+
+## はじめに
+
+音声（モールス信号、リズム等）の再生に合わせて「視覚的にも点滅で伝えたい」場面があります。聴覚障害ユーザーへのアクセシビリティ対応にもなり、画面中央の小さいインジケーターだけでは伝わらない迫力を補えます。
+
+でも全画面オーバーレイを被せるとUI操作を邪魔してしまいます。**`pointer-events: none` + opacity遷移** でクリックを透過しつつ、音と完全同期した点滅が実現できます。
+
+## こんな場面で使えます
+
+- モールス信号やリズム音の視覚フィードバック（アクセシビリティ対応）
+- 通知音と連動した画面エフェクト
+- 警告・アラート音と連動したフラッシュ表示
+- ゲームの「ダメージを受けた」「クリティカル発生」等の演出
+
+## 実装コード
+
+### 1. HTML — body の最前面に固定オーバーレイ
+
+```html
+<body>
+  <div id="signal-flash-overlay" class="signal-flash-overlay"></div>
+  <div class="page-wrapper">
+    <!-- 通常コンテンツ -->
+  </div>
+</body>
+```
+
+### 2. CSS — 高速なopacity遷移
+
+```css
+.signal-flash-overlay {
+  position: fixed;
+  inset: 0;                          /* top/right/bottom/left = 0 */
+  pointer-events: none;              /* ★ クリックを透過 */
+  z-index: 5;                        /* ナビ(100)より低く、コンテンツより高い */
+  background: var(--primary);
+  opacity: 0;
+  transition: opacity 0.012s linear; /* 12ms: モールス最短符号に追従 */
+}
+
+.signal-flash-overlay.active {
+  opacity: 0.16;                     /* 薄く光る（眩しくない） */
+}
+```
+
+### 3. JS — 音声エンジンのコールバックと連動
+
+```javascript
+function setupSignalFlash() {
+  const indicator = document.getElementById('signal-indicator');
+  const overlay   = document.getElementById('signal-flash-overlay');
+
+  MorseEngine.onSignal(
+    () => {  // 音ON時
+      indicator?.classList.add('active');
+      overlay?.classList.add('active');
+    },
+    () => {  // 音OFF時
+      indicator?.classList.remove('active');
+      overlay?.classList.remove('active');
+    }
+  );
+}
+
+// init() 内で呼ぶ
+setupSignalFlash();
+```
+
+### 中央インジケーター（セットで使う）
+
+```css
+.signal-indicator {
+  width: 80px; height: 80px;
+  border-radius: 50%;
+  border: 2px solid var(--card-border);
+  margin: 0 auto 28px;
+  transition: all .08s ease;
+}
+.signal-indicator.active {
+  background: var(--primary);
+  box-shadow: 0 0 40px var(--primary), 0 0 80px var(--primary-dim);
+  border-color: var(--primary);
+  transform: scale(1.08);
+}
+```
+
+全画面フラッシュ + 中央インジケーターの **二重視覚フィードバック** が効果的です。
+
+## 注意点・ハマりポイント
+
+- **`pointer-events: none` が必須**: ないとフラッシュ中にボタンがクリックできなくなります
+- **opacity は 0 → 0.16 程度に抑える**: 1.0にすると眩しくて不快。薄い値の方がUX的にも心地よい
+- **transition 12ms**: モールス20WPMのドット長60msの1/5程度。音の開始/終了に十分追従できます
+- **`z-index: 5`**: ナビ(100)・モーダル(200)より低く、コンテンツより高い「中間層」に配置
+- **テーマカラー(`var(--primary)`)を使う**: ダーク/ライトモード両対応で自動的にマッチします
+
+## 実際の活用事例
+
+このテクニックは、モールス信号学習アプリ「[KochSprint モールス道場](https://morse-master-psi.vercel.app)」（[GitHub](https://github.com/YujiFukami/morse-master)）のタイムアタック・ワードチャレンジ・コッホトレーナー3ページで使用しています。モールス音と完全同期した全画面青色フラッシュにより、音が聞こえない環境でも符号の長短が視覚的に判別できます。
+
+## まとめ
+
+- `pointer-events: none` で **UI操作を邪魔しない全画面フラッシュ**
+- `opacity: 0 → 0.16` の薄い値と短いtransition(12ms)で **音と精密に同期**
+- 中央インジケーター + 全画面オーバーレイの **二重フィードバック** が効果的
