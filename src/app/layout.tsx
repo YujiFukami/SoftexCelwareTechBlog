@@ -27,6 +27,9 @@ export const metadata: Metadata = {
     locale: "ja_JP",
     siteName: "Softex Celware Tech Blog",
   },
+  verification: {
+    google: "TZKcy7WAXtONQB9ktoJo-8CTMxWHKgWgzSleZxn_obY",
+  },
 };
 
 export default function RootLayout({
