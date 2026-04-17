@@ -1,0 +1,146 @@
+---
+title: "ビルドツール不要でバニラJSに多言語対応（i18n）を実装する方法"
+category: "vanillajs"
+slug: "vanilla-i18n"
+tags: ["バニラJS", "i18n", "多言語対応", "localStorage", "data属性"]
+description: "静的HTML + バニラJSでビルド不要の軽量i18nを実装。data-i18n属性とlocalStorageで12言語対応も可能。"
+date: "2026-04-17"
+---
+
+## はじめに
+
+静的HTML + バニラJSで作ったWebアプリを多言語対応したい、でも `next-intl` や `i18next` のようなフレームワーク依存は避けたい、という場面は意外と多いですよね。
+
+特にGitHub Pages や Vercel の静的ホスティングにそのままアップするような軽量アプリだと、ビルドステップを挟むだけで一気に複雑になります。実は、`data-i18n` 属性 + シンプルなJSエンジンだけで、**ビルド不要の多言語対応** が実現できます。
+
+## こんな場面で使えます
+
+- 静的HTMLとJSだけの軽量Webアプリの国際化
+- GitHub Pages / Vercel 等でビルドなしホスティングしているサイト
+- 既存のHTMLに後からi18nを追加したいケース
+- ユーティリティ系ツール（変換ツール、ゲーム、計算機など）
+
+## 実装コード
+
+### HTML側：`data-i18n` 属性でキーを指定
+
+```html
+<h1 data-i18n="app.title">イラストロジック 自動解答</h1>
+<button data-i18n="solver.run">▶ 解答実行</button>
+<input data-i18n-placeholder="solver.hintPlaceholder" placeholder="数字を入力...">
+<button data-i18n-title="solver.zoomInTitle" title="1px拡大">＋</button>
+```
+
+- `data-i18n` → `textContent` を差し替え
+- `data-i18n-placeholder` → `placeholder` 属性を差し替え
+- `data-i18n-title` → `title` 属性を差し替え
+
+### i18nエンジン（`i18n.js`）
+
+```javascript
+const I18n = (() => {
+  const _dict = {};   // { lang: { key: value } }
+  let _lang = 'ja';
+
+  return {
+    register(lang, dict) {
+      _dict[lang] = { ...(_dict[lang] || {}), ...dict };
+    },
+
+    setLang(lang) {
+      if (!_dict[lang]) return;
+      _lang = lang;
+      localStorage.setItem('lang', lang);
+      document.documentElement.lang = lang;
+      this.applyToDOM();
+      document.dispatchEvent(new Event('langchange'));
+    },
+
+    t(key, params = {}) {
+      const s = (_dict[_lang] && _dict[_lang][key]) || key;
+      return s.replace(/\{\{(\w+)\}\}/g, (_, k) => params[k] ?? '');
+    },
+
+    applyToDOM() {
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        el.textContent = this.t(el.dataset.i18n);
+      });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        el.placeholder = this.t(el.dataset.i18nPlaceholder);
+      });
+      document.querySelectorAll('[data-i18n-title]').forEach(el => {
+        el.title = this.t(el.dataset.i18nTitle);
+      });
+    },
+
+    init() {
+      const saved = localStorage.getItem('lang');
+      const browser = navigator.language.split('-')[0];
+      _lang = (saved && _dict[saved]) ? saved
+            : (_dict[browser] ? browser : 'ja');
+      this.applyToDOM();
+    },
+
+    get lang() { return _lang; },
+  };
+})();
+```
+
+### 各言語ファイル（例：`en.js`）
+
+```javascript
+I18n.register('en', {
+  'app.title': 'Nonogram Solver',
+  'solver.run': '▶ Solve',
+  'solver.cellSize': 'Cell size: {{n}}px',  // テンプレート変数
+  // ...
+});
+```
+
+### 動的テキストでの使い方
+
+```javascript
+el.cellSizeDisplay.textContent = I18n.t('solver.cellSize', { n: size });
+
+// 言語切替イベントで動的テキストも更新
+document.addEventListener('langchange', () => {
+  el.cellSizeDisplay.textContent = I18n.t('solver.cellSize', { n: currentSize });
+});
+```
+
+## 使い方・カスタマイズ
+
+### 言語セレクタの作り方
+
+```javascript
+const sel = document.getElementById('lang-select');
+Object.keys(locales).forEach(lang => {
+  const opt = document.createElement('option');
+  opt.value = lang;
+  opt.textContent = I18n.t('lang.name');
+  sel.appendChild(opt);
+});
+sel.addEventListener('change', () => I18n.setLang(sel.value));
+```
+
+### 言語の自動検出順
+
+1. `localStorage.getItem('lang')` — 前回選んだ言語
+2. `navigator.language` — ブラウザの言語設定
+3. デフォルト（`ja` など）
+
+## 注意点・ハマりポイント
+
+- **`langchange` イベント**: JS で動的に設定したテキスト（Canvas描画ラベル等）は `applyToDOM()` では更新されません。カスタムイベントでフックを用意しましょう
+- **テンプレート変数**: `{{n}}` 形式は正規表現1行で実装可能。`{{0}}` のような数値キーでもOK
+- **SEO対応**: `<meta property="og:locale:alternate">` で全言語のlocaleを列挙すると、検索エンジンの多言語認識が向上します
+
+## 実際の活用事例
+
+このテクニックは、「[イラストロジック自動解答Web版](https://nonogram-solver-creator.vercel.app/)」（[GitHub](https://github.com/YujiFukami/nonogram-solver-creator)）で実際に使用しています。日本語・英語・ロシア語・韓国語・フランス語・イタリア語・ドイツ語・スペイン語・トルコ語・中国語（簡体/繁体）・ポーランド語の **12言語対応** をビルドツール不要で実現しています。
+
+## まとめ
+
+- `data-i18n` 属性 + JSエンジンで **ビルド不要の多言語対応** が可能
+- `localStorage` + `navigator.language` で前回選択/ブラウザ言語を自動検出
+- `langchange` イベントで動的テキストも言語切替に追従できる

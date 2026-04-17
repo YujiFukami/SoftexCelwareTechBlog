@@ -1,0 +1,130 @@
+---
+title: "デザインツール不要！SVGファビコン＋PythonでPNG生成する方法"
+category: "vanillajs"
+slug: "svg-favicon-png"
+tags: ["バニラJS", "SVG", "PNG", "ファビコン", "Python"]
+description: "コードだけでファビコンを生成。SVG + Python(struct/zlib)でPillowなしにPNG生成するパターン。"
+date: "2026-04-17"
+---
+
+## はじめに
+
+Webアプリにファビコンを追加するとき、Photoshopなどのデザインツールを立ち上げるのは正直面倒ですよね。しかもSVG/PNG/Apple Touch Iconの3形式を用意しないと、全ブラウザ・全デバイスに対応できません。
+
+実は、**コードだけでファビコンを全形式生成** できます。SVGはテキストエディタで編集、PNGはPython標準ライブラリ（`struct` + `zlib`）だけで生成可能です。Pillowのような追加パッケージも不要です。
+
+## こんな場面で使えます
+
+- CI/CDでファビコンを自動生成したい
+- アプリのデザインに合わせたシンプルなパターン系ファビコン
+- Pillowをインストールしたくない軽量Python環境
+- SVGファビコンのフォールバック用PNGを生成したい
+
+## 実装コード
+
+### 1. SVGファビコン（テキストベースで編集容易）
+
+```xml
+<!-- favicon.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="4" fill="#2563eb"/>
+  <!-- グリッドパターン等のデザイン要素 -->
+  <rect x="3" y="3" width="6" height="6" fill="#fff"/>
+  <rect x="10" y="3" width="6" height="6" fill="#1a1a1a"/>
+  <!-- ... -->
+</svg>
+```
+
+### 2. PythonでPNG生成（外部ライブラリ不要）
+
+```python
+import struct, zlib
+
+def create_png(width, height, pixels):
+    """ピクセル配列からPNGバイナリを生成（Pillow不要）"""
+    def chunk(chunk_type, data):
+        c = chunk_type + data
+        crc = struct.pack('>I', zlib.crc32(c) & 0xffffffff)
+        return struct.pack('>I', len(data)) + c + crc
+
+    header = b'\x89PNG\r\n\x1a\n'
+    ihdr = chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0))
+
+    raw = b''
+    for y in range(height):
+        raw += b'\x00'  # フィルタなし
+        for x in range(width):
+            raw += bytes(pixels[y][x])  # (R, G, B) タプル
+
+    idat = chunk(b'IDAT', zlib.compress(raw))
+    iend = chunk(b'IEND', b'')
+    return header + ihdr + idat + iend
+
+
+# 使用例: 32x32 のパターン生成
+pixels = []
+for y in range(32):
+    row = []
+    for x in range(32):
+        # アプリに合わせたデザインロジック
+        row.append((37, 99, 235))  # RGB
+    pixels.append(row)
+
+with open('favicon-32.png', 'wb') as f:
+    f.write(create_png(32, 32, pixels))
+```
+
+### 3. HTML側の宣言
+
+```html
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+```
+
+モダンブラウザはSVGを優先、未対応ブラウザはPNGにフォールバックします。
+
+## 使い方・カスタマイズ
+
+### Apple Touch Icon（180×180）も同じ関数で生成
+
+```python
+# 32×32 のパターンを単純にスケールアップ
+def scale_up(pixels, factor):
+    scaled = []
+    for row in pixels:
+        new_row = []
+        for pixel in row:
+            new_row.extend([pixel] * factor)
+        for _ in range(factor):
+            scaled.append(new_row[:])
+    return scaled
+
+apple_pixels = scale_up(pixels, 180 // 32 + 1)[:180]
+apple_pixels = [r[:180] for r in apple_pixels]
+with open('apple-touch-icon.png', 'wb') as f:
+    f.write(create_png(180, 180, apple_pixels))
+```
+
+### パターンの切り替え
+
+- 単色背景 + テキスト
+- グリッドパターン（アプリのモチーフに合わせて）
+- グラデーション（RGB値を座標で変化させる）
+
+## 注意点・ハマりポイント
+
+- **SVGが最優先**: モダンブラウザはSVGをベクターで表示してくれるので、解像度によらず綺麗に見えます
+- **`viewBox` の余白**: SVGの `viewBox` が小さいと、テキストや要素が切れます。要素より少し大きめに設定しましょう
+- **CRC計算**: `zlib.crc32` は符号付きを返す場合があるので `& 0xffffffff` でマスク必須
+- **フィルタバイト**: 各行の先頭 `\x00` を忘れるとPNGとして認識されません
+
+## 実際の活用事例
+
+このテクニックは、「[イラストロジック自動解答Web版](https://nonogram-solver-creator.vercel.app/)」（[GitHub](https://github.com/YujiFukami/nonogram-solver-creator)）のファビコンで実際に使用しています。ノノグラムグリッドのパターンをSVGでデザインし、フォールバック用のPNGはPythonで自動生成しています。
+
+## まとめ
+
+- SVGファビコン + Python標準ライブラリで **全形式のファビコンをコードだけで生成** できる
+- Pillow不要なので、軽量なPython環境やCI/CDでも扱いやすい
+- SVG優先 + PNGフォールバックで全ブラウザ対応

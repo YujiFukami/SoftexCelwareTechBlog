@@ -1,0 +1,137 @@
+---
+title: "重い処理でUIが固まらない！setTimeout(0)でプログレスバー＋キャンセル対応"
+category: "vanillajs"
+slug: "async-loop-progress"
+tags: ["バニラJS", "非同期", "UI応答性", "プログレスバー", "setTimeout"]
+description: "重い計算処理中もUIがフリーズしない非同期ループパターン。setTimeout(0)でプログレス更新とキャンセル対応を両立。"
+date: "2026-04-17"
+---
+
+## はじめに
+
+ソルバーや画像処理のような重いループ処理を実行すると、**UIが完全にフリーズ** してしまうことがありますよね。プログレスバーを出したくてもDOM更新が反映されず、ユーザーは「止まった？」と不安になります。
+
+Web Worker を使えば解決しますが、DOM操作ができないなど制約も多いです。実は `setTimeout(r, 0)` を1行挟むだけで、**メインスレッドのままUI応答性を確保** できます。
+
+## こんな場面で使えます
+
+- パズルソルバー・最適化アルゴリズム等の反復処理
+- 大量データの変換・集計処理
+- 画像の連続処理（フィルタ適用、サムネイル生成など）
+- プログレスバー付きで「キャンセルボタン」を効かせたい画面
+
+## 実装コード
+
+### Before：UIフリーズする同期ループ
+
+```javascript
+function solve() {
+  const solver = new Solver(hints);
+  solver.solve();  // 同期的に全ステップ実行 → UIフリーズ
+  showResult(solver);
+}
+```
+
+### After：UI応答性ありの非同期ループ
+
+```javascript
+let _cancelFlag = false;
+
+async function solve() {
+  _cancelFlag = false;
+  const solver = new Solver(hints);
+  const maxIter = 5000;
+  let iterations = 0;
+
+  // プログレスバー・キャンセルボタンを表示
+  progressBar.style.display = 'block';
+  cancelBtn.style.display = 'inline-block';
+
+  while (!solver.isSolved() && !solver.contradiction && iterations < maxIter) {
+    // ★ UIスレッドに制御を返す
+    await new Promise(r => setTimeout(r, 0));
+
+    // ★ キャンセルチェック
+    if (_cancelFlag) {
+      showStatus('中断しました');
+      break;
+    }
+
+    // 1ステップ実行
+    const changed = solver.step();
+    iterations++;
+
+    // プログレス更新（毎回でなくN回に1回でもOK）
+    if (iterations % 10 === 0) {
+      const pct = solver.getProgress();
+      progressBar.style.width = pct + '%';
+      progressText.textContent = pct.toFixed(1) + '%';
+    }
+
+    // 進展がなければ高負荷ステップを試行
+    if (!changed) {
+      await new Promise(r => setTimeout(r, 0));  // ここでもyield
+      if (_cancelFlag) break;
+      solver.intensiveStep();
+    }
+  }
+
+  progressBar.style.display = 'none';
+  cancelBtn.style.display = 'none';
+  showResult(solver);
+}
+
+// キャンセルボタン
+cancelBtn.addEventListener('click', () => { _cancelFlag = true; });
+```
+
+### 核心は1行
+
+```javascript
+await new Promise(r => setTimeout(r, 0));
+```
+
+- `setTimeout(r, 0)` でイベントループに制御を一瞬戻す
+- この間にブラウザが **DOM更新（プログレスバー）** や **クリックイベント（キャンセル）** を処理できる
+- Web Workerを使わなくてもメインスレッドでUI応答性を確保できる
+
+## 使い方・カスタマイズ
+
+### 大量データ処理の分割
+
+```javascript
+async function processItems(items) {
+  for (let i = 0; i < items.length; i++) {
+    processItem(items[i]);
+
+    // 100件ごとにUIスレッドに返す
+    if (i % 100 === 0) {
+      await new Promise(r => setTimeout(r, 0));
+      updateProgress(i / items.length * 100);
+    }
+  }
+}
+```
+
+### setTimeout(0) vs Web Worker の使い分け
+
+| 方式 | メリット | デメリット | 適するケース |
+|------|---------|-----------|-------------|
+| `setTimeout(0)` | DOM直接操作可、実装が簡単 | 重い1ステップ中はフリーズ | ステップが軽い反復処理 |
+| Web Worker | 完全並列、UIフリーズなし | DOM操作不可、データ受け渡しコスト | 重い計算、大規模データ処理 |
+
+## 注意点・ハマりポイント
+
+- **1ステップが重いとダメ**: `setTimeout(0)` はステップ間でyieldするだけです。1ステップ内に重い計算があると、そこでフリーズします
+- **プログレス更新は間引く**: 毎イテレーション更新すると描画コストが高くなるので `iterations % 10 === 0` などで間引きましょう
+- **キャンセルフラグはモジュールスコープ**: 関数ローカルだとボタンからアクセスできないので、上位スコープに置きます
+
+## 実際の活用事例
+
+このテクニックは、「[イラストロジック自動解答Web版](https://nonogram-solver-creator.vercel.app/)」（[GitHub](https://github.com/YujiFukami/nonogram-solver-creator)）で実際に使用しています。ノノグラムソルバーの検証処理（数千イテレーション）、問題作成タブ、QRコード生成タブのいずれでも同じパターンを適用し、長時間処理中もプログレスとキャンセルが動作します。
+
+## まとめ
+
+- `await new Promise(r => setTimeout(r, 0))` の1行で **UI応答性を確保** できる
+- プログレス更新とキャンセル対応が Web Worker なしで実現可能
+- 1ステップが重い場合は Web Worker への移行を検討

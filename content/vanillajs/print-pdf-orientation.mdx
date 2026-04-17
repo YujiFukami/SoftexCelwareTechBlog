@@ -1,0 +1,105 @@
+---
+title: "印刷PDFの用紙向きをコンテンツの縦横比から自動判定する方法"
+category: "vanillajs"
+slug: "print-pdf-orientation"
+tags: ["バニラJS", "印刷", "PDF", "CSS", "@page"]
+description: "CSS @page + 縦横比計算で、A4縦/横を自動切替する印刷PDF生成パターン。ユーザー操作不要。"
+date: "2026-04-17"
+---
+
+## はじめに
+
+Webアプリから印刷機能を提供するとき、コンテンツが横長なら横向き印刷、縦長なら縦向き印刷にしたいですよね。ユーザーに毎回「縦/横どちらで印刷しますか？」と聞くのは地味にストレスです。
+
+CSS `@page` と `window.open` を組み合わせれば、**コンテンツの縦横比から自動判定してA4縦/横を切り替える** ことが可能です。ユーザー操作ゼロでスマートな印刷が実現できます。
+
+## こんな場面で使えます
+
+- パズル盤面やゲーム配置図の印刷
+- 表やチャートの印刷（列数が多ければ横向きにしたい）
+- ワイド画面スクショや横長のタイムラインの印刷
+- 帳票系Webアプリで用途別に縦横を使い分けたい場合
+
+## 実装コード
+
+### 縦横比で自動判定 + @page 動的生成
+
+```javascript
+function printPuzzle(cols, rows, renderContent) {
+  // 縦横比で自動判定（cols/rows > 1.15 なら横長）
+  const landscape = (cols / rows) > 1.15;
+  const orientation = landscape ? 'landscape' : 'portrait';
+
+  // 印刷エリアのサイズ（A4に収まる範囲）
+  const areaW = landscape ? 1000 : 750;
+  const areaH = landscape ? 750  : 1000;
+
+  const printWindow = window.open('', '_blank',
+    `width=${landscape ? 1100 : 850},height=${landscape ? 850 : 1100}`
+  );
+
+  printWindow.document.write(`
+    <html><head>
+    <style>
+      @page { size: A4 ${orientation}; margin: 10mm; }
+      @media print { body { margin: 0; } }
+    </style>
+    </head><body>
+      ${renderContent(areaW, areaH)}
+    </body></html>
+  `);
+
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+}
+```
+
+### 判定の閾値
+
+```javascript
+const landscape = (cols / rows) > 1.15;
+```
+
+- **1.15倍**を閾値にした理由: 正方形に近い場合（1.0〜1.15）は縦の方が余白的に収まりがよい
+- 横に大きく偏る場合のみlandscapeにする
+
+## 使い方・カスタマイズ
+
+### 呼び出し側
+
+```javascript
+// 20列×10行 → 横向き自動選択
+printPuzzle(20, 10, (w, h) => `
+  <h1 style="text-align:center">パズル</h1>
+  <div style="width:${w}px;height:${h}px;margin:0 auto">
+    ${renderPuzzleHTML()}
+  </div>
+`);
+
+// 10列×15行 → 縦向き自動選択
+printPuzzle(10, 15, (w, h) => `...`);
+```
+
+### 閾値の調整
+
+- コンテンツによって最適な閾値は異なります
+- 表形式なら `1.3` 程度にして、ある程度横長でないと横向きにしない
+- 画像中心なら `1.0` にして少しでも横長なら即横向き
+
+## 注意点・ハマりポイント
+
+- **`@page` はCSSのみ**: `size: A4 landscape` のように記述。印刷ダイアログで自動的に用紙向きが設定されます
+- **`window.open` のサイズも連動**: プレビュー用のウィンドウサイズも合わせると、印刷前プレビューが見やすくなります
+- **`@media print` でマージン調整**: `body { margin: 0 }` を指定しないと、ブラウザデフォルトの余白が残ります
+- **ポップアップブロック対策**: `window.open` はユーザー操作（クリック等）から呼び出す必要があります
+
+## 実際の活用事例
+
+このテクニックは、「[イラストロジック自動解答Web版](https://nonogram-solver-creator.vercel.app/)」（[GitHub](https://github.com/YujiFukami/nonogram-solver-creator)）の印刷機能で実際に使用しています。問題のグリッドサイズ（列数 / 行数）から自動的に縦向き/横向きを判定し、A4用紙に最適な向きで印刷されるようにしています。
+
+## まとめ
+
+- CSS `@page { size: A4 landscape }` で **印刷ダイアログの用紙向きを自動設定** できる
+- コンテンツの縦横比から自動判定すれば、ユーザー操作不要で最適な印刷に
+- 閾値1.15は正方形に近い場合に縦を優先するバランスの取れた設定

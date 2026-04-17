@@ -1,0 +1,152 @@
+---
+title: "Canvasで複数要素を1枚に合成してPNGダウンロードする方法"
+category: "vanillajs"
+slug: "canvas-export"
+tags: ["バニラJS", "Canvas", "画像エクスポート", "PNG", "dataURL"]
+description: "グリッド＋ヒント数字＋罫線をCanvasに合成して1枚のPNGとして保存。サーバー不要でクライアント側完結。"
+date: "2026-04-17"
+---
+
+## はじめに
+
+Webアプリの表示内容を画像として保存したいとき、`html2canvas` のようなDOMスクリーンショットライブラリを使う方法もあります。でも、「画面に表示していない要素（ヒント数字など）も含めて出力したい」「きれいなピクセル品質で出したい」となると、**Canvasに直接描画して合成する** のが一番柔軟です。
+
+ここでは、グリッド＋上部/左部のヒント数字＋罫線を1枚のPNGに合成するパターンを紹介します。サーバー不要でクライアント側完結です。
+
+## こんな場面で使えます
+
+- パズル・ゲーム盤面をヒント付きで画像出力したい
+- チャート＋表を1枚にまとめてSNS共有用画像を生成したい
+- 帳票系Webアプリで印刷プレビュー画像を作りたい
+- ウォーターマーク入りの画像をダウンロードさせたい
+
+## 実装コード
+
+### Canvas上に合成描画
+
+```javascript
+function renderPuzzleWithHints(rowHints, colHints, grid) {
+  const rows = rowHints.length;
+  const cols = colHints.length;
+
+  // ヒントの最大深さを計算
+  const maxColDepth = Math.max(...colHints.map(h => h.length), 1);
+  const maxRowDepth = Math.max(...rowHints.map(h => h.length), 1);
+
+  // セルサイズを自動計算（出力画像が大きすぎないよう制限）
+  const tentW = (1600 - maxRowDepth * 14) / cols;
+  const tentH = (1600 - maxColDepth * 16) / rows;
+  const cs = Math.max(8, Math.min(32, Math.floor(Math.min(tentW, tentH))));
+
+  const fs = Math.max(7, Math.min(13, Math.floor(cs * 0.65)));
+  const cellHH = fs + 4;  // ヒントセル高さ
+  const cellHW = fs + 6;  // ヒントセル幅
+
+  const colHintH = maxColDepth * cellHH;
+  const rowHintW = maxRowDepth * cellHW;
+  const totalW = rowHintW + cols * cs + 1;
+  const totalH = colHintH + rows * cs + 1;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = totalW;
+  canvas.height = totalH;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, totalW, totalH);
+
+  // ─── 列ヒント（上部）描画 ───
+  ctx.font = `bold ${fs}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let c = 0; c < cols; c++) {
+    const h = colHints[c];
+    const x = rowHintW + c * cs;
+    for (let d = 0; d < h.length; d++) {
+      const y = colHintH - (h.length - d) * cellHH;
+      ctx.strokeStyle = '#ccc';
+      ctx.strokeRect(x, y, cs, cellHH);
+      ctx.fillStyle = '#333';
+      ctx.fillText(h[d], x + cs / 2, y + cellHH / 2);
+    }
+  }
+
+  // ─── 行ヒント（左部）描画 ───
+  for (let r = 0; r < rows; r++) {
+    const h = rowHints[r];
+    const y = colHintH + r * cs;
+    for (let d = 0; d < h.length; d++) {
+      const x = rowHintW - (h.length - d) * cellHW;
+      ctx.strokeStyle = '#ccc';
+      ctx.strokeRect(x, y, cellHW, cs);
+      ctx.fillStyle = '#333';
+      ctx.fillText(h[d], x + cellHW / 2, y + cs / 2);
+    }
+  }
+
+  // ─── グリッドセル描画 ───
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x = rowHintW + c * cs;
+      const y = colHintH + r * cs;
+      const state = grid[r][c];
+      ctx.fillStyle = state === 1 ? '#1a1a1a'
+                    : state === 0 ? '#ffffff'
+                    :               '#f0f0f0';
+      ctx.fillRect(x, y, cs, cs);
+      ctx.strokeStyle = '#aaa';
+      ctx.strokeRect(x, y, cs, cs);
+    }
+  }
+
+  return canvas.toDataURL('image/png');
+}
+```
+
+### ダウンロード処理
+
+```javascript
+const dataUrl = renderPuzzleWithHints(rowHints, colHints, grid);
+const a = document.createElement('a');
+a.href = dataUrl;
+a.download = 'puzzle-with-hints.png';
+a.click();
+```
+
+`document.createElement('a') + click()` で一時的なリンクを作成してクリックすれば、ファイル保存ダイアログが開きます。
+
+## 使い方・カスタマイズ
+
+### 5マスごとの太線で見やすく
+
+```javascript
+for (let r = 0; r <= rows; r++) {
+  ctx.lineWidth = (r % 5 === 0) ? 2 : 1;
+  ctx.strokeStyle = (r % 5 === 0) ? '#333' : '#aaa';
+  ctx.beginPath();
+  ctx.moveTo(rowHintW, colHintH + r * cs);
+  ctx.lineTo(totalW, colHintH + r * cs);
+  ctx.stroke();
+}
+```
+
+### 応用例
+
+- チャート + 凡例 + タイトルを合成してSNS共有用画像に
+- ウォーターマーク（透過テキスト）をCanvas右下に追加
+- 複数の小さなサムネイルを1枚のコンタクトシートに配置
+
+## 注意点・ハマりポイント
+
+- **セルサイズの自動計算**: 出力画像の上限サイズ（例: 1600px）から逆算すると、大サイズ盤面でも破綻しません
+- **`textBaseline = 'middle'`**: これを設定しないと文字が縦方向にズレます
+- **dataURLはメモリ上に展開される**: 超大きいCanvasだとメモリ消費が大きいので、`canvas.toBlob()` + `URL.createObjectURL()` の方が効率的です
+
+## 実際の活用事例
+
+このテクニックは、「[イラストロジック自動解答Web版](https://nonogram-solver-creator.vercel.app/)」（[GitHub](https://github.com/YujiFukami/nonogram-solver-creator)）の「画像として保存（ヒント数字を含む）」機能で実際に使用しています。画面表示とは別レイアウトで、ヒント数字を含めた完成盤面を1枚のPNGとして出力しています。
+
+## まとめ
+
+- 複数要素を合成するなら **Canvas直接描画** が最も柔軟
+- `canvas.toDataURL()` + `<a download>` で **サーバー不要のPNG保存** が完結
+- セルサイズは出力上限から逆算するとスケール破綻を防げる
