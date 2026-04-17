@@ -1,0 +1,90 @@
+---
+title: "TailwindでDB由来の色を動的に適用する方法（HEX→RGBA変換）"
+category: "nextjs"
+slug: "hex-rgba-dynamic-color"
+tags: ["Tailwind CSS", "TypeScript", "カラー", "動的スタイル"]
+description: "Tailwind CSSでDBに保存したHEXカラーコードを動的に適用する方法。RGBA変換関数付き。"
+date: "2026-04-16"
+---
+
+## はじめに
+
+Tailwind CSSを使っていて、「データベースに保存した色をそのまま背景色に使いたい」と思ったことはありませんか？
+
+Tailwindは静的ビルド時にクラス名を解析するため、`bg-[${color}]` のような動的クラスは認識できません。DBから取得したHEXカラーコードをランタイムで適用するには、`style` 属性を使う必要があります。
+
+ここでは、HEXカラーコードをRGBA文字列に変換するユーティリティ関数を紹介します。透過度（alpha）を指定できるので、同じ色で背景・枠線・テキストを使い分けられます。
+
+## こんな場面で使えます
+
+- カテゴリやタグにユーザーが設定した色を反映したい
+- カレンダーやガントチャートで色分けしたい
+- 同じ色を背景（薄め）とボーダー（濃いめ）で使い分けたい
+- テーマカラーをDB管理している場合
+
+## 実装コード
+
+### HEX→RGBA変換関数
+
+```typescript
+/**
+ * HEXカラーコードをRGBA文字列に変換
+ * @param hex "#3B82F6" 形式
+ * @param alpha 0〜1 の透過度（デフォルト: 1）
+ */
+export function colorToStyle(hex: string, alpha = 1): string {
+  return `rgba(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)}, ${alpha})`
+}
+```
+
+`hex.slice(1, 3)` でR成分、`slice(3, 5)` でG成分、`slice(5, 7)` でB成分を取り出し、`parseInt(..., 16)` で16進数から10進数に変換しています。
+
+### 使用例
+
+```tsx
+// 背景色（薄め）
+<div style={{ backgroundColor: colorToStyle(task.color, 0.25) }}>
+  ...
+</div>
+
+// ボーダー色（濃いめ）
+<div style={{ borderColor: colorToStyle(task.color, 0.8) }}>
+  ...
+</div>
+
+// カラードット（そのまま）
+<span
+  className="inline-block w-2.5 h-2.5 rounded-full"
+  style={{ backgroundColor: task.color }}
+/>
+
+// テキスト色
+<span style={{ color: task.color }}>テキスト</span>
+```
+
+## 使い方・カスタマイズ
+
+alpha値を変えるだけで、同じ色をさまざまな用途に使い回せます。
+
+| 用途 | alpha | 例 |
+|------|-------|-----|
+| 背景色 | 0.1〜0.25 | カレンダーのデータありセル |
+| ボーダー | 0.6〜0.8 | 選択中の枠線 |
+| ドット・バッジ | 1.0 | 作業名横のカラー丸 |
+| ホバー | 0.15 | ボタンのhover背景 |
+
+## 注意点・ハマりポイント
+
+- **Tailwindの制約を理解する**: `bg-[#3B82F6]` は静的ビルド時に既知のクラスのみ生成します。DB由来の値は使えません
+- **style属性で回避**: `style={{ backgroundColor: ... }}` ならランタイムで任意の色を適用できます
+- **HEX形式の前提**: この関数は `#RRGGBB` 形式（6桁）を想定しています。3桁の短縮形（`#RGB`）には対応していません
+
+## 実際の活用事例
+
+このテクニックは、作業時間管理Webアプリ「[らくログタスク](https://rakulog-app.vercel.app)」で実際に使用しています。task_masterテーブルにHEX形式のcolorカラムを持ち、カレンダーセルの背景色、ガントチャートのバー、作業リストのカラードット、円グラフの配色など、アプリ全体で活用しています。
+
+## まとめ
+
+- Tailwindで動的な色を使うには **`style` 属性 + HEX→RGBA変換** が有効
+- alpha値を変えるだけで背景・枠線・テキストに **同じ色を使い回せる**
+- `colorToStyle` 関数1つで、アプリ全体のカラー管理がシンプルになる

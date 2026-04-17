@@ -1,0 +1,131 @@
+---
+title: "初回オンボーディングをlocalStorageで制御する方法（React）"
+category: "nextjs"
+slug: "onboarding-localstorage"
+tags: ["React", "UI", "オンボーディング", "localStorage", "UX"]
+description: "初回利用時だけガイドモーダルを表示し、次回以降は抑制するパターン。localStorage制御。"
+date: "2026-04-16"
+---
+
+## はじめに
+
+アプリを初めて使うユーザーに「ここをタップすると設定が変更できますよ」のようなガイドを表示したいことがありますよね。
+
+でも毎回表示されると邪魔になります。「初回だけ表示して、次回以降は表示しない」をどう実現するか？答えは `localStorage` です。ユーザーの操作状態をブラウザに保存して、表示の有無を制御します。
+
+## こんな場面で使えます
+
+- アプリ初回利用時のチュートリアル
+- 特定機能を初めて使うときの使い方ガイド
+- 新機能追加時の「こんな機能が増えました」通知
+- 設定画面への誘導モーダル
+
+## 実装コード
+
+### 表示制御ロジック
+
+```tsx
+const [showOnboarding, setShowOnboarding] = useState(false)
+const [dontShowAgain, setDontShowAgain] = useState(false)
+
+// 表示判定（初回操作時に呼ぶ）
+const triggerOnboarding = () => {
+  if (!localStorage.getItem('rakulog-onboarded')) {
+    setShowOnboarding(true)
+  }
+}
+
+// 閉じる処理
+const closeOnboarding = () => {
+  if (dontShowAgain) {
+    localStorage.setItem('rakulog-onboarded', '1')
+  }
+  setShowOnboarding(false)
+}
+```
+
+### モーダルUI
+
+```tsx
+{showOnboarding && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+    <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full space-y-4">
+      {/* ガイド内容 */}
+      <div className="flex items-start gap-3">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800">はじめての操作です！</h3>
+          <p className="text-sm text-gray-600 mt-1">
+            ここに説明文を記載します。
+          </p>
+        </div>
+      </div>
+
+      {/* アクションボタン */}
+      <Link
+        href="/settings"
+        onClick={closeOnboarding}
+        className="flex items-center justify-center w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium"
+      >
+        設定を開く
+      </Link>
+
+      {/* 次回以降の抑制チェックボックス */}
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={dontShowAgain}
+          onChange={(e) => setDontShowAgain(e.target.checked)}
+          className="accent-blue-600"
+        />
+        <span className="text-xs text-gray-500">次回以降は表示しない</span>
+      </label>
+
+      {/* 閉じるボタン */}
+      <button
+        onClick={closeOnboarding}
+        className="w-full py-2 border border-gray-200 text-gray-600 rounded-lg text-sm"
+      >
+        閉じる
+      </button>
+    </div>
+  </div>
+)}
+```
+
+## 使い方・カスタマイズ
+
+### 機能ごとにキーを分ける
+
+複数のオンボーディングを管理する場合は、localStorageのキーを分けます。
+
+```typescript
+// 出勤機能のオンボーディング
+localStorage.getItem('app-onboarded-clock-in')
+
+// レポート機能のオンボーディング
+localStorage.getItem('app-onboarded-report')
+```
+
+### 表示タイミングの選択肢
+
+| 方式 | 適するケース |
+|------|-------------|
+| 初回のみ自動表示 | アプリ全体のチュートリアル |
+| 初回操作時に表示 | 特定機能の使い方ガイド |
+| 何度でも手動表示 | ヘルプボタンからアクセス |
+
+## 注意点・ハマりポイント
+
+- **「次回以降表示しない」は閉じる時に保存**: チェックしただけでは保存されません。閉じるボタンを押した時に保存するのがポイントです（誤操作防止）
+- **localStorageはブラウザ固有**: 別のブラウザやシークレットモードでは再表示されます
+- **SSR環境での注意**: Next.jsではサーバーサイドで `localStorage` にアクセスできません。`useEffect` 内でのみ使用してください
+
+## 実際の活用事例
+
+このテクニックは、作業時間管理Webアプリ「[らくログタスク](https://rakulog-app.vercel.app)」で実際に使用しています。初回出勤時に「出勤時の開始作業名は設定画面から変更できます」というガイドを表示し、設定画面への導線ボタンを用意しています。「次回以降は表示しない」チェックで2回目以降は自動的に非表示になります。
+
+## まとめ
+
+- `localStorage` のキー有無で **初回だけの表示制御** が簡単に実現できる
+- 「次回以降表示しない」チェックボックスで **ユーザーに選択権** を渡す
+- キーを機能ごとに分ければ、複数のオンボーディングも管理可能

@@ -1,0 +1,101 @@
+---
+title: "Reactでドロップダウンを外クリックで閉じる方法（useRef + mousedown）"
+category: "nextjs"
+slug: "dropdown-outside-click"
+tags: ["React", "UI", "ドロップダウン", "useRef", "hooks"]
+description: "useRefとmousedownイベントでカスタムドロップダウンを外側クリックで閉じるパターン。"
+date: "2026-04-16"
+---
+
+## はじめに
+
+カスタムドロップダウンやサジェストリストを実装したとき、「ドロップダウンの外をクリックしたら閉じたい」という要件は必ず出てきますよね。
+
+ブラウザの `<select>` タグなら自動で閉じてくれますが、自前で作ったドロップダウンは自分で制御する必要があります。ここでは `useRef` + `mousedown` イベントを使った定番パターンを紹介します。
+
+## こんな場面で使えます
+
+- カスタムセレクトボックス
+- 検索フィールドのサジェスト・オートコンプリート
+- コンテキストメニュー
+- ポップオーバー全般
+
+## 実装コード
+
+### 外クリック検知のロジック
+
+```tsx
+import { useState, useEffect, useRef } from 'react'
+
+const [showDropdown, setShowDropdown] = useState(false)
+const dropdownRef = useRef<HTMLDivElement>(null)
+
+useEffect(() => {
+  const handler = (e: MouseEvent) => {
+    if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      setShowDropdown(false)
+    }
+  }
+  document.addEventListener('mousedown', handler)
+  return () => document.removeEventListener('mousedown', handler)
+}, [])
+```
+
+`dropdownRef` で対象の要素全体を参照し、クリックされた場所がその中に含まれていなければ閉じる、というシンプルなロジックです。
+
+### UI構造
+
+```tsx
+<div className="relative" ref={dropdownRef}>
+  {/* トリガー（入力フィールド等） */}
+  <input
+    onFocus={() => setShowDropdown(true)}
+    onChange={(e) => { setSearchText(e.target.value); setShowDropdown(true) }}
+  />
+
+  {/* ドロップダウン本体 */}
+  {showDropdown && (
+    <div className="absolute z-50 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto w-full">
+      {items.map((item) => (
+        <button
+          key={item}
+          onMouseDown={() => {  // onClick ではなく onMouseDown
+            selectItem(item)
+            setShowDropdown(false)
+          }}
+          className="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50"
+        >
+          {item}
+        </button>
+      ))}
+    </div>
+  )}
+</div>
+```
+
+## なぜ mousedown なのか
+
+ここが一番のハマりポイントです。
+
+| イベント | 問題 |
+|---------|------|
+| `click` | inputの `onBlur` が先に発火 → ドロップダウンが消える → 選択肢の `onClick` が届かない |
+| `mousedown` | `blur` より先に発火 → 選択肢を選んでから閉じる、の正しい順序になる |
+
+選択肢のクリックハンドラは必ず **`onMouseDown`** を使いましょう。`onClick` だと選択肢が消えてからクリックイベントが発生するため、何も起きません。
+
+## 注意点・ハマりポイント
+
+- **`ref` は外側のコンテナに付ける**: input + ドロップダウン全体を包む `div` に付けます
+- **`max-h-48 overflow-y-auto`**: 候補が多い場合にスクロール可能にしておきましょう
+- **cleanup必須**: `useEffect` の return で `removeEventListener` を忘れるとメモリリークの原因になります
+
+## 実際の活用事例
+
+このテクニックは、作業時間管理Webアプリ「[らくログタスク](https://rakulog-app.vercel.app)」で実際に使用しています。入力画面で新規作業名を入力する際のサジェストリストと、特定作業集計画面での作業名検索ドロップダウンで、外クリックによる自然な閉じ動作を実現しています。
+
+## まとめ
+
+- 外クリック検知は **`useRef` + `mousedown` イベント** が定番パターン
+- ドロップダウンの選択肢は **`onMouseDown`**（`onClick` ではない）を使う
+- `useEffect` のクリーンアップで `removeEventListener` を忘れないこと

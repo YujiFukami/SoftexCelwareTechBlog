@@ -1,0 +1,131 @@
+---
+title: "Next.js + Supabase Authで認証ガードを実装する方法（Middleware）"
+category: "nextjs"
+slug: "supabase-auth-middleware"
+tags: ["Next.js", "Supabase", "認証", "Middleware", "OAuth"]
+description: "Next.js App RouterとSupabase Authでミドルウェア認証ガードを実装。Google OAuth対応。"
+date: "2026-04-16"
+---
+
+## はじめに
+
+Next.js + Supabaseでアプリを作っていると、「ログインしていないユーザーにはページを見せたくない」という要件が出てきますよね。
+
+でも各ページに個別に認証チェックを書くのは面倒ですし、抜け漏れの原因にもなります。Next.jsのMiddleware（ミドルウェア）を使えば、全ページの認証チェックを一元管理できます。
+
+ここでは、未認証ユーザーをログインページにリダイレクトし、利用規約やプライバシーポリシーなどの公開ページは認証不要にするパターンを紹介します。
+
+## こんな場面で使えます
+
+- SaaS型のWebアプリで、全ページにログイン必須にしたい
+- 利用規約・プライバシーポリシーは認証なしで公開したい
+- Google OAuth + メール/パスワードの複数ログイン方式を提供したい
+- ログイン済みユーザーがログインページにアクセスしたらメインページに転送したい
+
+## 実装コード
+
+### ミドルウェア本体（`lib/supabase/middleware.ts`）
+
+```typescript
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server'
+
+export async function updateSession(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({ request })
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+          supabaseResponse = NextResponse.next({ request })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          )
+        },
+      },
+    }
+  )
+
+  const { data: { user } } = await supabase.auth.getUser()
+
+  const url = request.nextUrl.clone()
+  const isAuthPage = url.pathname.startsWith('/login') || url.pathname.startsWith('/signup')
+  const isPublicPage = url.pathname.startsWith('/privacy') || url.pathname.startsWith('/terms')
+
+  // 未認証 → ログインへリダイレクト（公開ページは除外）
+  if (!user && !isAuthPage && !isPublicPage) {
+    url.pathname = '/login'
+    return NextResponse.redirect(url)
+  }
+
+  // 認証済みでログインページにアクセス → メインへリダイレクト
+  if (user && isAuthPage) {
+    url.pathname = '/input'
+    return NextResponse.redirect(url)
+  }
+
+  return supabaseResponse
+}
+```
+
+### ルートのミドルウェア（`middleware.ts`）
+
+```typescript
+import { updateSession } from '@/lib/supabase/middleware'
+import type { NextRequest } from 'next/server'
+
+export async function middleware(request: NextRequest) {
+  return await updateSession(request)
+}
+
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+}
+```
+
+### Google OAuthログイン
+
+```typescript
+const { error } = await supabase.auth.signInWithOAuth({
+  provider: 'google',
+  options: { redirectTo: `${location.origin}/input` },
+})
+```
+
+### メール/パスワードログイン
+
+```typescript
+// サインアップ
+const { error } = await supabase.auth.signUp({ email, password })
+
+// ログイン
+const { error } = await supabase.auth.signInWithPassword({ email, password })
+
+// ログアウト
+await supabase.auth.signOut()
+router.push('/login')
+router.refresh()
+```
+
+## 注意点・ハマりポイント
+
+- **`@supabase/ssr`** を使ってください。`@supabase/auth-helpers-nextjs` は非推奨です
+- **`getUser()`** を使ってください。`getSession()` はトークン検証をスキップするため非推奨です
+- **matcher設定**: 静的ファイル（画像・CSS等）をミドルウェアから除外しないとパフォーマンスが低下します
+- **Confirm email**: Supabase Freeプランはメール送信レート制限があるため、開発時はConfirm emailを無効にすると楽です
+
+## 実際の活用事例
+
+このテクニックは、作業時間管理Webアプリ「[らくログタスク](https://rakulog-app.vercel.app)」で実際に使用しています。メール/パスワードとGoogle OAuthの2方式でログインを実装し、`/privacy` と `/terms` は認証不要で公開しています。
+
+## まとめ
+
+- Next.js Middlewareで **全ページの認証チェックを一元管理** できる
+- 公開ページ（利用規約等）は `isPublicPage` で除外する
+- `@supabase/ssr` + `getUser()` が現在の推奨パターン

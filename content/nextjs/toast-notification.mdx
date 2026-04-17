@@ -1,0 +1,86 @@
+---
+title: "Reactでライブラリ不要のトースト通知を実装する方法"
+category: "nextjs"
+slug: "toast-notification"
+tags: ["React", "UI", "トースト", "通知"]
+description: "ライブラリ不要でsetTimeoutによる自動消去トースト通知を実装。成功/エラーの色分けも。"
+date: "2026-04-16"
+---
+
+## はじめに
+
+ボタンを押した後に「保存しました」「送信しました」のような一時的なフィードバックを表示したい場面は多いですよね。
+
+react-hot-toastなどのライブラリを入れる方法もありますが、シンプルな通知だけなら自前で十分です。`useState` + `setTimeout` だけで、3秒後に自動消去するトースト通知が作れます。
+
+## こんな場面で使えます
+
+- フォーム送信後の成功メッセージ
+- データの保存・削除完了の通知
+- エラー発生時の警告表示
+- 操作フィードバック全般（出勤・退勤・作業開始/終了など）
+
+## 実装コード
+
+### 基本パターン
+
+```tsx
+const [message, setMessage] = useState('')
+
+const showMsg = (msg: string) => {
+  setMessage(msg)
+  setTimeout(() => setMessage(''), 3000)
+}
+
+// 使用例
+showMsg('保存しました')
+showMsg('削除しました')
+```
+
+### UI部分
+
+```tsx
+{message && (
+  <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-4 py-2 rounded-full text-sm shadow-lg">
+    {message}
+  </div>
+)}
+```
+
+`fixed` + `z-50` で画面上部に固定表示し、`-translate-x-1/2` で中央揃え。`rounded-full` でpill型のネイティブアプリ風の見た目になります。
+
+## 使い方・カスタマイズ
+
+### 成功/エラーの色分けバリエーション
+
+```tsx
+const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+
+const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+  setToast({ msg, type })
+  setTimeout(() => setToast(null), 3000)
+}
+
+{toast && (
+  <div className={`fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-sm shadow-lg
+    ${toast.type === 'success' ? 'bg-gray-900 text-white' : 'bg-red-600 text-white'}`}>
+    {toast.msg}
+  </div>
+)}
+```
+
+## 注意点・ハマりポイント
+
+- **`top-16`**: ヘッダー（`sticky top-0`）と重ならない位置に配置しましょう
+- **複数トーストの同時表示**: このパターンは1つずつの表示です。複数同時表示が必要なら配列管理またはライブラリの導入を検討してください
+- **アニメーション**: フェードイン/アウトを追加したい場合はCSS transitionを組み合わせてください
+
+## 実際の活用事例
+
+このテクニックは、作業時間管理Webアプリ「[らくログタスク](https://rakulog-app.vercel.app)」で実際に使用しています。入力画面での出勤・退勤・作業開始/終了の操作時に、「出勤しました。『開発』を開始します。」のようなフィードバックをトースト通知で表示しています。
+
+## まとめ
+
+- `useState` + `setTimeout` だけで **ライブラリ不要のトースト通知** が作れる
+- 成功/エラーの色分けも `type` プロパティで簡単に対応可能
+- シンプルな操作フィードバックには自前実装で十分

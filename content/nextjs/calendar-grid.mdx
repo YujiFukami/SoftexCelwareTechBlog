@@ -1,0 +1,129 @@
+---
+title: "ライブラリ不要の月別カレンダーグリッドをCSS Gridで実装する"
+category: "nextjs"
+slug: "calendar-grid"
+tags: ["React", "CSS Grid", "カレンダー", "UI", "Tailwind CSS"]
+description: "ライブラリ不要でCSS Grid（grid-cols-7）を使った月別カレンダーの実装パターン。"
+date: "2026-04-16"
+---
+
+## はじめに
+
+カレンダー表示が必要になったとき、`react-calendar` や `fullcalendar` のようなライブラリを使うのが一般的です。でも、「日付セルにカスタムデータ（作業時間、金額、件数など）を自由に表示したい」となると、ライブラリのカスタマイズが大変になることがあります。
+
+CSS Gridの `grid-cols-7` を使えば、ライブラリ不要で柔軟なカレンダーが作れます。日付の計算もJavaScriptの `Date` オブジェクトだけで十分です。
+
+## こんな場面で使えます
+
+- 月別の作業時間・売上データを日ごとに表示したい
+- データがある日だけ色を付けて視覚化したい
+- カレンダー上でクリックして詳細を開きたい
+- 複数月のカレンダーを並べて全期間を俯瞰したい
+
+## 実装コード
+
+### データ構造
+
+```typescript
+// 日付（日） → 値のマッピング
+const calData: Record<number, number> = {}  // { 1: 3600, 5: 7200, ... }
+```
+
+### カレンダーグリッド
+
+```tsx
+const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土']
+const daysInMonth = new Date(year, month, 0).getDate()
+const firstDayOfWeek = new Date(year, month - 1, 1).getDay()
+
+<div className="grid grid-cols-7 gap-1">
+  {/* 曜日ヘッダー */}
+  {DAY_LABELS.map((d, i) => (
+    <div
+      key={d}
+      className={`text-center text-xs font-medium py-1
+        ${i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : 'text-gray-500'}`}
+    >
+      {d}
+    </div>
+  ))}
+
+  {/* 月初の空白セル */}
+  {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+    <div key={`empty-${i}`} />
+  ))}
+
+  {/* 日付セル */}
+  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+    const value = calData[day] || 0
+    const hasData = value > 0
+    const dow = new Date(year, month - 1, day).getDay()
+
+    return (
+      <div
+        key={day}
+        className={`rounded-lg p-1.5 min-h-14 text-center border
+          ${hasData ? 'border-blue-300' : 'border-gray-100'}
+          ${dow === 0 ? 'text-red-600' : dow === 6 ? 'text-blue-600' : 'text-gray-700'}`}
+        style={{
+          backgroundColor: hasData ? 'rgba(59, 130, 246, 0.1)' : undefined,
+        }}
+      >
+        <div className="text-xs font-medium">{day}</div>
+        {hasData && (
+          <div className="text-xs font-bold mt-1 text-blue-600">
+            {formatValue(value)}
+          </div>
+        )}
+      </div>
+    )
+  })}
+</div>
+```
+
+ポイントは `firstDayOfWeek` の空白セルです。月の1日が水曜日なら3つの空白セルを先頭に入れることで、正しい曜日位置に日付が並びます。
+
+## 使い方・カスタマイズ
+
+### タスクの色と連動させる
+
+DB由来のHEXカラーコードを使って、セルの色を動的に変える場合：
+
+```typescript
+import { colorToStyle } from '@/lib/utils'
+
+const bgColor = hasData ? colorToStyle(taskColor, 0.25) : undefined
+const borderColor = hasData ? colorToStyle(taskColor, 0.8) : undefined
+```
+
+### 全期間カレンダー（複数月並列表示）
+
+月ごとのデータをグループ化して並べます。
+
+```tsx
+const allCalData: Record<string, Record<number, number>> = {}
+const monthKeys = Object.keys(allCalData).sort()
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+  {monthKeys.map((key) => {
+    const [y, m] = key.split('-').map(Number)
+    return <MonthCalendar key={key} year={y} month={m} calData={allCalData[key]} />
+  })}
+</div>
+```
+
+## 注意点・ハマりポイント
+
+- **`new Date(year, month, 0).getDate()`**: monthは1-indexed（1=1月）で、日を0にすると前月の末日が返ります。これで月末日を取得できます
+- **日曜=赤、土曜=青**: 日本式の色分けです。海外向けならカスタマイズしましょう
+- **`min-h-14`**: セルの最小高さを揃えておかないと、データの有無でレイアウトが崩れます
+
+## 実際の活用事例
+
+このテクニックは、作業時間管理Webアプリ「[らくログタスク](https://rakulog-app.vercel.app)」で実際に使用しています。特定作業集計画面で月別モードと全期間モード（複数月カレンダー並列表示）の両方に対応しており、task_masterテーブルの色と連動して各セルがタスクカラーで表示されます。
+
+## まとめ
+
+- CSS Grid `grid-cols-7` で **ライブラリ不要のカレンダー** が作れる
+- `firstDayOfWeek` の空白セルが曜日の位置合わせのカギ
+- コンポーネント化すれば全期間表示（複数月並列）にも簡単に再利用できる
