@@ -137,7 +137,7 @@ export default defineConfig({
 
 ## 実際の活用事例
 
-このテクニックは、[goagoa-invoice-manager](https://github.com/YujiFukami/goagoa-invoice-manager)（Electron + Vite + sql.js による顧客請求・入金管理デスクトップアプリ）で実際に使用しています。`package.json` の `"version": "1.0.0"` を 3 箇所（HTML バッジ、`document.title`、Electron ウィンドウタイトル）に自動反映しており、バージョンアップ時は `package.json` の 1 行を書き換えて再ビルドするだけで全箇所が更新されます。
+このテクニックは、お客様からご依頼いただいた業務系デスクトップアプリ開発案件で実際に活用したノウハウです。守秘義務の都合から詳細は伏せますが、`package.json` の `"version": "1.0.0"` を複数箇所（HTML バッジ、`document.title`、Electron ウィンドウタイトル）に自動反映しており、バージョンアップ時は `package.json` の 1 行を書き換えて再ビルドするだけで全箇所が更新されます。
 
 ## まとめ
 

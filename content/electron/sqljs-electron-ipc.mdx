@@ -176,7 +176,7 @@ mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
 
 ## 実際の活用事例
 
-このテクニックは、[goagoa-invoice-manager](https://github.com/YujiFukami/goagoa-invoice-manager)（Electron + Vite + sql.js による顧客請求・入金管理デスクトップアプリ）で実際に使用しています。`better-sqlite3` のビルドトラブルを完全に回避しながら、顧客マスタ・請求書・入金履歴などのデータを `data/database.db` に永続化しています。開発時はブラウザ上でテストし、本番は Electron でファイルに書き込む二重対応の構成が、開発体験を大きく向上させています。
+このテクニックは、お客様からご依頼いただいた業務系デスクトップアプリ開発案件で実際に活用したノウハウです。守秘義務の都合から詳細は伏せますが、`better-sqlite3` のビルドトラブルを完全に回避しながら、業務データをローカル `.db` ファイルに永続化しました。開発時はブラウザ上でテストし、本番は Electron でファイルに書き込む二重対応の構成が、開発体験を大きく向上させています。
 
 ## まとめ
 

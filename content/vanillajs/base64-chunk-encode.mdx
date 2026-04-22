@@ -100,7 +100,7 @@ const uInt8Array = new Uint8Array(buffer);
 
 ## 実際の活用事例
 
-このテクニックは、[goagoa-invoice-manager](https://github.com/YujiFukami/goagoa-invoice-manager) の sql.js データベースをブラウザ版でキャッシュする際に実際に使用しています。Electron 版は IPC 経路でバイナリを直接ファイルに書き込むため影響はありませんが、ブラウザフォールバック時には localStorage に base64 で保存する必要があり、DB が 100KB を超えた時点でこの問題が発生しました。チャンク分割に切り替えることで、数 MB 規模の DB でも安定して動作するようになっています。
+このテクニックは、お客様からご依頼いただいた業務系アプリ開発案件で実際に活用したノウハウです。守秘義務の都合から詳細は伏せますが、sql.js の SQLite DB をブラウザ版で localStorage にキャッシュする際、DB が 100KB を超えた時点でこの問題が発生しました。Electron 版は IPC 経路でバイナリを直接ファイルに書き込むため影響はありませんが、ブラウザフォールバック経路ではチャンク分割に切り替えることで、数 MB 規模の DB でも安定して動作するようになっています。
 
 ## まとめ
 

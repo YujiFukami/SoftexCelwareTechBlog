@@ -120,7 +120,7 @@ const newId = Math.max(0, ...used) + 1;
 
 ## 実際の活用事例
 
-このテクニックは、[goagoa-invoice-manager](https://github.com/YujiFukami/goagoa-invoice-manager)（Electron + Vite + sql.js による顧客請求・入金管理デスクトップアプリ）で実際に使用しています。`client_list`（顧客）、`id_list`（請求書番号）、`plan_list`（プラン）、`summary_list`（月次集計）、`staff_list`（担当者）の全マスタテーブルに採用しており、削除と再登録を繰り返しても ID が飛び飛びにならず、常に連番に近い状態を維持しています。
+このテクニックは、お客様からご依頼いただいた業務系デスクトップアプリ開発案件で実際に活用したノウハウです。守秘義務の都合から詳細は伏せますが、複数のマスタテーブルに採用しており、削除と再登録を繰り返しても ID が飛び飛びにならず、常に連番に近い状態を維持しています。
 
 ## まとめ
 

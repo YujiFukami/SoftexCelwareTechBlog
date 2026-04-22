@@ -125,7 +125,7 @@ async importCsvWithProgress(rows, table, onProgress) {
 
 ## 実際の活用事例
 
-このテクニックは、[goagoa-invoice-manager](https://github.com/YujiFukami/goagoa-invoice-manager)（Electron + Vite + sql.js による顧客請求・入金管理デスクトップアプリ）で実際に使用しています。入金データ `pay_list.csv`（2,647 行）の一括取込み処理に適用し、数分かかっていた処理が 1 秒未満で完了するようになりました。
+このテクニックは、お客様からご依頼いただいた業務系デスクトップアプリ開発案件で実際に活用したノウハウです。守秘義務の都合から詳細は伏せますが、数千行規模の CSV 一括取込み処理に適用し、数分かかっていた処理が 1 秒未満で完了するようになりました。
 
 ## まとめ
 
