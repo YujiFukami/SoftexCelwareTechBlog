@@ -1,0 +1,141 @@
+---
+title: "Vercelセキュリティインシデントを受けて、Next.js + Supabaseアプリの安全性を全点検してみた"
+category: "nextjs"
+slug: "vercel-incident-safety-check"
+tags: ["Next.js", "Supabase", "Vercel", "セキュリティ", "OAuth", "環境変数"]
+description: "2026年4月のVercelセキュリティインシデントを受けて、Next.js + Supabaseで運用中の個人アプリ「らくログタスク」のセキュリティを5項目でチェック。結果は全項目安全。チェック方法をそのまま共有します。"
+date: "2026-04-23"
+---
+
+## はじめに
+
+2026年4月19日、Next.jsの開発元として知られる**Vercel**で、内部システムへの不正アクセスを含むセキュリティインシデントが公表されました。
+
+Vercelは世界中のスタートアップ・大企業が使うWebデプロイの主要プラットフォーム。当然、私が運用している作業記録アプリ「[らくログタスク](https://rakulog-app.vercel.app)」もVercel上で稼働しており、「自分のアプリは大丈夫か？」と不安になった方も多いはずです。
+
+本記事では、**Next.js + Supabase + Vercel構成のアプリを運用している方向けに、同じチェックを実施するための具体的な手順**を共有します。結論から言うと、らくログタスクは全項目で問題がないことを確認しました。利用者の皆様、ご安心ください。
+
+## インシデントの概要（何が起きたか）
+
+事件の要点は以下の通りです。
+
+- Vercel社員が業務で使っていた**第三者AIツール「Context.ai」のOAuthアプリ**が攻撃者に乗っ取られた
+- これを足がかりに社員のGoogle Workspaceアカウントが侵害された
+- そこからVercel内部環境へのアクセスが獲得された
+- いわゆる**サプライチェーン攻撃**の典型事例
+
+特に注目すべきは、被害を受けたのが**「sensitiveマーク未設定」の環境変数**だったこと。sensitiveマーク済みの変数は保護構造により読み取れなかったとVercelは公表しています。
+
+## Next.js + Supabaseアプリの安全性チェック5項目
+
+らくログタスクで実施したチェックをそのまま紹介します。同じ構成のアプリをお持ちの方は、このまま流用してください。
+
+### ① Vercel環境変数の sensitive フラグ確認
+
+**確認場所:** Vercel Dashboard → Settings → Environment Variables
+
+| 変数名のパターン | sensitive フラグ | 理由 |
+|----------------|:---:|------|
+| `NEXT_PUBLIC_*` | 不要 | ブラウザ公開前提の設計 |
+| `SUPABASE_SERVICE_ROLE_KEY` | **必須** | サーバー専用・漏洩すると全権限が奪われる |
+| `*_SECRET`, `*_TOKEN`, `*_API_KEY` | **必須** | 外部サービスの認証情報 |
+| DB接続文字列（`DATABASE_URL`等） | **必須** | 直接接続可能になる |
+
+**らくログタスクの場合:**
+
+```
+NEXT_PUBLIC_SUPABASE_URL        → 公開OK（sensitive不要）
+NEXT_PUBLIC_SUPABASE_ANON_KEY   → 公開OK（sensitive不要、セキュリティはRLSで担保）
+```
+
+Supabaseの`anon key`は、名前の通り「匿名ユーザー用のキー」で公開前提です。セキュリティはSupabase側のRow Level Security（RLS）で担保する設計のため、今回のインシデントで秘密情報が漏洩するリスクはありませんでした。
+
+### ② Vercelアクティビティログ確認
+
+**確認URL:** `vercel.com/activity-log`
+
+チェックポイント：
+
+- 身に覚えのないデプロイが発生していないか
+- 普段とは異なるIPや時間帯のアクセスがないか
+- 環境変数の参照・変更履歴に不審な操作がないか
+
+**らくログタスクの結果:** 全ての操作が本人の操作であることを確認。不審な活動なし。
+
+### ③ GitHubリポジトリの機密情報チェック
+
+**確認方法:** リポジトリの`.gitignore`に以下が含まれているか確認
+
+```gitignore
+# env files (can opt-in for committing if needed)
+.env*
+```
+
+`.env*`が記載されていれば、`.env`, `.env.local`, `.env.production.local` 等すべてが除外されます。GitHubに機密情報が漏洩していないかの保険として重要です。
+
+**らくログタスクの結果:** `.env*`が`.gitignore`に含まれており、機密情報の漏洩なし。
+
+### ④ Vercel Deployment Protection設定
+
+**確認場所:** Vercel Dashboard → Settings → Deployment Protection
+
+- **Standard Protection以上に設定**することで、PreviewデプロイへのアクセスにVercelログイン認証が必須になります
+- 攻撃者がPreview URLを推測してアクセスしても認証で弾かれる
+
+**らくログタスクの結果:** Standard Protection有効。OK。
+
+### ⑤ SupabaseのRow Level Security（RLS）確認
+
+**確認場所:** Supabase Dashboard → Authentication → Policies
+
+- すべてのテーブルでRLSが**有効**（Enable）になっているか
+- 各テーブルに`auth.uid()`を使ったポリシーが設定されているか
+- 空のRLS（Enable だけでポリシーなし）は**全拒否**になるので注意
+
+**らくログタスクの結果:** 全テーブルで`user_id = auth.uid()`ベースのポリシーが設定されており、ユーザーは自分のデータしかアクセスできない設計。
+
+## 教訓：AIツール時代のセキュリティ観点
+
+今回の事件は、**「便利だから使った」AIツールのOAuth権限が、世界規模のプラットフォームへの侵入口になった**という構図です。
+
+これはVercelだけの話ではなく、AIツールを業務で使っているすべての組織・個人に当てはまります。
+
+### 新規外部サービス連携時の判断基準
+
+外部ツール（特にAI系）とOAuth連携する前に、以下を必ず確認しましょう。
+
+1. **どんなアクセス権を要求しているか**（最小権限になっているか）
+2. **ベンダーのセキュリティポスチャ**（信頼できる運用体制か）
+3. **連携しなくても運用できないか**（代替手段の検討）
+
+### 定期的なOAuth棚卸し
+
+Googleアカウント設定（<a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">https://myaccount.google.com/permissions</a>）で、接続済みアプリを定期的にレビューしましょう。使っていないアプリは削除が推奨です。
+
+## らくログタスク利用者の皆様へ
+
+5項目のチェック結果を踏まえ、らくログタスクは今回のVercelインシデントの影響を受けていません。
+
+主な要因は以下の通りです：
+
+- 環境変数が公開前提のもの（`NEXT_PUBLIC_`付き）だけで構成されており、秘密情報をVercelに預けていなかった
+- `.gitignore`が適切に設定されており、機密情報がGitHubに漏洩していない
+- Vercel Deployment ProtectionがStandard以上に設定されていた
+- SupabaseのRLSが全テーブルで適切に機能している
+- 問題のContext.aiとのOAuth連携は存在しなかった
+
+引き続き安心してご利用ください。
+
+## まとめ
+
+Next.js + Supabase + Vercel構成のアプリを運用している方は、以下の5項目を今すぐチェックすることをおすすめします。
+
+1. ✅ Vercel環境変数の sensitive フラグ確認
+2. ✅ Vercelアクティビティログの不審操作チェック
+3. ✅ GitHubの`.gitignore`に`.env*`が含まれているか
+4. ✅ Vercel Deployment Protectionの設定
+5. ✅ SupabaseのRLSの有効化・ポリシー設定
+
+「信頼できるプラットフォームでも、自分のシークレットは自分で守る」
+
+このマインドセットが、2026年のAI時代に最も必要なものかもしれません。
