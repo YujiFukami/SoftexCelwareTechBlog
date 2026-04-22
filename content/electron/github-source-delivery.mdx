@@ -1,0 +1,180 @@
+---
+title: "ElectronアプリのソースコードをGitHubへワンクリックで納品する方法"
+category: "electron"
+slug: "github-source-delivery"
+tags: ["Electron", "Git", "GitHub", "バッチファイル", "gitignore"]
+description: "node_modulesやDBファイルを除外しつつ、コミットとpushをワンクリックで完結させるバッチファイルとgitignoreテンプレートのセットです。"
+date: "2026-04-22"
+---
+
+## はじめに
+
+Electron デスクトップアプリをクライアントへ納品する際、毎回手作業でのコマンド入力は想像以上に手間がかかりますよね。`node_modules/` や `dist/` などのビルド成果物を除外して、個人情報を含む DB ファイルも弾いて、コミットメッセージを入力して、push する——このフローを繰り返すのは非効率です。
+
+また、`.gitignore` の設定が甘いと「うっかり `*.db` を push してしまった」「`release/` の巨大バイナリが入ってしまった」という事故につながります。**厳格な `.gitignore` と、ワンクリック push バッチをセットで用意する**ことで、安全かつ効率的な納品フローが完成します。
+
+## こんな場面で使えます
+
+- Electron アプリをクライアントの GitHub プライベートリポジトリへ定期的に納品する
+- 毎回 `git add / commit / push` を手打ちしている手間を省きたい
+- `node_modules/` `dist/` `*.db` の除外漏れ事故を防ぎたい
+- 旧版バックアップフォルダや日本語フォルダ名のディレクトリも確実に除外したい
+- コミットメッセージを省略した場合もタイムスタンプで自動生成したい
+
+## 実装コード
+
+### `.gitignore` テンプレート（Electron + Vite + sql.js 向け）
+
+```gitignore
+# 依存関係
+node_modules/
+
+# ビルド出力
+dist/
+release/
+*.asar
+
+# データファイル（個人情報含む可能性）
+*.db
+*.zip
+データ出力/
+
+# 旧版バックアップ
+顧客管理アプリ(完全版)/
+顧客管理アプリ(完成版)/
+
+# ログ・一時ファイル
+*.log
+.DS_Store
+Thumbs.db
+$null
+
+# Vite キャッシュ
+.vite/
+
+# electron-builder キャッシュ
+.cache/
+
+# Windows ショートカット（バイナリ）
+*.url
+
+# Claude Code ローカル設定
+.claude/
+```
+
+### `github-push.bat` — push 自動化バッチ
+
+```bat
+@echo off
+chcp 65001 >nul
+setlocal enabledelayedexpansion
+
+REM ==========================================================
+REM  GitHub Push バッチ
+REM  - 全変更をステージング
+REM  - コミットメッセージを入力（空欄なら日時で自動生成）
+REM  - origin/main へ push
+REM ==========================================================
+
+cd /d "%~dp0"
+
+echo.
+echo ==============================================
+echo   GitHub Push : <リポジトリ名>
+echo ==============================================
+echo.
+
+REM --- リモート確認 ---
+git remote get-url origin >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] origin リモートが設定されていません。
+    echo         先に以下を実行してください:
+    echo         git remote add origin https://github.com/USER/REPO.git
+    pause
+    exit /b 1
+)
+
+REM --- 変更状況の表示 ---
+echo --- 現在の変更 ---
+git status --short
+echo.
+
+REM --- 変更が無ければ早期リターン ---
+for /f %%i in ('git status --porcelain') do set HAS_CHANGES=1
+if not defined HAS_CHANGES (
+    echo [INFO] コミットすべき変更はありません。
+    git push origin main
+    pause
+    exit /b 0
+)
+
+REM --- コミットメッセージ入力 ---
+set /p MSG="コミットメッセージを入力してください（空欄でタイムスタンプ自動）: "
+
+if "!MSG!"=="" (
+    for /f "tokens=1-3 delims=/-. " %%a in ("%date%") do (
+        set Y=%%a& set M=%%b& set D=%%c
+    )
+    for /f "tokens=1-2 delims=:." %%a in ("%time%") do (
+        set H=%%a& set MI=%%b
+    )
+    set H=!H: =0!
+    set MSG=update !Y!-!M!-!D! !H!:!MI!
+)
+
+git add -A
+if errorlevel 1 ( echo [ERROR] git add 失敗 & pause & exit /b 1 )
+
+git commit -m "!MSG!"
+if errorlevel 1 ( echo [ERROR] git commit 失敗 & pause & exit /b 1 )
+
+git push origin main
+if errorlevel 1 (
+    echo [ERROR] プッシュ失敗（PAT を再入力してください）
+    pause
+    exit /b 1
+)
+
+echo.
+echo ==============================================
+echo   完了 : !MSG!
+echo ==============================================
+pause
+```
+
+### 初回セットアップ手順
+
+```bash
+# 1. GitHub で Private リポジトリを作成（READMEは初期化しない）
+
+# 2. ローカルリポジトリで
+git init
+git add -A
+git commit -m "initial commit"
+git remote add origin https://github.com/USER/REPO.git
+git branch -M main
+git push -u origin main
+
+# 3. github-push.bat をプロジェクト直下に配置
+# 以降はダブルクリックで push 完了
+```
+
+## 注意点・ハマりポイント
+
+- **`chcp 65001` は必須**: これを入れないと日本語コミットメッセージがコマンドプロンプト上で文字化けします。バッチの先頭に必ず入れてください。
+- **`enabledelayedexpansion` + `!VAR!`**: `if` ブロック内で変数を使う場合、通常の `%VAR%` は展開されません。`!VAR!` 記法が必要です。
+- **`cd /d "%~dp0"`**: ダブルクリックで起動した場合、カレントディレクトリがバッチ配置場所と異なるケースがあります。この行でバッチファイルを置いた場所に固定します。
+- **タイムスタンプのロケール差**: `%date%` と `%time%` の区切り文字はロケール設定によって `/` `-` `.` `:` が混在します。`delims=/-. ` と全種類を指定しておくのが安全です。
+- **`H=!H: =0!`**: `%time%` の時刻が 1 桁（`9:30`）の場合、先頭にスペースが入ります。これを `0` に置換して `09:30` にそろえる処理です。
+- **`*.asar` の除外**: electron-builder が生成するパッケージ成果物で数十 MB になります。リポジトリには絶対に含めないでください。
+- **Windows 認証**: 初回 push 時に Git Credential Manager がブラウザ認証を求めます。一度認証すれば PAT は OS のクレデンシャルストアに保存され、以後は自動です。更新が必要な場合は「Windows 資格情報マネージャー」から `git:https://github.com` を編集します。
+
+## 実際の活用事例
+
+このテクニックは、[goagoa-invoice-manager](https://github.com/YujiFukami/goagoa-invoice-manager)（Electron + Vite + sql.js による顧客請求・入金管理デスクトップアプリ）で実際に使用しています。`*.db` ファイルや `データ出力/` ディレクトリを確実に除外しながら、ダブルクリック一発でソースコードを GitHub へ納品できる体制を整えています。
+
+## まとめ
+
+- **`.gitignore` の厳格化**と**push バッチのセット**で、納品フローを安全かつワンクリックに
+- `chcp 65001` + `enabledelayedexpansion` の 2 点セットで日本語・変数展開の問題を回避
+- 変更なし時もリモートに push するため、ローカルが先行しているケースも救済できる

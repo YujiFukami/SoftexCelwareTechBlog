@@ -1,0 +1,146 @@
+---
+title: "package.jsonのversionをVite+Electronアプリ全体に自動反映する方法"
+category: "electron"
+slug: "packagejson-version-inject"
+tags: ["Electron", "Vite", "JavaScript", "バージョン管理", "ビルド"]
+description: "package.jsonのversionを唯一の出典にして、HTML表示・タイトルバー・Electronウィンドウに自動注入。バージョン更新漏れ事故を防ぎます。"
+date: "2026-04-22"
+---
+
+## はじめに
+
+アプリのバージョン番号を管理するとき、`package.json` だけ更新して HTML のバッジ表示を直し忘れた、Electron ウィンドウのタイトルが古いままだった——という「更新漏れ事故」は意外と多いですよね。
+
+バージョン番号が `package.json`、HTML ヘッダー、document.title、Electron ウィンドウタイトルと複数箇所に散らばると、リリースのたびに全箇所を手動で確認する必要があります。これは手間がかかるだけでなく、見落としのリスクがあります。
+
+**`package.json` の `version` を唯一の出典（Single Source of Truth）とし、ビルド時にコードへ自動注入する**ことで、バージョン更新は1箇所だけで完結します。
+
+## こんな場面で使えます
+
+- HTML ヘッダーや画面内にバージョンバッジを表示したい
+- Electron のタイトルバーにバージョンを表示したい
+- リリースのたびにバージョンを複数箇所で手動更新している
+- ブラウザモードと Electron モードの両方でバージョンを表示したい
+- ビルド日時や Git コミットハッシュも同様に注入したい
+
+## 実装コード
+
+### vite.config.js — `__APP_VERSION__` を注入
+
+```javascript
+import { defineConfig } from 'vite';
+import { readFileSync } from 'fs';
+
+const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
+
+export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version)
+  }
+});
+```
+
+Vite の `define` はビルド時に文字列を置換します。`JSON.stringify()` で `"1.0.0"` のような引用符付き文字列にするのがポイントです。
+
+### フロントエンド側 — バッジと document.title への反映
+
+`index.html`:
+
+```html
+<h1>アプリ名 <span id="app-version-tag" class="version-tag"></span></h1>
+```
+
+`main.js` などの初期化処理:
+
+```javascript
+const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
+if (appVersion) {
+  // ヘッダーロゴ横のバージョンバッジ
+  const tag = document.getElementById('app-version-tag');
+  if (tag) tag.textContent = `ver. ${appVersion}`;
+  // ブラウザタブ／Electron タイトル
+  document.title = `アプリ名 ver. ${appVersion}`;
+}
+```
+
+### Electron メインプロセス側 — ウィンドウタイトルへの反映
+
+```javascript
+const { app, BrowserWindow } = require('electron');
+
+mainWindow = new BrowserWindow({
+  width: 1280,
+  height: 800,
+  title: `アプリ名 ver. ${app.getVersion()}`,
+  // ...
+});
+```
+
+`app.getVersion()` は Electron が自動で `package.json` の `version` を読む組み込み API です。設定不要で `package.json` と同期されます。
+
+### バッジの CSS
+
+```css
+.version-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 0.7em;
+  background: #e0f2fe;
+  color: #0369a1;
+  border-radius: 999px;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+```
+
+## 使い方・カスタマイズ
+
+**ビルド日時の注入**
+
+同じパターンでビルド日時も注入できます。
+
+```javascript
+export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __BUILD_DATE__: JSON.stringify(new Date().toISOString())
+  }
+});
+```
+
+**Git コミットハッシュの注入**
+
+最終コミットのハッシュも同様に注入可能です。
+
+```javascript
+import { execSync } from 'child_process';
+
+const commit = execSync('git rev-parse --short HEAD').toString().trim();
+
+export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __COMMIT_HASH__: JSON.stringify(commit)
+  }
+});
+```
+
+これにより「最終ビルド: 2026-04-22 / commit abc1234」のような表示が実現できます。
+
+## 注意点・ハマりポイント
+
+- **`JSON.stringify()` を忘れない**: `define: { __APP_VERSION__: pkg.version }` と書くと `__APP_VERSION__ = 1.0.0` のように bare token として展開されて構文エラーになります。必ず `JSON.stringify()` で文字列化してください。
+- **`typeof` チェックを入れる**: `typeof __APP_VERSION__ !== 'undefined'` のガードを入れておくと、`define` が有効でない環境（Jest などのテスト実行時）でも `ReferenceError` で落ちません。
+- **Electron 側は `app.getVersion()` で十分**: フロントエンドへ `__APP_VERSION__` を伝搬させる必要はありません。メインプロセスでは組み込み API を使うのがシンプルです。
+- **バージョン更新手順の統一**: `package.json` の `version` を書き換えて `npm run build` するだけでよいため、リリース手順書にこの 1 ステップだけ書けば済みます。
+- **`document.title` は Electron でも効く**: `loadFile()` でページを読み込んだ後、レンダラー側の `document.title` 変更は Electron のタイトルバーにも反映されます。`BrowserWindow` の `title` 設定と重複する場合は後勝ちになります。
+
+## 実際の活用事例
+
+このテクニックは、[goagoa-invoice-manager](https://github.com/YujiFukami/goagoa-invoice-manager)（Electron + Vite + sql.js による顧客請求・入金管理デスクトップアプリ）で実際に使用しています。`package.json` の `"version": "1.0.0"` を 3 箇所（HTML バッジ、`document.title`、Electron ウィンドウタイトル）に自動反映しており、バージョンアップ時は `package.json` の 1 行を書き換えて再ビルドするだけで全箇所が更新されます。
+
+## まとめ
+
+- Vite の `define` で `__APP_VERSION__` を注入し、**`package.json` をバージョンの唯一の出典**にする
+- Electron メインプロセスでは `app.getVersion()` が自動で `package.json` を読むため、追加設定は不要
+- `typeof __APP_VERSION__ !== 'undefined'` のガードで、**テスト環境でも安全に動作**する

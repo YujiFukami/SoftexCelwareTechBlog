@@ -1,0 +1,109 @@
+---
+title: "Uint8Arrayを安全にbase64エンコードしてlocalStorageに保存する方法"
+category: "vanillajs"
+slug: "base64-chunk-encode"
+tags: ["JavaScript", "base64", "localStorage", "sql.js", "バイナリ"]
+description: "100KB超のUint8Arrayをbtoapに渡すとスタックオーバーフローが起きます。32KBチャンク分割でエンコードする安全なパターンを解説します。"
+date: "2026-04-22"
+---
+
+## はじめに
+
+`Uint8Array` を base64 に変換して `localStorage` に保存したい場面は意外と多いですよね。sql.js の SQLite バイナリ、PDF.js の読み込みデータ、WebAssembly のスナップショットなど、用途はさまざまです。
+
+しかし、一般的に紹介されているコードには落とし穴があります。
+
+```javascript
+const base64 = btoa(String.fromCharCode.apply(null, binaryData));
+```
+
+このコードは配列が **100KB を超えた時点で "Maximum call stack size exceeded"** というエラーで突然落ちます。`String.fromCharCode.apply(null, hugeArray)` は配列の要素全てを関数引数として展開するため、V8 エンジンの引数上限（約 65,000〜120,000 個）を超えるとスタックが溢れます。
+
+開発中は小さなデータで動いていたのに、本番のデータ量になった途端に壊れる——という典型的なバグです。解決策は単純で、**32KB ずつ分割してエンコードを繰り返す** だけです。
+
+## こんな場面で使えます
+
+- sql.js や IndexedDB が使えない環境でバイナリデータを localStorage にキャッシュしたい
+- PDF.js・Canvas などで生成した画像バイナリをブラウザストレージに保存したい
+- WebAssembly モジュールの実行状態をスナップショットとして保存したい
+- Electron アプリのブラウザフォールバック経由で DB を保存したい
+- バイナリ→base64 の変換を既存コードに安全に追加したい
+
+## 実装コード
+
+### エンコード（Uint8Array → base64）
+
+```javascript
+function uint8ToBase64(binaryData) {
+  let binary = '';
+  const chunkSize = 0x8000; // 32768バイト
+  for (let i = 0; i < binaryData.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, binaryData.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+```
+
+各チャンクは 32,768 バイト以内なので、`apply` の引数展開によるスタック溢れが起きません。`subarray()` はビューを返すだけでコピーを作らないため、メモリ効率も良好です。
+
+### デコード（base64 → Uint8Array）
+
+```javascript
+const uInt8Array = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+```
+
+読み込み側は従来のコードのままで動きます。エンコード方式を変えても既存の保存データはそのまま読み込めるため、**移行時に再エクスポートは不要** です。
+
+### localStorage への保存・読み込みの全体像
+
+```javascript
+// 保存
+function saveToLocalStorage(key, binaryData) {
+  const base64 = uint8ToBase64(binaryData);
+  localStorage.setItem(key, base64);
+}
+
+// 読み込み
+function loadFromLocalStorage(key) {
+  const saved = localStorage.getItem(key);
+  if (!saved) return null;
+  return Uint8Array.from(atob(saved), c => c.charCodeAt(0));
+}
+```
+
+## 使い方・カスタマイズ
+
+**チャンクサイズの調整**
+
+`0x8000`（32,768）は経験則上の安全圏です。1〜32,768 の範囲であれば問題なく動作します。より小さくすれば安全側に振れますが、ループ回数が増えるため速度が若干落ちます。特別な理由がなければ `0x8000` で問題ありません。
+
+**大容量データの代替手段**
+
+数 MB を超えるデータを扱う場合は、localStorage ではなく IndexedDB を検討してください。IndexedDB はバイナリをそのまま保存できるため、base64 変換のオーバーヘッドがありません。どうしても localStorage に保存したい場合のみ、このパターンを採用します。
+
+**高速な読み込みが必要な場合**
+
+`atob()` + `Uint8Array.from()` が遅い場合は、`fetch` 経由の方法が高速なケースがあります。
+
+```javascript
+const response = await fetch('data:application/octet-stream;base64,' + base64);
+const buffer = await response.arrayBuffer();
+const uInt8Array = new Uint8Array(buffer);
+```
+
+## 注意点・ハマりポイント
+
+- **`apply` の引数上限は実装依存**: V8 では約 65,000〜120,000 個で溢れますが、環境によって異なります。100KB を境に「動いたり落ちたり」する不安定な挙動が典型的なシグネチャです。
+- **`btoa()` 自体に上限はない**: `btoa` は文字列長の制限がほぼなく（実装依存で数 MB 級まで通る）、ボトルネックは `apply` の展開にあります。
+- **同じ問題は他の `apply` パターンでも起きる**: `String.fromCodePoint.apply()`、`Math.max.apply()`、`Array.push.apply()` など、大きな配列を `apply` に渡す箇所は全て同様のリスクがあります。
+- **`subarray()` はビュー**: `slice()` と異なりコピーを作らないため高速ですが、元の `Uint8Array` が GC される前に処理を完了する必要があります。
+
+## 実際の活用事例
+
+このテクニックは、[goagoa-invoice-manager](https://github.com/YujiFukami/goagoa-invoice-manager) の sql.js データベースをブラウザ版でキャッシュする際に実際に使用しています。Electron 版は IPC 経路でバイナリを直接ファイルに書き込むため影響はありませんが、ブラウザフォールバック時には localStorage に base64 で保存する必要があり、DB が 100KB を超えた時点でこの問題が発生しました。チャンク分割に切り替えることで、数 MB 規模の DB でも安定して動作するようになっています。
+
+## まとめ
+
+- `String.fromCharCode.apply(null, largeArray)` は 100KB 超でスタックオーバーフローになる
+- 32KB チャンク分割でループするだけで解決でき、**既存データとの互換性も維持される**
+- 大容量データの本命は IndexedDB。**localStorage への保存はこのパターン限定で採用**する

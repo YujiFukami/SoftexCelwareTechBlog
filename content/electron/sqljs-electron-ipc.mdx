@@ -1,0 +1,185 @@
+---
+title: "sql.jsとElectron IPCでインストール不要のローカルDBを永続化する方法"
+category: "electron"
+slug: "sqljs-electron-ipc"
+tags: ["Electron", "sql.js", "IPC", "SQLite", "WebAssembly"]
+description: "ネイティブモジュール不要。sql.js（WebAssembly版SQLite）をレンダラーで動かし、ファイル永続化だけIPC経由でメインプロセスに任せる構成を解説します。"
+date: "2026-04-22"
+---
+
+## はじめに
+
+Electron アプリでローカル DB を使いたい場合、SQLite が最有力候補になりますよね。しかし `better-sqlite3` などのネイティブ Node.js モジュールは、`electron-rebuild` の設定や ABI 互換の問題でビルド周りのトラブルが多いです。特に Windows 環境では、Visual C++ Build Tools の有無などが絡んで詰まることが少なくありません。
+
+そこで採用したいのが **sql.js（WebAssembly 版 SQLite）** です。WebAssembly で動くためネイティブモジュールのビルドが不要で、ブラウザでも Electron でも同一コードで動きます。`npm run dev` でブラウザ上でテストしながら開発し、本番は Electron でファイルに永続化する——という構成が自然に作れます。
+
+ファイルへの書き込みだけ Electron の IPC（プロセス間通信）経由でメインプロセスに委譲することで、**セキュリティを保ちながらローカル DB の永続化を実現**します。
+
+## こんな場面で使えます
+
+- インストール不要・サーバ不要・単一ユーザーのデスクトップアプリが欲しい
+- `better-sqlite3` のビルドでハマりたくない
+- 開発中はブラウザで動かしてテストし、本番は Electron でファイル保存したい
+- CSV や ZIP などの任意ファイル入出力も同じ IPC パターンで対応したい
+- アプリのアップデート時に DB データが消えないようにしたい
+
+## 実装コード
+
+### preload.cjs — IPC ブリッジの定義
+
+```javascript
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  readDB: () => ipcRenderer.invoke('read-db'),
+  writeDB: (data) => ipcRenderer.invoke('write-db', data),
+  saveFile: (data, options) => ipcRenderer.invoke('save-file', data, options),
+  importFile: (options) => ipcRenderer.invoke('import-file', options)
+});
+```
+
+`contextBridge.exposeInMainWorld` でレンダラーから `window.electronAPI` としてアクセスできるようにします。`contextIsolation: true` を前提とした安全な設計です。
+
+### main.cjs — ファイル IO ハンドラの実装
+
+```javascript
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const path = require('path');
+const fs = require('fs');
+
+const getDbPath = () => {
+  // 本番: exe 隣の data/、開発: プロジェクトルートの data/
+  const isPackaged = app.isPackaged;
+  const basePath = isPackaged ? path.dirname(process.execPath) : app.getAppPath();
+  const dataDir = path.join(basePath, 'data');
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+  return path.join(dataDir, 'database.db');
+};
+
+app.whenReady().then(() => {
+  ipcMain.handle('read-db', async () => {
+    const dbPath = getDbPath();
+    return fs.existsSync(dbPath) ? fs.readFileSync(dbPath) : null;
+  });
+
+  ipcMain.handle('write-db', async (event, uint8Array) => {
+    fs.writeFileSync(getDbPath(), Buffer.from(uint8Array));
+    return true;
+  });
+
+  // 任意ファイル保存（CSV, ZIP 等）
+  ipcMain.handle('save-file', async (event, uint8Array, options) => {
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, options);
+    if (!canceled && filePath) {
+      fs.writeFileSync(filePath, Buffer.from(uint8Array));
+      return true;
+    }
+    return false;
+  });
+
+  // 任意ファイル読込
+  ipcMain.handle('import-file', async (event, options) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, options);
+    if (!canceled && filePaths.length > 0) {
+      const content = fs.readFileSync(filePaths[0], 'utf-8');
+      return { path: filePaths[0], content };
+    }
+    return null;
+  });
+});
+```
+
+### レンダラー側 — DBManager クラス
+
+```javascript
+// public/ に sql-wasm.wasm と sql-wasm.js を配置しておく
+class DBManager {
+  async init() {
+    this.SQL = await window.initSqlJs({ locateFile: f => `./${f}` });
+
+    let uInt8Array = null;
+    if (window.electronAPI) {
+      // Electron 経由: ファイルシステムから直接読込
+      const buffer = await window.electronAPI.readDB();
+      if (buffer) uInt8Array = new Uint8Array(buffer);
+    } else {
+      // ブラウザフォールバック: localStorage から
+      const saved = localStorage.getItem('app_db');
+      if (saved) uInt8Array = Uint8Array.from(atob(saved), c => c.charCodeAt(0));
+    }
+
+    this.db = uInt8Array
+      ? new this.SQL.Database(uInt8Array)
+      : new this.SQL.Database();
+  }
+
+  save() {
+    const binaryData = this.db.export();
+    if (window.electronAPI) {
+      window.electronAPI.writeDB(binaryData);
+    } else {
+      // ブラウザは base64 エンコード（チャンク分割で100KB超に対応）
+      let binary = '';
+      const chunkSize = 0x8000;
+      for (let i = 0; i < binaryData.length; i += chunkSize) {
+        binary += String.fromCharCode.apply(null, binaryData.subarray(i, i + chunkSize));
+      }
+      localStorage.setItem('app_db', btoa(binary));
+    }
+  }
+}
+```
+
+### BrowserWindow の設定（preload を読ませる）
+
+```javascript
+mainWindow = new BrowserWindow({
+  width: 1280,
+  height: 800,
+  webPreferences: {
+    preload: path.join(__dirname, 'preload.cjs'),
+    nodeIntegration: false,
+    contextIsolation: true
+  }
+});
+mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
+```
+
+### electron-builder 設定（package.json）
+
+```json
+{
+  "build": {
+    "files": ["dist/**/*", "main.cjs", "preload.cjs", "lib/**/*"],
+    "extraResources": [{ "from": "public/sql-wasm.wasm", "to": "sql-wasm.wasm" }]
+  }
+}
+```
+
+## 使い方・カスタマイズ
+
+**複数 DB ファイルの切り替え**
+
+`getDbPath()` の引数にファイル名を渡せるよう拡張すれば、顧客ごとに DB ファイルを分離する構成も容易です。
+
+**DB バックアップ**
+
+`save-file` ハンドラに `db.export()` の結果を渡すだけで、`.db` ファイルをユーザー指定の場所にそのままコピーできます。バイナリ完全コピーなので復元も簡単です。
+
+## 注意点・ハマりポイント
+
+- **DB ファイルは exe の外に置く**: `data/database.db` を exe 内の `resources/` に置くと、アプリ更新時に DB ごと上書きされます。`path.dirname(process.execPath)` で exe の隣に配置するのが正解です。
+- **開発・本番の自動切替**: `app.isPackaged` が `false`（開発時）は `app.getAppPath()`、`true`（本番）は `path.dirname(process.execPath)` で切り替えます。パスをハードコードしないようにしてください。
+- **`nodeIntegration: false` は必須**: セキュリティ上、レンダラーから直接 Node.js API を呼ぶのは避けてください。IPC 経由に限定することで、XSS 攻撃からファイルシステムを守れます。
+- **ブラウザフォールバックの base64 エンコード**: localStorage 経由の場合、DB が 100KB を超えると `String.fromCharCode.apply` でスタックオーバーフローが起きます。32KB チャンク分割エンコードを使ってください（コード内に実装済み）。
+- **sql-wasm.wasm の配置**: `extraResources` で wasm ファイルをパッケージに含めないと、本番 exe で SQL が動きません。ビルド設定の確認を忘れずに。
+
+## 実際の活用事例
+
+このテクニックは、[goagoa-invoice-manager](https://github.com/YujiFukami/goagoa-invoice-manager)（Electron + Vite + sql.js による顧客請求・入金管理デスクトップアプリ）で実際に使用しています。`better-sqlite3` のビルドトラブルを完全に回避しながら、顧客マスタ・請求書・入金履歴などのデータを `data/database.db` に永続化しています。開発時はブラウザ上でテストし、本番は Electron でファイルに書き込む二重対応の構成が、開発体験を大きく向上させています。
+
+## まとめ
+
+- sql.js（WebAssembly）で **ネイティブモジュール不要のローカル SQLite** を実現
+- ファイル IO のみ IPC でメインプロセスに委譲し、**`contextIsolation: true` の安全設計**を維持
+- `app.isPackaged` で開発・本番の DB パスを自動切替し、**アップデート時に DB が消えない**構成にする

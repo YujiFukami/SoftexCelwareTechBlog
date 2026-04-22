@@ -1,0 +1,129 @@
+---
+title: "論理削除テーブルで削除済みIDを再利用する最小空き番号採番ロジック"
+category: "electron"
+slug: "reuse-deleted-id"
+tags: ["JavaScript", "SQLite", "sql.js", "採番", "論理削除"]
+description: "MAX(id)+1では削除IDが永久欠番になります。有効レコードが占有していない最小の正整数を返すロジックでID空間を効率的に使い回す方法を解説します。"
+date: "2026-04-22"
+---
+
+## はじめに
+
+`delete_flg` による論理削除を採用したテーブルで、新規レコードの ID をどう採番するか悩んだことはありますよね。よくある実装は `MAX(id) + 1` ですが、これだと削除されたレコードの ID が永遠に欠番になってしまいます。
+
+顧客 ID が `1, 5, 12, 47` のように飛び飛びになると、「ID 欠番がたくさんあるけど新しい顧客は 48 番」という見た目の違和感が生じます。さらに ID が 4 桁固定などの制約がある場合、削除が繰り返されると ID 空間が枯渇します。
+
+**有効レコードが占有していない最小の正整数を返す「最小空き番号方式」**なら、削除されたレコードの ID を再利用しながら、常にコンパクトな番号空間を維持できます。
+
+## こんな場面で使えます
+
+- `delete_flg` を使った論理削除で ID の欠番を防ぎたい
+- 顧客 ID・スタッフ ID などを 1 から連番で詰めて管理したい
+- ID 空間が有限（4 桁固定など）で枯渇リスクを下げたい
+- sql.js や SQLite を使った Electron アプリのマスタ管理テーブルに適用したい
+- TEXT 型の ID カラムでも数値ベースで採番したい
+
+## 実装コード
+
+### 最小空き番号を返すメソッド
+
+```javascript
+/**
+ * 有効データ（delete_flg=0）が占有していない最小の正の整数を返す。
+ * 削除済みレコードの ID は空き番号として扱われ、上書き再利用される。
+ */
+getNextAvailableId(table, idCol) {
+  const rows = this.query(
+    `SELECT ${idCol} AS id FROM ${table} WHERE delete_flg = 0`
+  );
+  const used = new Set();
+  rows.forEach(r => {
+    const n = parseInt(r.id, 10);
+    if (!isNaN(n) && n > 0) used.add(n);
+  });
+  let n = 1;
+  while (used.has(n)) n++;
+  return n;
+}
+```
+
+有効レコード（`delete_flg = 0`）の ID だけを取得し、`Set` に格納します。1 から順に「使われていない番号」を探して返します。
+
+### 呼び出し例
+
+```javascript
+const newId = this.db.getNextAvailableId('client_list', 'client_id');
+// 既存 ID: [1, 2, 4, 5]（3 が削除済み）→ newId = 3
+// 既存 ID: [1, 2, 3]                     → newId = 4
+```
+
+削除済みの 3 番があれば 3 を返し、欠番がなければ末尾の次の番号を返します。
+
+### 採番後の保存（INSERT OR REPLACE）
+
+削除済みレコードを上書き再利用するには `INSERT OR REPLACE` を使います。
+
+```javascript
+const newId = this.db.getNextAvailableId('client_list', 'client_id');
+
+this.db.run(`
+  INSERT OR REPLACE INTO client_list (client_id, client_name, ..., delete_flg)
+  VALUES (?, ?, ..., 0)
+`, [newId, name, ...]);
+```
+
+`delete_flg = 0` を明示することで、削除済みフラグが残ったまま再利用される事故を防ぎます。`INSERT OR REPLACE` は PRIMARY KEY が一致すれば既存行を置き換え、なければ新規挿入する動作です。
+
+### TEXT 型 ID で運用する場合のソート
+
+PRIMARY KEY が文字列型でも、内部を数値文字列に統一することで採番が機能します。ソート時は明示的に `CAST` します。
+
+```sql
+ORDER BY CAST(client_id AS INTEGER) ASC, client_id ASC
+```
+
+第二ソートキー `client_id ASC` を入れておくと、過去に文字列 ID（"C001" など）が混じっていても破綻しません。
+
+## 使い方・カスタマイズ
+
+**上限制約を加える場合**
+
+ID 空間が 1〜9999 に制限されている場合、`while` の前に枯渇チェックを入れます。
+
+```javascript
+getNextAvailableId(table, idCol, maxId = 9999) {
+  // ...（Set を作る処理）
+  let n = 1;
+  while (used.has(n)) {
+    n++;
+    if (n > maxId) throw new Error(`ID が上限 ${maxId} に達しました`);
+  }
+  return n;
+}
+```
+
+**「穴埋め禁止・常に最大+1」が必要な場合**
+
+削除 ID を再利用せず、従来どおり最大値の次を使いたい場合は 1 行で書けます。
+
+```javascript
+const newId = Math.max(0, ...used) + 1;
+```
+
+## 注意点・ハマりポイント
+
+- **O(n) で十分高速**: ID が数万〜数十万あっても `Set` の `has()` は O(1) のため、全体として O(n) で動作します。追加の SQL インデックスも不要です。
+- **TEXT 型 ID は `parseInt` で数値変換**: `parseInt(r.id, 10)` で変換し、`isNaN` チェックで数値でない ID は除外します。旧来の "C001" 形式が混在していても安全に動作します。
+- **並行アクセスへの対応**: 複数プロセスや非同期処理が同時に `getNextAvailableId` を呼ぶと、同じ番号が返る可能性があります。Electron のシングルウィンドウ構成では問題になりませんが、サーバーサイドで使う場合はトランザクションや排他制御が必要です。
+- **`MAX(id) + 1` との移行は無痛**: 既存レコードの ID には一切影響しないため、既存テーブルに対してロジックをそのまま適用できます。移行作業は不要です。
+- **`INSERT OR REPLACE` は全カラムを指定する**: `INSERT OR REPLACE` は一致した行を削除してから挿入する動作のため、省略したカラムは `DEFAULT` 値で上書きされます。全カラムを明示的に指定してください。
+
+## 実際の活用事例
+
+このテクニックは、[goagoa-invoice-manager](https://github.com/YujiFukami/goagoa-invoice-manager)（Electron + Vite + sql.js による顧客請求・入金管理デスクトップアプリ）で実際に使用しています。`client_list`（顧客）、`id_list`（請求書番号）、`plan_list`（プラン）、`summary_list`（月次集計）、`staff_list`（担当者）の全マスタテーブルに採用しており、削除と再登録を繰り返しても ID が飛び飛びにならず、常に連番に近い状態を維持しています。
+
+## まとめ
+
+- `MAX(id) + 1` の代わりに**有効レコードの Set から最小空き番号を探す**ことで、削除 ID を自動再利用できる
+- `INSERT OR REPLACE` との組み合わせで、**削除済みレコードをそのまま上書き**して再利用できる
+- O(n) で十分高速かつ既存データへの影響ゼロのため、**既存テーブルへの移行コストがない**

@@ -1,0 +1,134 @@
+---
+title: "sql.jsでCSV一括取込みをO(n²)からO(n)に高速化する方法"
+category: "electron"
+slug: "sqljs-bulk-insert"
+tags: ["Electron", "sql.js", "SQLite", "パフォーマンス", "バルクINSERT"]
+description: "ループ内でsave()を呼び続けるO(n²)設計が数百行で破綻する問題を、生APIで書き込んで末尾で1回だけsaveする方式に変えて劇的に高速化します。"
+date: "2026-04-22"
+---
+
+## はじめに
+
+sql.js を使った Electron アプリで CSV の一括取込み機能を実装すると、少量のデータでは問題なく動いても、数百行・数千行になった途端に「Maximum call stack size exceeded」が出たり、処理が終わらなかったりする経験はありますよね。
+
+原因のほとんどは、DBManager のような薄いラッパーを作った際に「`run()` の中で毎回 `save()` を呼ぶ」設計になっていることです。N 行のデータを取り込む場合、DB のエクスポートとファイル書き込みが N 回走る **O(n²) の設計**になってしまいます。
+
+解決策は単純です。ループ内では**生の sql.js API を直接呼んで save をスキップ**し、全件処理が終わってから**1 回だけ save** する。それだけで「数分かかっていた処理が 1 秒未満」に変わります。
+
+## こんな場面で使えます
+
+- sql.js + Electron 構成で CSV・TSV の一括取込み機能を実装している
+- DBManager のような薄いラッパーを介して DB 操作をしている
+- データが増えてくると取込みが遅くなる、または途中でクラッシュする
+- ブラウザ版（localStorage 経路）と exe 版の両方で大量データを扱いたい
+- バルク処理とシングル操作で save の挙動を使い分けたい
+
+## 実装コード
+
+### Before — O(n²) になるアンチパターン
+
+```javascript
+// DBManager のラッパーが内部で毎回 save() を呼ぶ実装
+class DBManager {
+  run(sql, params = {}) {
+    const res = this.db.run(sql, params);
+    this.save();  // ← これがループごとに発火する
+    return res;
+  }
+}
+
+// 呼び出し側：1行ごとに save が走って O(n²)
+data.forEach(row => {
+  this.db.run(`REPLACE INTO ${table} (...) VALUES (...)`, params);
+});
+```
+
+N 行で N 回の DB エクスポート + ファイル書き込みが走ります。ブラウザ版では base64 エンコードも毎回走るため、数百行でスタックオーバーフローになります。exe 版でも IO ボトルネックで実用速度が出ません。
+
+### After — O(n) に修正したバルク INSERT
+
+```javascript
+// this.db.run()（ラッパー）ではなく
+// this.db.db.run()（sql.js 生 API）を直接呼ぶ
+data.forEach(row => {
+  this.db.db.run(`REPLACE INTO ${table} (...) VALUES (...)`, params);
+});
+this.db.save();  // ← 完了後に 1 回だけ
+```
+
+`this.db` が DBManager インスタンス、`this.db.db` が sql.js の `Database` オブジェクト（生 API）です。ラッパーの `run()` を経由せず直接呼ぶことで、save の自動発火を避けます。
+
+### 実際のバルク取込み関数例
+
+```javascript
+async importCsv(csvText, table) {
+  const rows = parseCsv(csvText); // 独自 or PapaParse 等
+
+  // ループ内は生 API で書く（save をスキップ）
+  rows.forEach(row => {
+    this.db.db.run(
+      `REPLACE INTO ${table} (col1, col2, col3) VALUES (?, ?, ?)`,
+      [row.col1, row.col2, row.col3]
+    );
+  });
+
+  // 全件完了後に 1 回だけ保存
+  this.db.save();
+
+  console.log(`${rows.length} 件を取込みました`);
+}
+```
+
+## 使い方・カスタマイズ
+
+**さらに高速化したい場合（Prepared Statement）**
+
+`db.prepare()` を使うと SQL のパースとコンパイルが 1 回で済み、bind だけで繰り返せます。
+
+```javascript
+const stmt = this.db.db.prepare(
+  `REPLACE INTO ${table} (col1, col2, col3) VALUES (?, ?, ?)`
+);
+rows.forEach(row => {
+  stmt.run([row.col1, row.col2, row.col3]);
+});
+stmt.free(); // 解放を忘れずに
+this.db.save();
+```
+
+**進捗表示が必要な場合**
+
+大量データの取込み中にプログレスバーを表示したい場合は、`setTimeout(0)` でチャンクに分割して非同期に処理します。これにより UI がブロックされなくなります。
+
+```javascript
+async importCsvWithProgress(rows, table, onProgress) {
+  const chunkSize = 100;
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+    chunk.forEach(row => {
+      this.db.db.run(`REPLACE INTO ${table} (...) VALUES (...)`, [/* params */]);
+    });
+    onProgress(Math.min(i + chunkSize, rows.length) / rows.length);
+    await new Promise(r => setTimeout(r, 0)); // UI 描画を挟む
+  }
+  this.db.save();
+}
+```
+
+## 注意点・ハマりポイント
+
+- **ラッパーの `run()` と生 API の使い分けを明確に**: ラッパーの `run()` は「1 件編集して即保存」の UI 操作向け、生 API は「バルク処理」向けと役割を決めておくと設計が崩れにくくなります。コメントで意図を残すことを推奨します。
+- **`this.db.db` の二重 `.db` に注意**: インスタンス変数名がラッパーと同名になりやすいため、`this.db.db.run()` のような二重アクセスが必要になります。可読性が下がるため、ラッパー側に `rawRun()` のような専用メソッドを用意する方法もあります。
+- **ブラウザ版でも O(n²) は発生する**: exe 版は IPC でバイナリを直接渡すためエンコード起因のスタックオーバーフローは出ませんが、IO ボトルネックによる O(n²) の遅さは同様に発生します。本パターンは exe・ブラウザ両方で有効です。
+- **save 失敗時のロールバック**: save の前にエラーが起きた場合、ループ内の変更はメモリ上のみで DB ファイルに反映されません。エラーハンドリングで `try/finally` を使い、必要に応じて `save()` か DB の再 init を行ってください。
+- **`stmt.free()` の忘れに注意**: Prepared Statement を使う場合、`free()` を呼ばないとメモリリークします。`finally` ブロックで確実に解放してください。
+
+## 実際の活用事例
+
+このテクニックは、[goagoa-invoice-manager](https://github.com/YujiFukami/goagoa-invoice-manager)（Electron + Vite + sql.js による顧客請求・入金管理デスクトップアプリ）で実際に使用しています。入金データ `pay_list.csv`（2,647 行）の一括取込み処理に適用し、数分かかっていた処理が 1 秒未満で完了するようになりました。
+
+## まとめ
+
+- ラッパー経由の `run()` がループ内で `save()` を毎回呼ぶと **O(n²) のボトルネック**になる
+- 生 API を直接呼び、ループ完了後に **1 回だけ `save()`** することで O(n) に改善できる
+- Prepared Statement との組み合わせでさらに高速化でき、**数千行の取込みも 1 秒未満**で処理可能になる
