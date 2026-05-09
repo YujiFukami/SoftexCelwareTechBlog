@@ -20,8 +20,8 @@ echo [2/5] Building site...
 call npm run build
 if errorlevel 1 exit /b 1
 
-echo [3/5] Staging article changes...
-git add content src/lib/articles.ts publish_articles.bat
+echo [3/5] Staging site changes...
+git add content src public publish_articles.bat
 if errorlevel 1 exit /b 1
 
 git diff --cached --quiet

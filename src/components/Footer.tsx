@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 
 export default function Footer() {
   return (
@@ -18,6 +19,12 @@ export default function Footer() {
             </p>
           </div>
           <div className="flex items-center gap-4">
+            <Link
+              href="/knowledge-flow"
+              className="text-xs text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              知識資産化
+            </Link>
             <a
               href="https://www.softex-celware.com/"
               target="_blank"
