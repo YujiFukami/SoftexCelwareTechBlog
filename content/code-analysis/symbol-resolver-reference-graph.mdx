@@ -1,0 +1,175 @@
+---
+title: "SymbolTable、Resolver、ReferenceGraphで参照関係を高速に解決する"
+category: "code-analysis"
+slug: "symbol-resolver-reference-graph"
+tags: ["CodeAnalysis", "SymbolTable", "Resolver", "ReferenceGraph", "Parser"]
+description: "コード中の呼び出し関係や変数参照を、辞書と双方向グラフで扱いやすくする基本設計です。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+コード解析ツールでよく必要になるのが、「この関数は何を呼んでいるか」「この宣言はどこから使われているか」という情報です。
+
+すべての手続き本文と、すべての宣言名を毎回総当たりで比較すると、コード量が増えたときに遅くなります。そこで、名前からシンボルを引ける `SymbolTable`、本文中の識別子を解決する `Resolver`、結果を双方向に持つ `ReferenceGraph` に分けます。
+
+ここでいうシンボルは、関数、変数、定数、API宣言など「名前で参照されるもの」です。Resolverは、その名前が実際にどのシンボルを指すか決める処理です。
+
+## こんな場面で使えます
+
+- 関数の呼び出し一覧を作りたい
+- 使われていない関数や定数を探したい
+- 影響範囲調査を自動化したい
+- コード移植時に必要な依存関係を抽出したい
+- 中規模以上のコードベースで参照解析を高速化したい
+
+## 実装パターン
+
+処理の流れは次の通りです。
+
+```text
+Procedures / Declarations
+  |
+  v
+SymbolTable.Build(project)
+  |
+  v
+Resolver.ResolveAll(project)
+  |
+  v
+ReferenceGraph
+  - Calls
+  - CalledBy
+  - DeclarationsUsedBy
+  - UsedBy
+```
+
+`SymbolTable` は、名前から候補シンボルを引く辞書です。
+
+```csharp
+public sealed class SymbolTable
+{
+    private readonly Dictionary<string, List<Symbol>> _byName =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public static SymbolTable Build(VbProject project)
+    {
+        var table = new SymbolTable();
+        foreach (var module in project.Modules)
+        {
+            foreach (var p in module.Procedures)
+                table.Add(new ProcedureSymbol(p, module));
+
+            foreach (var d in module.Declarations)
+                table.Add(new DeclarationSymbol(d, module));
+        }
+        return table;
+    }
+
+    public IEnumerable<Symbol> Lookup(string name)
+        => _byName.TryGetValue(name, out var list)
+            ? list
+            : Enumerable.Empty<Symbol>();
+}
+```
+
+`Resolver` は本文をスキャンし、識別子ごとに `SymbolTable` を引きます。
+
+```csharp
+public static ReferenceGraph ResolveAll(VbProject project)
+{
+    var table = SymbolTable.Build(project);
+    var graph = new ReferenceGraph();
+
+    foreach (var module in project.Modules)
+    {
+        foreach (var proc in module.Procedures)
+        {
+            foreach (var name in ScanIdentifierNames(proc.Body))
+            {
+                foreach (var symbol in table.Lookup(name))
+                {
+                    if (!IsAccessibleFrom(symbol, module)) continue;
+                    if (symbol is ProcedureSymbol ps && ps.Procedure == proc) continue;
+
+                    if (symbol is ProcedureSymbol call)
+                        graph.AddCall(proc, call.Procedure);
+                    else if (symbol is DeclarationSymbol decl)
+                        graph.AddDeclarationUse(proc, decl.Declaration);
+                }
+            }
+        }
+    }
+
+    return graph;
+}
+```
+
+`ReferenceGraph` は、呼ぶ側と呼ばれる側の両方の辞書を持ちます。
+
+```csharp
+public sealed class ReferenceGraph
+{
+    private readonly Dictionary<VbProcedure, HashSet<VbProcedure>> _calls = new();
+    private readonly Dictionary<VbProcedure, HashSet<VbProcedure>> _calledBy = new();
+
+    public void AddCall(VbProcedure caller, VbProcedure callee)
+    {
+        AddTo(_calls, caller, callee);
+        AddTo(_calledBy, callee, caller);
+    }
+
+    public IEnumerable<VbProcedure> GetCalls(VbProcedure p)
+        => _calls.TryGetValue(p, out var set) ? set : Enumerable.Empty<VbProcedure>();
+
+    public IEnumerable<VbProcedure> GetCalledBy(VbProcedure p)
+        => _calledBy.TryGetValue(p, out var set) ? set : Enumerable.Empty<VbProcedure>();
+}
+```
+
+## 設計のポイント
+
+`SymbolTable` は構築にコストがかかりますが、一度作れば名前検索は速くなります。プロジェクト単位でキャッシュしておくと、外部参照解析やUIの再表示にも使い回せます。
+
+`ReferenceGraph` をドメインモデルから分けることも重要です。`VbProcedure` 自体に `Calls` を持たせると、循環参照が増え、テストやメモリ管理が複雑になります。グラフはグラフとして別オブジェクトにした方が扱いやすくなります。
+
+影響範囲を知りたいときは、グラフ上をBFSやDFSでたどります。
+
+```csharp
+public static HashSet<VbProcedure> ComputeTransitiveCalls(
+    VbProcedure root,
+    ReferenceGraph graph)
+{
+    var visited = new HashSet<VbProcedure> { root };
+    var queue = new Queue<VbProcedure>();
+    queue.Enqueue(root);
+
+    while (queue.Count > 0)
+    {
+        var current = queue.Dequeue();
+        foreach (var next in graph.GetCalls(current))
+        {
+            if (visited.Add(next))
+                queue.Enqueue(next);
+        }
+    }
+
+    return visited;
+}
+```
+
+## 注意点・ハマりポイント
+
+- 本文スキャンは文字列検索ではなくLexerベースにします。`Sleep` を探したつもりが `MySleep` にも一致する誤検出を避けられます。
+- Privateシンボルは同じモジュール内だけから見える、というアクセス制御を必ず入れます。
+- Property Get/Let/Setのように同名だが別種別のシンボルは、誤検出を除外するルールが必要です。
+- `Calls` と `CalledBy` の両方向を持つと、UI表示や逆引きが速くなります。
+- 循環呼び出しを検出する場合は、TarjanのSCCなど、グラフ向けのアルゴリズムを使います。
+
+## 実際の活用事例
+
+VBAコード解析ツールでは、手続き、API宣言、定数、変数を `SymbolTable` に登録し、Lexerで抽出した識別子をResolverで解決しました。結果を `ReferenceGraph` に保存することで、呼び出し先、呼び出し元、宣言の利用箇所を高速に表示できるようになりました。
+
+## まとめ
+
+参照解析は、総当たりではなく、`SymbolTable`、`Resolver`、`ReferenceGraph` に分けると見通しが良くなります。名前を辞書で引き、解決結果を双方向グラフに保存する。これだけで、影響範囲調査、未使用コード検出、外部依存の抽出まで広げやすくなります。

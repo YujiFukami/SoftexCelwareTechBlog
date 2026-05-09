@@ -1,0 +1,96 @@
+---
+title: "PyInstallerで本体EXEとランチャーEXEを同時ビルドする構成"
+category: "python-windows"
+slug: "pyinstaller-dual-exe-build"
+tags: ["Python", "Windows", "PyInstaller", "tkinter", "EXE配布"]
+description: "常駐型Pythonアプリで、本体EXEと呼び出し専用ランチャーEXEを1つのspecから同時に作る構成を解説します。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+Windows向けの小さな常駐ツールでは、「本体アプリ」と「呼び出し専用ランチャー」を分けたい場面があります。
+
+本体アプリは常駐、設定画面、トレイ管理などを担当します。一方、ランチャーはタスクバーやショートカットキーから実行され、すでに起動している本体に「画面を開いて」と通知したらすぐ終了します。
+
+この構成にすると、ユーザーは通常アプリのように素早く呼び出せますが、本体を二重起動させずに済みます。PyInstallerでは、1つの `.spec` ファイルに複数の `EXE` 定義を書くことで、この2種類のEXEを同時にビルドできます。
+
+## こんな場面で使えます
+
+- Python/tkinterで常駐型デスクトップアプリを作る
+- タスクバー、スタートメニュー、ショートカットキーから画面だけ呼び出したい
+- 本体EXEの二重起動を避けたい
+- 配布ZIPの中に本体EXEとランチャーEXEを同梱したい
+- ランチャー側を軽量にして、起動体験を速くしたい
+
+## 実装パターン
+
+1つの `.spec` に、本体用とランチャー用の `Analysis` / `PYZ` / `EXE` をそれぞれ定義します。
+
+```python
+main_analysis = Analysis(
+    ['main.py'],
+    hiddenimports=['comtypes', 'comtypes.client'],
+)
+main_pyz = PYZ(main_analysis.pure)
+main_exe = EXE(
+    main_pyz,
+    main_analysis.scripts,
+    main_analysis.binaries,
+    main_analysis.datas,
+    [],
+    name='MyTool',
+    console=False,
+    icon='MyTool.ico',
+)
+
+launcher_analysis = Analysis(['launcher.py'])
+launcher_pyz = PYZ(launcher_analysis.pure)
+launcher_exe = EXE(
+    launcher_pyz,
+    launcher_analysis.scripts,
+    launcher_analysis.binaries,
+    launcher_analysis.datas,
+    [],
+    name='MyToolLauncher',
+    console=False,
+    icon='MyTool.ico',
+)
+```
+
+ビルドコマンドは通常のPyInstallerと同じです。
+
+```bash
+python -m PyInstaller MyTool.spec --noconfirm
+```
+
+この形にすると、`dist` 配下に本体EXEとランチャーEXEが生成されます。配布時は、この2つを同じフォルダに置く前提で設計します。
+
+## 設計のポイント
+
+| 設計判断 | 理由 |
+|---|---|
+| 本体とランチャーを別スクリプトにする | ランチャーに本体ロジックを持たせず、責務を小さく保てる |
+| 1つのspecで2つのEXEを定義する | ビルド手順が1回で済み、配布漏れを防ぎやすい |
+| 同じアイコンを両方のEXEに指定する | タスクバーや配布フォルダ内で同じアプリ系列だと分かりやすい |
+| ランチャーは短時間で終了する | ユーザーが何度呼び出しても常駐プロセスが増えない |
+
+## 注意点・ハマりポイント
+
+- **2つのEXEそれぞれにアイコンを指定する**: 本体だけに `icon` を指定しても、ランチャーには自動では反映されません。
+- **ランチャー側に本体機能を持たせない**: 設定読み書きやUI生成まで持たせると、二重管理になり保守しづらくなります。
+- **配布フォルダ内の相対関係を固定する**: ランチャーが本体EXEを起動する場合、同じフォルダに置く前提でパス解決を作ると運用が単純です。
+- **ビルド後に両方のEXEを確認する**: 本体だけ起動確認して終わると、ランチャー側の依存漏れに気づけないことがあります。
+
+## 実際の活用事例
+
+この構成は、Windows向けの常駐型ショートカット支援ツールで活用しました。本体は常駐し、ランチャーEXEはタスクバーから既存プロセスへ画面表示を依頼するだけの役割にしています。
+
+案件固有の情報を除いて考えると、「本体は常駐、ランチャーは通知だけ」という分離は、Python/tkinter製の小型Windowsツール全般で再利用しやすい設計です。
+
+## まとめ
+
+- PyInstallerの `.spec` には複数の `EXE` 定義を書ける
+- 常駐型ツールでは、本体EXEとランチャーEXEを分けると運用しやすい
+- ランチャーは軽く保ち、本体ロジックを持たせない
+- 配布時は2つのEXEを同じフォルダに置く前提で検証する

@@ -1,0 +1,91 @@
+---
+title: "Pythonアプリの共通情報をapp_info.pyに集約する"
+category: "python-windows"
+slug: "python-app-info"
+tags: ["Python", "Windows", "デスクトップアプリ", "バージョン管理", "保守"]
+description: "バージョン、開発元URL、ブログURL、GitHub URLなどをapp_info.pyにまとめ、UIやREADMEの更新漏れを減らす方法です。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+配布用のデスクトップアプリでは、バージョン番号、開発元URL、GitHub URL、解説ブログURLなどの情報を複数の場所に表示することがあります。
+
+最初は設定画面に直接文字列を書くだけで済みます。しかし、README、About画面、ヘルプメニュー、更新履歴などに同じ情報が増えていくと、リリース時にどこか1箇所だけ古いまま残りがちです。
+
+小さなPythonアプリでも、共通情報を `app_info.py` に集約しておくと、更新箇所が明確になります。
+
+## こんな場面で使えます
+
+- Python製のWindowsデスクトップツールを配布する
+- UI上にバージョン番号を表示する
+- 設定画面やヘルプ画面から関連ページを開く
+- READMEとアプリ内表示の情報をそろえたい
+- リリース作業時の更新漏れを減らしたい
+
+## 実装コード
+
+### app_info.pyを作る
+
+アプリ共通情報だけを集めたファイルを用意します。
+
+```python
+APP_NAME = 'My Tool'
+APP_VERSION = '1.0.0'
+
+DEVELOPER_NAME = 'Softex Celware'
+DEVELOPER_URL = 'https://www.softex-celware.com/'
+BLOG_URL = 'https://example.com/post/my-tool'
+GITHUB_URL = 'https://github.com/example/my-tool'
+```
+
+顧客名、社内URL、非公開リポジトリURLなど、公開配布に向かない情報はここに入れないようにします。
+
+### UI側でimportして使う
+
+設定画面やAbout画面では、文字列を直書きせず `app_info.py` から読み込みます。
+
+```python
+import webbrowser
+from app_info import APP_VERSION, BLOG_URL, DEVELOPER_URL, GITHUB_URL
+
+version_label.config(text=f'v{APP_VERSION}')
+
+def open_developer_site():
+    webbrowser.open(DEVELOPER_URL)
+
+def open_blog():
+    webbrowser.open(BLOG_URL)
+
+def open_github():
+    webbrowser.open(GITHUB_URL)
+```
+
+ボタンの遷移先も同じ定数を使えば、URL変更時にUI側を探し回る必要がなくなります。
+
+## 設計のポイント
+
+| 設計判断 | 理由 |
+|---|---|
+| アプリ情報だけを1ファイルにまとめる | 更新箇所を明確にできる |
+| UIに文字列を直書きしない | 表示画面が増えても変更漏れを減らせる |
+| URLも定数化する | ブログ移転やGitHub URL変更に対応しやすい |
+| 機密情報を入れない | 公開配布やGitHub公開時に漏えいを防ぐ |
+
+## 注意点・ハマりポイント
+
+- **READMEは自動更新されない**: `app_info.py` を作っても、README内のバージョン表記は別管理です。リリースチェックリストに入れておきます。
+- **URLは古くなりやすい**: UIから開くURLは、リリース前に実際にブラウザで開いて確認します。
+- **将来の出典は検討余地あり**: 本格的に管理するなら、`pyproject.toml` やビルド設定を出典にして自動反映する方法もあります。
+- **公開用と社内用を混ぜない**: 社内メモや案件固有URLを入れると、配布物に混ざる危険があります。
+
+## 実際の活用事例
+
+Windows向けPythonツールで、設定画面のバージョン表示、開発元リンク、GitHubリンク、解説ブログリンクを1ファイルに集約しました。リリース前の確認対象が明確になり、画面ごとのURL更新漏れを防ぎやすくなりました。
+
+## まとめ
+
+- バージョン、開発元、関連URLは `app_info.py` に集約する
+- UI側は定数をimportして使い、直書きを避ける
+- READMEなど自動反映されない場所はリリースチェックに入れる
+- 公開配布物に入れてよい情報だけを置く

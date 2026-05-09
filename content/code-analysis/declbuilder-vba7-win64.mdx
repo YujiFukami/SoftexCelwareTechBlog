@@ -1,0 +1,169 @@
+---
+title: "#If VBA7 / Win64 のDeclare宣言をDeclBuilderで1つにまとめる"
+category: "code-analysis"
+slug: "declbuilder-vba7-win64"
+tags: ["CodeAnalysis", "VBA", "Parser", "Preprocessor", "Declare"]
+description: "VBAの条件付きコンパイルで分岐したAPI宣言を、同じシンボルの1エントリとして扱うDeclBuilderパターンです。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+VBAでは、32bit、64bit、VBA6互換のために、同じAPI宣言を `#If VBA7 Then` や `#If Win64 Then` で分けて書くことがあります。
+
+```vb
+#If VBA7 Then
+    #If Win64 Then
+        Public Declare PtrSafe Sub Sleep Lib "kernel32" (ByVal ms As LongPtr)
+    #Else
+        Public Declare PtrSafe Sub Sleep Lib "kernel32" (ByVal ms As Long)
+    #End If
+#Else
+    Public Declare Sub Sleep Lib "kernel32" (ByVal ms As Long)
+#End If
+```
+
+これを単純にパースすると、同じ `Sleep` が3つの宣言として抽出されてしまいます。しかし実際には、環境ごとに本体が違うだけで、利用者から見れば1つのAPI宣言です。
+
+この問題を解くのが、分岐ごとに見つかった宣言断片を、名前単位でまとめる `DeclBuilder` パターンです。
+
+## こんな場面で使えます
+
+- VBAの `Declare PtrSafe` 宣言を解析したい
+- `#If` 分岐のせいで同じ関数が重複表示される
+- コード出力時は元の `#If` 構造を保ちたい
+- 検索や参照解決では代表1件として扱いたい
+- C/C++の `#ifdef` のような条件付きコンパイルにも応用したい
+
+## 実装パターン
+
+モデルは、代表コードと分岐別コードを分けて持ちます。
+
+```csharp
+public sealed class VbDeclaration
+{
+    public string Name { get; }
+    public DeclarationKind Kind { get; }
+    public AccessLevel Access { get; }
+
+    public string CodeVba7Win64 { get; }
+    public string CodeVba7Win32 { get; }
+    public string CodeNotVba7 { get; }
+
+    public string MergedCode { get; }
+    public string Code => CodeVba7Win64 ?? CodeVba7Win32 ?? CodeNotVba7;
+
+    public int StartLine { get; }
+    public int EndLine { get; }
+}
+```
+
+Parserは、`#If` 分岐の内側で見つけた宣言を、まず断片として出します。Parserはソースの構造を読む処理で、ここでは「この宣言はVBA7 Win64側にあった」という情報も添えて渡します。
+
+```csharp
+public enum PreprocessorBranch
+{
+    Vba7Win64,
+    Vba7Win32,
+    NotVba7,
+    None
+}
+```
+
+DeclBuilderは、同じ名前の断片を1つの宣言にまとめます。
+
+```csharp
+public static IReadOnlyList<VbDeclaration> Build(
+    IEnumerable<(string Name, DeclarationKind Kind, AccessLevel Access,
+                 string Code, int StartLine, int EndLine,
+                 PreprocessorBranch Branch)> fragments)
+{
+    var bag = new Dictionary<string, DeclBuilderEntry>(
+        StringComparer.OrdinalIgnoreCase);
+
+    foreach (var f in fragments)
+    {
+        if (!bag.TryGetValue(f.Name, out var entry))
+        {
+            entry = new DeclBuilderEntry
+            {
+                Name = f.Name,
+                Kind = f.Kind,
+                Access = f.Access
+            };
+            bag[f.Name] = entry;
+        }
+
+        switch (f.Branch)
+        {
+            case PreprocessorBranch.Vba7Win64:
+                entry.CodeVba7Win64 = f.Code;
+                break;
+            case PreprocessorBranch.Vba7Win32:
+                entry.CodeVba7Win32 = f.Code;
+                break;
+            case PreprocessorBranch.NotVba7:
+                entry.CodeNotVba7 = f.Code;
+                break;
+        }
+
+        entry.StartLine = Math.Min(entry.StartLine, f.StartLine);
+        entry.EndLine = Math.Max(entry.EndLine, f.EndLine);
+    }
+
+    return bag.Values.Select(BuildOne).OrderBy(d => d.StartLine).ToList();
+}
+```
+
+## 設計のポイント
+
+`Code` は検索や一覧表示に使う代表コード、`MergedCode` はファイルへ書き戻せる完全なコード、と役割を分けます。
+
+```csharp
+private static string BuildMergedCode(DeclBuilderEntry e)
+{
+    var sb = new StringBuilder();
+    bool hasVba7Branch = e.CodeVba7Win64 != null || e.CodeVba7Win32 != null;
+
+    if (hasVba7Branch && e.CodeNotVba7 != null)
+    {
+        sb.AppendLine("#If VBA7 Then");
+        if (e.CodeVba7Win64 != null && e.CodeVba7Win32 != null)
+        {
+            sb.AppendLine("    #If Win64 Then");
+            sb.AppendLine(Indent(e.CodeVba7Win64, "        "));
+            sb.AppendLine("    #Else");
+            sb.AppendLine(Indent(e.CodeVba7Win32, "        "));
+            sb.AppendLine("    #End If");
+        }
+        else
+        {
+            sb.AppendLine(Indent(e.CodeVba7Win64 ?? e.CodeVba7Win32, "    "));
+        }
+        sb.AppendLine("#Else");
+        sb.AppendLine(Indent(e.CodeNotVba7, "    "));
+        sb.Append("#End If");
+        return sb.ToString();
+    }
+
+    return e.CodeVba7Win64 ?? e.CodeVba7Win32 ?? e.CodeNotVba7;
+}
+```
+
+検索、参照解決、UI表示では1エントリとして扱い、エクスポートでは `MergedCode` を使って元の分岐構造を復元します。
+
+## 注意点・ハマりポイント
+
+- 同じ名前の宣言を1つにまとめるときは、大文字小文字を区別しない比較にします。VBAは基本的に識別子の大文字小文字を区別しません。
+- 1分岐しかない宣言には、無理に `#If` を付けません。元が単純なコードなら単純なまま返します。
+- 行番号は、最小の開始行と最大の終了行を持たせます。折りたたみ表示やソース位置ジャンプで扱いやすくなります。
+- `Code` に代表1件だけを返す設計にしておくと、UIや検索がシンプルになります。全分岐を見たいときだけ `MergedCode` を使います。
+- `#If` は構文の外側に見えますが、解析結果には大きく影響します。LexerやParserの段階で分岐状態を追跡しておく必要があります。
+
+## 実際の活用事例
+
+VBA解析ツールでは、`Sleep` のようなWin32 API宣言が3件に分裂して表示される問題を、DeclBuilderで解消しました。呼び出し元のResolverから見ると `Sleep` は1つの宣言になり、エクスポート時には元の `#If VBA7` 構造を保てます。
+
+## まとめ
+
+条件付きコンパイルで分かれた宣言は、Parserで断片として拾い、DeclBuilderで名前単位に統合すると扱いやすくなります。利用者向けには1つの宣言として見せ、コード出力では分岐構造を保つ。この分離が、解析結果の自然さとソース再現性を両立します。

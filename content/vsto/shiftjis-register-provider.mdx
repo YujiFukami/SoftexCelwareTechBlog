@@ -1,0 +1,137 @@
+---
+title: ".NET で Shift-JIS / CP932 を扱う Encoding.RegisterProvider"
+category: "vsto"
+slug: "shiftjis-register-provider"
+tags: ["VSTO", ".NET", "Shift-JIS", "CP932", "Encoding"]
+description: ".NET Core や .NET 5+ で Shift-JIS / CP932 を扱うために CodePagesEncodingProvider を登録する方法と、VBA ファイル連携での改行コード注意点をまとめます。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+.NET Core、.NET 5+、.NET Standard 2.0+ では、既定状態で Shift-JIS や CP932 が使えないことがあります。
+
+```text
+System.ArgumentException: 'shift_jis' is not a supported encoding name.
+```
+
+VBA の `.bas`、`.cls`、`.frm`、古い Excel CSV、レガシー業務アプリの出力ファイルでは、今でも CP932 がよく使われます。Office や VSTO 周辺の実務では避けて通れない場面があります。
+
+## こんな場面で使えます
+
+- VBA エクスポートファイルを C# で読み書きする
+- レガシー Excel CSV を Shift-JIS / CP932 として扱う
+- .NET Core / .NET 5+ で `Encoding.GetEncoding(932)` が失敗する
+- UTF-8 と CP932 が混在するファイルを読みたい
+- VBE インポート用に日本語コメントを文字化けさせず書き出したい
+
+## 実装コード
+
+NuGet パッケージを追加します。
+
+```powershell
+Install-Package System.Text.Encoding.CodePages
+```
+
+アプリ起動時に 1 回だけ provider を登録します。
+
+```csharp
+private void ThisAddIn_Startup(object sender, System.EventArgs e)
+{
+    System.Text.Encoding.RegisterProvider(
+        System.Text.CodePagesEncodingProvider.Instance);
+}
+```
+
+登録後は、Shift-JIS や CP932 を取得できます。
+
+```csharp
+var sjis = System.Text.Encoding.GetEncoding("shift_jis");
+var cp932 = System.Text.Encoding.GetEncoding(932);
+```
+
+読み書き用の小さな関数にしておくと再利用しやすくなります。
+
+```csharp
+public static string ReadCp932(string path)
+{
+    var cp932 = Encoding.GetEncoding(932);
+    return File.ReadAllText(path, cp932);
+}
+
+public static void WriteCp932(string path, string text)
+{
+    var cp932 = Encoding.GetEncoding(932);
+    File.WriteAllText(path, text, cp932);
+}
+```
+
+## 実装パターン
+
+UTF-8 と CP932 が混在する環境では、UTF-8 を厳密に試し、失敗したら CP932 にフォールバックする方式が実務向きです。
+
+```csharp
+public static string DecodeBytes(byte[] bytes)
+{
+    var utf8 = new UTF8Encoding(
+        encoderShouldEmitUTF8Identifier: false,
+        throwOnInvalidBytes: true);
+
+    try
+    {
+        return utf8.GetString(bytes);
+    }
+    catch (DecoderFallbackException)
+    {
+        return Encoding.GetEncoding(932).GetString(bytes);
+    }
+}
+```
+
+BOM 付き UTF-8 を先に判定したい場合は、先頭 3 バイトを確認します。
+
+```csharp
+static bool HasUtf8Bom(byte[] bytes)
+{
+    return bytes.Length >= 3
+        && bytes[0] == 0xEF
+        && bytes[1] == 0xBB
+        && bytes[2] == 0xBF;
+}
+```
+
+## 設計のポイント
+
+`Encoding.RegisterProvider` は冪等です。複数回呼んでも通常は問題になりません。そのため、VSTO なら `ThisAddIn_Startup`、WPF なら `App.OnStartup`、Console なら `Main` の先頭で呼ぶ運用にしておくと安全です。
+
+エンコーディング判定や読み書きは、画面や解析ロジックに直接散らさず、`TextEncodingUtil` のような小さなユーティリティにまとめると再利用しやすくなります。
+
+## 注意点・ハマりポイント
+
+- `RegisterProvider` を呼ぶ前に `Encoding.GetEncoding(932)` を実行すると失敗する
+- VBA のエクスポートファイルは CP932 のことが多い
+- VBE インポート用ファイルは CRLF 改行にしておく
+- UTF-8 と CP932 の自動判定は完全ではないため、失敗時のフォールバック方針を決める
+- 書き出し時に UTF-8 にすると、VBE 側で日本語コメントや識別子が文字化けすることがある
+
+VBE インポート向けに書き出すなら、改行も合わせて整えます。
+
+```csharp
+public static void WriteForVbaImport(string path, string text)
+{
+    var crlf = text.Replace("\r\n", "\n").Replace("\n", "\r\n");
+    File.WriteAllText(path, crlf, Encoding.GetEncoding(932));
+}
+```
+
+## 実際の活用事例
+
+VBA モジュールを C# 側で解析し、必要に応じて `.bas` として再出力するツールでは、読み込み時も書き込み時も CP932 と CRLF を意識する必要があります。
+
+起動時に provider を登録し、ファイル I/O を共通関数に閉じ込めておくと、解析処理側は文字コードの細部を意識せずに済みます。
+
+## まとめ
+
+.NET で Shift-JIS / CP932 を扱うなら、まず `System.Text.Encoding.CodePages` を追加し、起動時に `Encoding.RegisterProvider(CodePagesEncodingProvider.Instance)` を呼びます。
+
+Office、VBA、古い業務ファイルを扱うアプリでは、この 1 行を初期化処理に入れておくだけで、文字化けや実行時例外の多くを避けられます。

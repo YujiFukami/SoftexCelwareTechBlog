@@ -1,0 +1,100 @@
+---
+title: "WPF KeyboardNavigation で矢印キーの飛び出しを防ぐ"
+category: "wpf"
+slug: "keyboard-navigation-contained"
+tags: ["WPF", "KeyboardNavigation", "ListView", "TreeView", "キーボード操作"]
+description: "WPF の ListView や TreeView で矢印キー操作中にフォーカスが隣のコントロールへ飛ぶ問題を、DirectionalNavigation=Contained で防ぐ方法を解説します。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+WPF で複数の `ListView`、`TreeView`、`TabControl` を並べた画面では、矢印キーで操作している最中にフォーカスが隣のコントロールへ飛ぶことがあります。
+
+たとえば、左側のリストで最下行まで移動してから下矢印を押すと、右側のエディタへフォーカスが移ってしまうような挙動です。
+
+これは WPF の `KeyboardNavigation.DirectionalNavigation` の既定値が `Continue` で、端まで来たら次のコントロールへ移動できるためです。
+
+## こんな場面で使えます
+
+- WPF でリストやツリーを複数並べた画面を作る
+- 矢印キーでリスト内を操作させたい
+- リスト端で隣のコントロールへフォーカスが移るのを止めたい
+- AvalonDock 内の複数ペインでキーボード操作を安定させたい
+- Tab キーの移動は残しつつ、矢印キーだけ閉じ込めたい
+
+## 実装コード
+
+対象のコントロールに `KeyboardNavigation.DirectionalNavigation="Contained"` を設定します。
+
+```xaml
+<ListView x:Name="ProcedureList"
+          ItemsSource="{Binding Procedures}"
+          KeyboardNavigation.DirectionalNavigation="Contained">
+  <!-- ... -->
+</ListView>
+```
+
+`TreeView` でも同じです。
+
+```xaml
+<TreeView x:Name="ProjectTree"
+          ItemsSource="{Binding Projects}"
+          KeyboardNavigation.DirectionalNavigation="Contained">
+  <!-- ... -->
+</TreeView>
+```
+
+ペイン全体に効かせたい場合は、外側のコンテナへ付けます。
+
+```xaml
+<Grid KeyboardNavigation.DirectionalNavigation="Contained">
+  <ListView ItemsSource="{Binding Items}" />
+  <TextBox />
+</Grid>
+```
+
+## 実装パターン
+
+`DirectionalNavigation` の主な選択肢は次のとおりです。
+
+| 値 | 挙動 |
+|---|---|
+| `Continue` | コンテナ内を進み、端まで来たら隣のコントロールへ移る |
+| `Contained` | コンテナ内で完結し、端で止まる |
+| `Cycle` | コンテナ内を巡回し、端で逆端に戻る |
+| `Local` | 直近の親 NavigationContainer 内だけで移動する |
+| `None` | 矢印キーによる移動をしない |
+
+通常のリスト操作では `Contained` が扱いやすいです。ゲームパッド風や候補一覧のように端で折り返したい UI なら `Cycle` も選択肢になります。
+
+## 設計のポイント
+
+矢印キーと Tab キーは別の設定です。矢印キーだけ閉じ込めたい場合は、`DirectionalNavigation` だけを変更し、`TabNavigation` は既定のままにします。
+
+```xaml
+<ListView KeyboardNavigation.DirectionalNavigation="Contained"
+          KeyboardNavigation.TabNavigation="Continue" />
+```
+
+検索ボックスから Enter でリストへ移動する、Esc で検索を閉じる、といった独自操作は `KeyDown` イベントや command で別途実装します。
+
+## 注意点・ハマりポイント
+
+- `Contained` は矢印キー移動の設定であり、Tab キーの制御ではない
+- ItemsControl が入れ子になっている場合は、外側と内側の両方に設定が必要なことがある
+- 端で逆端に戻したい場合は `Contained` ではなく `Cycle` を使う
+- `TextBox` 内のカーソル移動まで止めたいわけではない場合、コンテナ単位で設定範囲を調整する
+- AvalonDock のペイン単位で暴れる場合は、各ペインのルート要素に設定する
+
+## 実際の活用事例
+
+左にプロジェクト一覧、中央にモジュール一覧、右にコードビューアを置くような解析ツールでは、ユーザーはリスト内を矢印キーで連続移動します。
+
+このときリスト端でエディタへフォーカスが移ると操作感が悪くなります。各リストやペインに `Contained` を設定しておくと、キーボード操作がリスト内で完結し、画面全体の操作が安定します。
+
+## まとめ
+
+WPF で矢印キーのフォーカス移動が意図せず隣へ飛ぶ場合は、まず `KeyboardNavigation.DirectionalNavigation="Contained"` を試します。
+
+1 行の XAML で改善できることが多く、リストやツリー中心の業務 UI では初期設定として入れておく価値があります。

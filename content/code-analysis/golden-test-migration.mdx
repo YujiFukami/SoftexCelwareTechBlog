@@ -1,0 +1,131 @@
+---
+title: "ゴールデンテストで旧版から新版への移植品質を検証する"
+category: "code-analysis"
+slug: "golden-test-migration"
+tags: ["CodeAnalysis", "GoldenTest", "Migration", "Testing", "Diff"]
+description: "既存システムの解析結果を正解データとして保存し、新実装の出力とdiffで比較する移植検証パターンです。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+既存システムを別言語や別アーキテクチャへ移植するとき、もっとも怖いのは「動いているように見えるが、細かい解析結果が変わっている」状態です。画面で数件確認しただけでは、大きな解析エンジンの品質は保証できません。
+
+そこで使えるのがゴールデンテストです。ゴールデンとは、比較対象になる正解データのことです。旧版の出力をJSONなどで保存し、新版の出力と機械的にdiffします。
+
+## こんな場面で使えます
+
+- VBAツールをC#や別アーキテクチャへ移植したい
+- 既存ロジックの結果を変えずに内部実装を刷新したい
+- Parser、Compiler、解析エンジンの出力品質を検証したい
+- 目視テストでは網羅できない中規模ファイルを確認したい
+- 段階的に移植範囲を広げたい
+
+## 実装パターン
+
+全体の考え方は単純です。
+
+```text
+旧版
+  |
+  | ExportAnalysisJson()
+  v
+golden.json
+
+新版
+  |
+  | ExportAnalysisJson()
+  v
+actual.json
+
+diff golden.json actual.json
+```
+
+まず旧版に、一時的なJSON出力機能を追加します。最終製品に残す必要はありません。移植検証のためだけの出口です。
+
+```vb
+Public Sub ExportAnalysisJson(ByVal outPath As String)
+    Dim json As String
+    json = "{"
+    json = json & """procedures"": ["
+
+    Dim i As Long
+    For i = 1 To procCount
+        If i > 1 Then json = json & ","
+        json = json & "{""name"": """ & procs(i).Name & ""","
+        json = json & """kind"": """ & procs(i).Kind & ""","
+        json = json & """access"": """ & procs(i).Access & """}"
+    Next
+
+    json = json & "]}"
+    WriteUtf8Text outPath, json
+End Sub
+```
+
+新版にも同じ意味のJSON出力を用意します。
+
+```csharp
+public static class GoldenDumper
+{
+    public static void Dump(VbProject project, string outPath)
+    {
+        var data = new
+        {
+            procedures = project.Modules
+                .SelectMany(m => m.Procedures)
+                .OrderBy(p => p.Name)
+                .Select(p => new
+                {
+                    name = p.Name,
+                    kind = p.Kind.ToString(),
+                    access = p.Access.ToString(),
+                })
+                .ToArray()
+        };
+
+        File.WriteAllText(
+            outPath,
+            JsonConvert.SerializeObject(data, Formatting.Indented));
+    }
+}
+```
+
+最後にCLIやテストから比較します。
+
+```bash
+dotnet run --project Kaiso.GoldenTest -- TestSample.bas actual.json
+diff golden_TestSample.json actual.json
+```
+
+## 設計のポイント
+
+最初から全項目を一致させようとしないのがコツです。段階を切って、粗い一致から細かい一致へ広げます。
+
+```text
+Phase 1: name, kind, access
+Phase 2: startLine, endLine
+Phase 3: parameters, returnType
+Phase 4: calls, calledBy
+Phase 5: declarations, constants, enums
+```
+
+まずは「手続きの集合が同じか」を確認します。ここが安定してから、行番号、引数、戻り値、参照グラフへ進めます。いきなり完全一致を目指すと、差分が多すぎて原因を追えなくなります。
+
+JSONは差分が読みやすい形式にします。インデント、改行、並び順を固定してください。
+
+## 注意点・ハマりポイント
+
+- 出力順を固定しないと、実質同じ結果でもdiffが大きくなります。`OrderBy` を入れて安定化します。
+- 旧版側のJSON出力は一時的な検証機能として扱います。本番リリースに不要なら残しません。
+- 小さな手作りサンプルと、実際の中規模ファイルの両方を用意します。小さいサンプルは修正の即時確認、大きいサンプルは網羅性の確認に使います。
+- 差分が大きいときは、先頭100行だけ見るなど、頻出パターンから直します。
+- ゴールデンが絶対正しいとは限りません。旧版にバグが見つかった場合は、新版を直すのではなく、ゴールデン側を更新する判断も必要です。
+- ゴールデンファイルはGitに入れます。いつ、どの出力が変わったかを履歴で追えるようにします。
+
+## 実際の活用事例
+
+VBA製の解析ツールをC#へ移植する際、旧版の解析結果をJSONで保存し、新版のParserとResolverの出力と比較しました。最初は手続き名、種類、アクセス修飾子だけを合わせ、その後に行番号や呼び出し関係へ広げることで、段階的に移植品質を上げられました。
+
+## まとめ
+
+ゴールデンテストは、移植や大規模リファクタリングで特に強力です。旧版の出力を正解データとして保存し、新版の出力と機械的に比較することで、目視では拾えない差分を早く見つけられます。段階的に比較項目を広げると、現実的な速度で品質を上げられます。

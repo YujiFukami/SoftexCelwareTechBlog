@@ -1,0 +1,135 @@
+---
+title: "VBE References から Project 種別の参照だけを抽出する"
+category: "vsto"
+slug: "vbe-project-references"
+tags: ["VSTO", "VBE", "VBIDE", "COM", "VBA解析"]
+description: "VBE の Tools - References に含まれる参照から、他の VBA Project への参照だけを抽出し、壊れた参照や TypeLib を安全に除外する方法を解説します。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+VBA の Tools - References には、Excel object library のような TypeLib 参照と、別の VBA Project への参照が混在しています。
+
+VBA 解析で「参照先プロジェクトの Public プロシージャを解決したい」場合、必要なのは他の VBA Project への参照だけです。Excel や Office の TypeLib まで候補に含めると、解析対象が広がりすぎます。
+
+さらに、壊れた参照はプロパティを読むだけで COM 例外を投げることがあります。安全に除外する設計が必要です。
+
+## こんな場面で使えます
+
+- VSTO や C# から VBE COM API で VBA プロジェクトを解析する
+- `.xlam` や `.xlsm` 間の参照関係を取りたい
+- 外部参照プロシージャの候補を絞り込みたい
+- Excel object library などの TypeLib を除外したい
+- 壊れた参照で解析処理が落ちるのを避けたい
+
+## 実装コード
+
+`VBProject.References` を走査し、`IsBroken` と `Type` を確認します。
+
+```csharp
+using Microsoft.Vbe.Interop;
+
+public static IReadOnlyList<string> ReadReferencedProjectNames(VBProject proj)
+{
+    var result = new List<string>();
+
+    try
+    {
+        foreach (Reference reference in proj.References)
+        {
+            try
+            {
+                if (reference.IsBroken) continue;
+                if (reference.Type != vbext_RefKind.vbext_rk_Project) continue;
+
+                result.Add(reference.Name);
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                // 個別の参照が読めない場合はスキップ
+            }
+        }
+    }
+    catch (System.Runtime.InteropServices.COMException)
+    {
+        // References コレクション自体にアクセスできない場合
+    }
+
+    return result;
+}
+```
+
+参照種別の意味は次のとおりです。
+
+| Type 値 | 定数 | 意味 |
+|---|---|---|
+| 0 | `vbext_rk_TypeLib` | DLL、TLB、OCX など通常の型ライブラリ |
+| 1 | `vbext_rk_Project` | 他の VBA Project への参照 |
+
+## 実装パターン
+
+解析結果を DTO に含めておくと、後段の解析ロジックが COM API に依存しません。
+
+```csharp
+public sealed class VbeProjectSnapshot
+{
+    public string Name { get; set; }
+    public string FileName { get; set; }
+    public IReadOnlyList<VbeModuleSnapshot> Modules { get; set; }
+    public IReadOnlyList<string> ReferencedProjectNames { get; set; }
+}
+```
+
+外部参照解析では、参照しているプロジェクト名だけを候補にします。
+
+```csharp
+var referencedNames = new HashSet<string>(
+    target.ReferencedProjectNames ?? Array.Empty<string>(),
+    StringComparer.OrdinalIgnoreCase);
+
+var candidateProjects = allProjects
+    .Where(project => project != target)
+    .Where(project => referencedNames.Contains(project.Name))
+    .ToList();
+```
+
+## 設計のポイント
+
+VBE COM API を直接扱う層と、解析ロジックの層は分けると保守しやすくなります。
+
+```text
+[VBE access layer]
+  Microsoft.Vbe.Interop を参照
+  VBProject、Reference、VBComponent を読む
+  DTO に変換する
+
+[Core analysis layer]
+  COM 参照なし
+  DTO だけで解析する
+```
+
+この形にすると、VBE の信頼設定や COM 例外の扱いを入口に閉じ込められます。
+
+## 注意点・ハマりポイント
+
+- `IsBroken` は早めに確認する
+- 壊れた参照では `Type` や `Name` を読むだけで例外になることがある
+- `References` コレクション自体の取得も COM 例外になることがある
+- VBE アクセスには「VBA プロジェクト オブジェクト モデルへのアクセスを信頼する」が必要
+- 参照名は参照先の `VBProject.Name` と照合する
+- 大文字小文字差を吸収するため `StringComparer.OrdinalIgnoreCase` を使う
+
+循環参照があっても、名前一覧を取るだけなら再帰しないため問題になりにくいです。解析側で参照グラフをたどる場合は、訪問済みセットを持って循環を止めます。
+
+## 実際の活用事例
+
+複数の VBA プロジェクトを横断して Public プロシージャの呼び出し元や参照先を解析する場合、すべてのプロジェクトを候補にすると誤検出が増えます。
+
+`vbext_rk_Project` の参照だけを抽出してから候補を絞ることで、「実際に参照設定されているプロジェクトだけを外部参照先として扱う」解析にできます。
+
+## まとめ
+
+VBE の References から参照関係を取るときは、`IsBroken` を除外し、`vbext_rk_Project` だけを対象にします。
+
+TypeLib と Project 参照を分けるだけで、VBA 解析の精度と安定性が大きく上がります。COM 例外は個別参照とコレクション全体の両方で捕捉しておくのが実務向きです。

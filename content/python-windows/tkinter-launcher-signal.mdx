@@ -1,0 +1,124 @@
+---
+title: "tkinter常駐アプリでランチャーEXEから既存プロセスへ画面表示を通知する"
+category: "python-windows"
+slug: "tkinter-launcher-signal"
+tags: ["Python", "Windows", "tkinter", "ctypes", "単一起動"]
+description: "名前付きミューテックスと名前付きイベントを使い、ランチャーEXEから起動済みのtkinter本体へ画面表示を依頼する方法です。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+常駐型のtkinterアプリでは、ユーザーがタスクバーやショートカットから何度も起動操作をすることがあります。このとき本体プロセスが毎回増えると、設定ファイルの競合やUIの重複が起きます。
+
+一方で、すでに起動しているから何もしない、という動きも不親切です。ユーザーとしては「今ある画面を前面に出してほしい」だけだからです。
+
+Windowsの名前付きミューテックスと名前付きイベントを使うと、単一起動を守りながら、ランチャーEXEから既存プロセスへ「画面を表示して」と通知できます。
+
+## こんな場面で使えます
+
+- tkinterで常駐型アプリを作る
+- 本体EXEとランチャーEXEを分ける
+- 二重起動防止と画面呼び出しを両立したい
+- タスクバーにランチャーをピン留めして使わせたい
+- 同一ユーザーセッション内で動く小型Windowsツールを作る
+
+## 実装コード
+
+### 名前付きイベントを扱うクラス
+
+本体側とランチャー側で同じイベント名を使います。名前はアプリごとに衝突しないものにします。
+
+```python
+import ctypes
+
+SINGLE_INSTANCE_MUTEX_NAME = 'Local\\MyApp_SingleInstance'
+SHOW_MAIN_EVENT_NAME = 'Local\\MyApp_ShowMain'
+
+class MainWindowSignal:
+    EVENT_MODIFY_STATE = 0x0002
+    SYNCHRONIZE = 0x00100000
+    WAIT_OBJECT_0 = 0
+
+    def __init__(self):
+        self.handle = None
+
+    def create(self):
+        kernel32 = ctypes.windll.kernel32
+        self.handle = kernel32.CreateEventW(None, False, False, SHOW_MAIN_EVENT_NAME)
+
+    def is_signaled(self):
+        result = ctypes.windll.kernel32.WaitForSingleObject(self.handle, 0)
+        return result == self.WAIT_OBJECT_0
+
+    def signal_existing_instance(self):
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenEventW(
+            self.EVENT_MODIFY_STATE | self.SYNCHRONIZE,
+            False,
+            SHOW_MAIN_EVENT_NAME,
+        )
+        if not handle:
+            return False
+        try:
+            return bool(kernel32.SetEvent(handle))
+        finally:
+            kernel32.CloseHandle(handle)
+```
+
+### 本体側でイベントを監視する
+
+tkinterのUI操作はメインスレッドで行う必要があります。`root.after` を使って定期的にイベントを確認し、通知があれば画面を表示します。
+
+```python
+signal = MainWindowSignal()
+signal.create()
+
+def poll_signal():
+    if signal.is_signaled():
+        show_main_window()
+    root.after(200, poll_signal)
+
+root.after(200, poll_signal)
+root.mainloop()
+```
+
+### ランチャー側の動き
+
+ランチャーは既存イベントへ `SetEvent` します。通知できた場合はすぐ終了します。通知できない場合だけ、本体EXEを起動します。
+
+```python
+signal = MainWindowSignal()
+
+if signal.signal_existing_instance():
+    raise SystemExit(0)
+
+start_main_app()
+```
+
+## 設計のポイント
+
+| 設計判断 | 理由 |
+|---|---|
+| 名前付きミューテックスで単一起動を保証する | 本体プロセスの二重起動を防げる |
+| 名前付きイベントで画面表示を通知する | プロセス間で軽く合図できる |
+| `root.after` で監視する | tkinterのメインスレッド上でUI操作できる |
+| ランチャーは通知だけにする | 起動が速く、保守範囲も小さくなる |
+
+## 注意点・ハマりポイント
+
+- **tkinterのUI操作はメインスレッドで行う**: 別スレッドから直接ウィンドウを操作すると不安定になります。
+- **ランチャーに本体ロジックを持たせない**: 設定読み込みや画面生成は本体側に寄せます。
+- **EXE実行時と開発時で起動コマンドを分ける**: 開発中はPythonスクリプト、本番はEXEを起動するなど、パス解決を分けて考えます。
+- **同一ユーザーセッション内の運用を前提にする**: `Local\\` 名前空間は通常、同一ログオンセッションでの利用に向いています。
+
+## 実際の活用事例
+
+常駐型ショートカット支援ツールで、本体EXEは常駐し、ランチャーEXEは既存プロセスに画面表示を通知する構成にしました。タスクバーにランチャーを固定することで、ユーザーは通常のアプリ起動と同じ感覚で画面を呼び出せます。
+
+## まとめ
+
+- 常駐アプリでは、二重起動防止と画面呼び出しを分けて考える
+- 名前付きミューテックスで本体の単一起動を守る
+- 名前付きイベントでランチャーから既存プロセスへ通知する
+- tkinterの画面操作は `root.after` 経由でメインスレッドに寄せる

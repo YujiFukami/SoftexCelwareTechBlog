@@ -1,0 +1,160 @@
+---
+title: "COMをDTO境界で分離してテストしやすい解析エンジンにする"
+category: "code-analysis"
+slug: "com-dto-boundary"
+tags: ["CodeAnalysis", "COM", "DTO", "VSTO", "Testing"]
+description: "OfficeやVBEのCOMオブジェクトに触れる層を薄くし、解析エンジンをDTOだけで動かせるようにする設計パターンです。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+VSTO、Officeアドイン、VBE連携のコードは、COMオブジェクトに直接触れるとテストが急に難しくなります。ExcelやVBEの実体が必要になり、CIでも動かしにくく、例外の再現も環境に依存します。
+
+そこで有効なのが、COMに触る層を小さく閉じ込め、その先はDTOに変換してから解析する設計です。DTOは Data Transfer Object の略で、値を運ぶための単純な入れ物です。解析エンジン側はCOMを知らず、文字列や配列だけを受け取るため、`.bas` や `.cls` などのファイル入力だけでもフルテストできます。
+
+## こんな場面で使えます
+
+- VBE、Excel、OutlookなどのCOM連携コードを単体テストしたい
+- 解析エンジンをOfficeなしで動かしたい
+- COM例外や参照切れの影響をコアロジックへ広げたくない
+- 将来、GUI、CLI、Web APIなど複数の入口から同じ解析処理を使いたい
+- 顧客環境に依存する処理と、再利用できる処理を分離したい
+
+## 実装パターン
+
+全体は、COMラッパー、DTO、解析エンジン、UIの4層に分けます。
+
+```text
+Office / VBE
+  |
+  v
+COMラッパー層
+  - VBEやExcelのCOM APIに触る
+  - COMオブジェクトをDTOへ詰め替える
+  |
+  v
+DTO
+  - Project名
+  - Module名
+  - Module本文
+  - 参照プロジェクト名
+  |
+  v
+解析エンジン
+  - Lexer
+  - Parser
+  - Resolver
+  - Exporter
+  |
+  v
+UI / CLI / テスト
+```
+
+ポイントは、解析エンジンがCOM型を一切参照しないことです。
+
+```csharp
+public sealed class VbeProjectSnapshot
+{
+    public string Name { get; set; }
+    public string FileName { get; set; }
+    public IReadOnlyList<VbeModuleSnapshot> Modules { get; set; }
+    public IReadOnlyList<string> ReferencedProjectNames { get; set; }
+}
+
+public sealed class VbeModuleSnapshot
+{
+    public string Name { get; set; }
+    public string Kind { get; set; }
+    public string FullText { get; set; }
+    public int LineCount { get; set; }
+    public string TextHash { get; set; }
+}
+```
+
+COMラッパー側だけで、VBEの `VBProject` や `VBComponent` を読み取ります。
+
+```csharp
+public static class VbeReader
+{
+    public static VbeProjectSnapshot ReadProject(VBProject project)
+    {
+        return new VbeProjectSnapshot
+        {
+            Name = project.Name,
+            FileName = SafeGet(() => project.FileName),
+            Modules = project.VBComponents
+                .Cast<VBComponent>()
+                .Select(ReadModule)
+                .ToList(),
+            ReferencedProjectNames = project.References
+                .Cast<Reference>()
+                .Where(r => !r.IsBroken)
+                .Select(r => r.Name)
+                .ToList(),
+        };
+    }
+}
+```
+
+解析エンジン側はDTOだけを受け取ります。
+
+```csharp
+public static class AnalysisService
+{
+    public static VbProject Analyze(VbeProjectSnapshot snapshot)
+    {
+        var modules = snapshot.Modules
+            .Select(m => Parser.Parse(m.Name, m.Kind, m.FullText))
+            .ToList();
+
+        return new VbProject(
+            name: snapshot.Name,
+            modules: modules,
+            referencedProjectNames: snapshot.ReferencedProjectNames);
+    }
+}
+```
+
+## 設計のポイント
+
+`COMに触る層` と `解析する層` を分けると、テストの入口が一気に増えます。実際のVBEから読み取る経路だけでなく、フォルダ内の `.bas` や `.cls` から同じDTOを組み立てる経路も作れます。
+
+```csharp
+public static class SnapshotFromFiles
+{
+    public static VbeProjectSnapshot LoadFromFolder(string folder, string projectName)
+    {
+        var modules = Directory.GetFiles(folder, "*.bas")
+            .Concat(Directory.GetFiles(folder, "*.cls"))
+            .Concat(Directory.GetFiles(folder, "*.frm"))
+            .Select(LoadModule)
+            .ToList();
+
+        return new VbeProjectSnapshot
+        {
+            Name = projectName,
+            Modules = modules,
+            ReferencedProjectNames = Array.Empty<string>(),
+        };
+    }
+}
+```
+
+これにより、解析エンジンはCOMなしで `dotnet test` できます。COM環境の準備が不要なので、ゴールデンテストやCIにも載せやすくなります。
+
+## 注意点・ハマりポイント
+
+- DTOにCOM型やOffice型を混ぜない。混ぜた時点で解析エンジンがCOMに引きずられます。
+- DTOは解析エンジン側、または共通のドメイン層に置きます。COMラッパー専用プロジェクトに置くと依存方向が逆になります。
+- COMのプロパティ取得は失敗することがあります。`SafeGet` のような小さなラッパーで例外を握りつぶすか、欠損値として扱えるようにします。
+- 参照切れのReferenceは除外します。壊れた参照をそのまま解析へ流すと、外部参照解析で誤検出が起きやすくなります。
+- 差分解析をするなら、DTOに `TextHash` を持たせると、変更されたモジュールだけ再解析しやすくなります。
+
+## 実際の活用事例
+
+VBAコード解析ツールでは、VBEから直接読み取る本番経路と、ファイルから読み取るテスト経路の両方を同じDTOにそろえました。その結果、Lexer、Parser、Resolver、ExporterはOfficeなしで検証でき、COMの不安定さをコアロジックから切り離せました。
+
+## まとめ
+
+COM連携を含む解析ツールでは、COMに触る範囲を最小にし、DTOへ変換してから解析する構成が安定します。外部環境に依存する処理と、再利用できる解析処理を分けることで、テストしやすく、移植しやすく、説明しやすいコードになります。

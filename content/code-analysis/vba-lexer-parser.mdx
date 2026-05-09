@@ -1,0 +1,151 @@
+---
+title: "VBAやDSLのLexer・Parserを自前実装して識別子境界を正確に扱う"
+category: "code-analysis"
+slug: "vba-lexer-parser"
+tags: ["CodeAnalysis", "VBA", "Lexer", "Parser", "DSL"]
+description: "String.Containsや正規表現だけでは壊れやすいコード解析を、LexerとParserで安定させる基本パターンです。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+VBA、SQL、設定ファイル、独自DSLを解析するとき、最初は `String.Contains` や正規表現で十分に見えることがあります。しかし、識別子の境界を正しく扱えないと、すぐに誤検出が起きます。
+
+例えば `SleepApi` を探したいとき、単純な文字列検索では `MySleepApi` や `SleepApiCount` にも一致してしまいます。コメントや文字列リテラルの中にある名前まで拾ってしまうこともあります。
+
+この問題は、Lexerでソースをトークンに分けてから処理すると大きく減らせます。Lexerは「字句解析器」のことで、ソース文字列を識別子、キーワード、文字列、コメント、記号などの単位に分ける処理です。Parserは、そのトークン列から手続きや宣言などの構造を読み取る処理です。
+
+## こんな場面で使えます
+
+- VBAの関数、変数、API宣言を解析したい
+- 文字列検索や正規表現で誤検出が増えてきた
+- コメントや文字列リテラル内の名前を無視したい
+- 参照グラフや未使用コード検出を作りたい
+- 小さなDSLや設定ファイルを安定して解析したい
+
+## 実装パターン
+
+全体の流れは次の通りです。
+
+```text
+Source Text
+  |
+  v
+Lexer
+  - Identifier
+  - Keyword
+  - String
+  - Comment
+  - Punct
+  |
+  v
+Parser
+  - Procedures
+  - Declarations
+  - Parameters
+  |
+  v
+Resolver
+  - Calls
+  - Used declarations
+```
+
+トークン種別は、必要な粒度から始めます。最初から完全なASTを目指す必要はありません。
+
+```csharp
+public enum TokenKind
+{
+    Identifier,
+    Keyword,
+    Number,
+    String,
+    Punct,
+    Comment,
+    Preprocessor,
+    Newline,
+    Whitespace,
+    Eof,
+}
+
+public sealed class Token
+{
+    public TokenKind Kind { get; }
+    public string Text { get; }
+    public int LineNumber { get; }
+    public int Column { get; }
+}
+```
+
+VBAなら、英字または `_` から始まり、英数字または `_` が続くものを識別子候補として扱います。キーワード一覧に含まれていれば `Keyword`、そうでなければ `Identifier` にします。
+
+```csharp
+if (char.IsLetter(c) || c == '_')
+{
+    int start = i;
+    while (i < source.Length &&
+           (char.IsLetterOrDigit(source[i]) || source[i] == '_'))
+    {
+        i++;
+    }
+
+    string text = source.Substring(start, i - start);
+    var kind = Keywords.Contains(text)
+        ? TokenKind.Keyword
+        : TokenKind.Identifier;
+
+    tokens.Add(new Token(kind, text, line, col));
+    col += i - start;
+    continue;
+}
+```
+
+識別子検索は、トークン列から `Identifier` だけを取り出します。
+
+```csharp
+public static IEnumerable<string> ScanIdentifierNames(string body)
+{
+    foreach (var token in Lexer.Tokenize(body))
+    {
+        if (token.Kind == TokenKind.Identifier)
+            yield return token.Text;
+    }
+}
+```
+
+## 設計のポイント
+
+Lexerの時点で、コメントと文字列を別トークンに分けることが重要です。
+
+```csharp
+// コメントは行末まで1トークンにする
+if (c == '\'')
+{
+    int start = i;
+    while (i < source.Length && source[i] != '\r' && source[i] != '\n')
+        i++;
+
+    tokens.Add(new Token(TokenKind.Comment, source.Substring(start, i - start), line, col));
+    col += i - start;
+    continue;
+}
+```
+
+文字列も同様に、`"..."` の内側を識別子としてスキャンしないようにします。VBAでは `""` が文字列内のダブルクォートを表すため、そのエスケープも扱います。
+
+Parserは、最初から全構文を理解する必要はありません。実務では「行番号付きトークン列から、Sub、Function、Property、Declare、Constなどだけを取り出す」程度でも十分な価値があります。
+
+## 注意点・ハマりポイント
+
+- VBAは識別子の大文字小文字を基本的に区別しません。比較には `OrdinalIgnoreCase` を使います。
+- コメントや文字列の中の識別子を検索対象にしないだけで、誤検出はかなり減ります。
+- `#If`、`#End If` などのプリプロセッサ行は、通常のコードとは別トークンにしておくと後で扱いやすくなります。
+- VBIDEの行情報だけに頼らず、Lexer/Parser側でも開始行と終了行を持つと、ファイル入力のテストができます。
+- フルASTを作る前に、必要な構造だけを抽出する軽量Parserから始めると実装コストを抑えられます。
+
+## 実際の活用事例
+
+VBAコード解析ツールでは、関数名や宣言名を文字列検索で拾う方式から、Lexerベースの識別子スキャンへ切り替えました。これにより、`Sleep` と `MySleep` のような部分一致の誤検出を避け、SymbolTableやResolverの入力として使える安定した識別子列を得られるようになりました。
+
+## まとめ
+
+コード解析では、文字列検索だけで構造を読むと限界が早く来ます。Lexerで識別子境界を確定し、Parserで必要な構造を取り出す。これだけで、参照解析、未使用コード検出、移植支援の精度が大きく上がります。

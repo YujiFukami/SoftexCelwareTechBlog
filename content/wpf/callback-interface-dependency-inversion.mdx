@@ -1,0 +1,190 @@
+---
+title: "コールバック interface で UI と OS 依存を逆転する"
+category: "wpf"
+slug: "callback-interface-dependency-inversion"
+tags: ["WPF", "依存性逆転", "Interface", "VSTO", "テスト"]
+description: "WPF UI ライブラリから WinForms、VSTO、COM などのホスト依存処理を直接参照せず、コールバック interface で上位層へ任せる設計パターンを紹介します。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+WPF UI ライブラリは、できれば WPF と .NET 標準 API だけに依存させたいものです。しかし実際のアプリでは、UI から次のような処理を呼びたくなります。
+
+- フォルダ選択ダイアログ
+- VBE エディタへのジャンプ
+- VSTO タスクペインの表示制御
+- Excel のアクティブブックパス取得
+- OS やホストアプリに依存する操作
+
+これらを WPF UI に直接書くと、UI ライブラリが WinForms、VSTO、COM に依存します。再利用しにくくなり、テストも難しくなります。
+
+この問題は、UI 側に「ホストにやってもらいたいこと」の interface を定義し、上位層で実装して注入することで解決できます。
+
+## こんな場面で使えます
+
+- WPF UserControl を VSTO、WinForms、Console など複数ホストで使いたい
+- UI ライブラリから `System.Windows.Forms` 参照を外したい
+- VSTO や COM 依存を画面コードに入れたくない
+- UI を単体テストや簡易ホストで動かしたい
+- DI コンテナを入れずに依存性逆転を実現したい
+
+## 実装パターン
+
+依存方向を次のようにします。
+
+```text
+[WPF UI library]
+  IAppHost interface を定義
+  MainView は IAppHost だけを呼ぶ
+
+[VSTO / WinForms / Console host]
+  IAppHost を実装
+  フォルダ選択、VBE 操作、ホスト制御を担当
+```
+
+UI は「フォルダ選択をしたい」と依頼するだけで、実際に WinForms の `FolderBrowserDialog` を使うか、テスト用の固定値を返すかはホスト側が決めます。
+
+## 実装コード
+
+UI 側に interface を置きます。
+
+```csharp
+namespace MyApp.Ui
+{
+    public interface IAppHost
+    {
+        string PickFolder(string title);
+        void OpenExternalEditor(string projectName, string moduleName, int line);
+        void HidePane();
+        string ActiveDocumentPath { get; }
+    }
+}
+```
+
+WPF UserControl は constructor で受け取ります。
+
+```csharp
+public partial class MainView : System.Windows.Controls.UserControl
+{
+    private readonly IAppHost _host;
+
+    public MainView(IAppHost host)
+    {
+        _host = host;
+        InitializeComponent();
+    }
+
+    private void OnExportClick(object sender, RoutedEventArgs e)
+    {
+        var folder = _host.PickFolder("出力フォルダを選択");
+        if (folder == null) return;
+
+        ExportToFolder(folder);
+    }
+
+    private void OnResultDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        var item = (SearchResult)((FrameworkElement)sender).DataContext;
+        _host.OpenExternalEditor(item.ProjectName, item.ModuleName, item.Line);
+    }
+}
+```
+
+VSTO 側で実装します。
+
+```csharp
+internal sealed class AddinHost : IAppHost
+{
+    private readonly ThisAddIn _addin;
+
+    public AddinHost(ThisAddIn addin)
+    {
+        _addin = addin;
+    }
+
+    public string PickFolder(string title)
+    {
+        using (var dialog = new System.Windows.Forms.FolderBrowserDialog
+        {
+            Description = title,
+            UseDescriptionForTitle = true
+        })
+        {
+            return dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK
+                ? dialog.SelectedPath
+                : null;
+        }
+    }
+
+    public void OpenExternalEditor(string projectName, string moduleName, int line)
+    {
+        dynamic app = _addin.Application;
+        var vbe = app.VBE;
+        // VBE ジャンプ処理
+    }
+
+    public void HidePane()
+    {
+        _addin.HideTaskPane();
+    }
+
+    public string ActiveDocumentPath
+    {
+        get
+        {
+            try { return _addin.Application.ActiveWorkbook?.FullName; }
+            catch { return null; }
+        }
+    }
+}
+```
+
+テストや Console ホストではダミー実装を渡します。
+
+```csharp
+public sealed class ConsoleHost : IAppHost
+{
+    public string PickFolder(string title) => @"C:\Temp\Output";
+
+    public void OpenExternalEditor(string projectName, string moduleName, int line)
+    {
+        Console.WriteLine($"{projectName}.{moduleName}:{line}");
+    }
+
+    public void HidePane()
+    {
+    }
+
+    public string ActiveDocumentPath => null;
+}
+```
+
+## 設計のポイント
+
+interface の名前は、UI 部品名ではなくホストの役割に寄せます。`IAppHost`、`IEditorHost`、`IAddinHost` のように、UI から見て「外側に頼む窓口」であることが分かる名前が扱いやすいです。
+
+メソッド名は「ホストにやってもらうこと」で命名します。`PickFolder`、`OpenExternalEditor`、`HidePane` のように、実装技術ではなく目的を表す名前にします。
+
+## 注意点・ハマりポイント
+
+- UI 側の interface に WinForms、VSTO、COM の型を出さない
+- 戻り値や引数は `string`、`int`、DTO などの安定した型にする
+- interface を巨大にしすぎない
+- 画面ごとに必要な操作が大きく違うなら interface を分ける
+- コンストラクタ注入だけで十分なら DI コンテナは不要
+- テスト用実装を早めに作ると、UI 単体で動作確認しやすい
+
+コマンド系と問い合わせ系が同じ interface に混ざっても構いません。UI から見た「ホストに頼る入口」として読みやすい範囲に保つことが大切です。
+
+## 実際の活用事例
+
+VSTO アドイン内で WPF UserControl を使う場合、UI から Excel のアクティブブック、VBE、タスクペイン制御を呼びたくなります。
+
+しかし WPF UI に VSTO 参照を入れると、別ホストでの再利用やテストが難しくなります。`IAppHost` を挟むと、VSTO 版では Office 操作を行い、Console 版ではログ出力だけにする、といった切り替えが簡単になります。
+
+## まとめ
+
+WPF UI から OS やホストアプリ依存の処理を呼びたいときは、UI に直接実装せず、コールバック interface を定義して上位層へ任せます。
+
+この小さな依存性逆転だけで、UI ライブラリの参照が軽くなり、テストしやすく、別ホストへ移植しやすい構成になります。

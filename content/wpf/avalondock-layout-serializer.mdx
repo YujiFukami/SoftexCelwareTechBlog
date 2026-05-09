@@ -1,0 +1,163 @@
+---
+title: "AvalonDock のレイアウトを XmlLayoutSerializer で保存・復元する"
+category: "wpf"
+slug: "avalondock-layout-serializer"
+tags: ["WPF", "AvalonDock", "XmlLayoutSerializer", "レイアウト保存", "UI"]
+description: "AvalonDock で作った IDE 風 UI のペイン配置、タブ、フローティング位置を XML に保存し、次回起動時に復元する基本パターンを解説します。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+AvalonDock を使うと、Visual Studio や VS Code のようなペイン型 UI を WPF で作れます。ユーザーがペイン位置やタブ順を調整できる一方で、毎回初期配置に戻ると使い勝手が悪くなります。
+
+`XmlLayoutSerializer` を使うと、AvalonDock のレイアウトを XML として保存し、次回起動時に復元できます。
+
+## こんな場面で使えます
+
+- WPF で IDE 風、解析ツール風の UI を作る
+- AvalonDock のペイン配置をユーザーごとに保存したい
+- フローティングウィンドウの位置やサイズも復元したい
+- アプリ終了時にレイアウトを保存し、次回起動時に戻したい
+- 壊れたレイアウトファイルを無視して初期配置に戻したい
+
+## 実装コード
+
+保存先は `%LOCALAPPDATA%` 配下にします。ユーザーごとの設定で、アプリ本体の更新にも巻き込まれにくい場所です。
+
+```csharp
+using AvalonDock.Layout.Serialization;
+using System.IO;
+using System.Xml;
+
+public partial class MainView : System.Windows.Controls.UserControl
+{
+    private static readonly string LayoutPath =
+        Path.Combine(
+            System.Environment.GetFolderPath(
+                System.Environment.SpecialFolder.LocalApplicationData),
+            "MyApp",
+            "layout.xml");
+
+    public MainView()
+    {
+        InitializeComponent();
+        Loaded += (_, __) => LoadLayout();
+        Unloaded += (_, __) => SaveLayout();
+    }
+
+    public void SaveLayout()
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(LayoutPath));
+
+            var serializer = new XmlLayoutSerializer(DockManager);
+            using (var writer = XmlWriter.Create(LayoutPath, new XmlWriterSettings
+            {
+                Indent = true,
+                Encoding = System.Text.Encoding.UTF8
+            }))
+            {
+                serializer.Serialize(writer);
+            }
+        }
+        catch
+        {
+            // レイアウト保存失敗でアプリを止めない
+        }
+    }
+}
+```
+
+復元時は `ContentId` を使って既存のコンテンツインスタンスを差し戻します。
+
+```csharp
+public void LoadLayout()
+{
+    if (!File.Exists(LayoutPath)) return;
+
+    try
+    {
+        var serializer = new XmlLayoutSerializer(DockManager);
+        serializer.LayoutSerializationCallback += (sender, args) =>
+        {
+            args.Content = FindByContentId(args.Model.ContentId);
+        };
+
+        using (var reader = XmlReader.Create(LayoutPath))
+        {
+            serializer.Deserialize(reader);
+        }
+    }
+    catch
+    {
+        // 壊れた XML は無視して初期レイアウトで起動する
+    }
+}
+
+private object FindByContentId(string contentId)
+{
+    switch (contentId)
+    {
+        case "projects": return paneProjects;
+        case "modules": return paneModules;
+        case "code": return paneCode;
+        default: return null;
+    }
+}
+```
+
+## 実装パターン
+
+XAML 側では、復元対象の `LayoutAnchorable` や `LayoutDocument` に `ContentId` を必ず設定します。
+
+```xaml
+<dock:DockingManager x:Name="DockManager">
+  <dock:LayoutRoot>
+    <dock:LayoutPanel Orientation="Horizontal">
+      <dock:LayoutAnchorablePane>
+        <dock:LayoutAnchorable ContentId="projects" Title="Projects">
+          <ListView x:Name="paneProjects" />
+        </dock:LayoutAnchorable>
+        <dock:LayoutAnchorable ContentId="modules" Title="Modules">
+          <ListView x:Name="paneModules" />
+        </dock:LayoutAnchorable>
+      </dock:LayoutAnchorablePane>
+    </dock:LayoutPanel>
+  </dock:LayoutRoot>
+</dock:DockingManager>
+```
+
+NuGet は次のように追加します。
+
+```powershell
+Install-Package Dirkster.AvalonDock
+```
+
+## 設計のポイント
+
+`ContentId` は、保存された XML と現在の画面部品を結びつけるキーです。これがないと、復元時にどのペインへどのコンテンツを入れるべきか判断できません。
+
+また、`LayoutSerializationCallback` で既存インスタンスを返すのが重要です。ここを省略すると、復元後にペインは出ても中身が空になることがあります。
+
+## 注意点・ハマりポイント
+
+- `ContentId` を必ず一意にする
+- `LayoutSerializationCallback` で既存コンテンツを差し戻す
+- 保存失敗や復元失敗でアプリを止めない
+- 壊れた `layout.xml` は削除すれば初期配置に戻せる
+- VSTO + WPF で使う場合は、`Unloaded` だけでなくアドイン終了時にも保存を呼ぶと安全
+- AvalonDock の Floating Window は XML に含まれるが、VSTO の CustomTaskPane の位置とは別物
+
+## 実際の活用事例
+
+コードビューア、プロジェクトツリー、検索結果、詳細ペインを持つ解析ツールでは、ユーザーによって使いやすい配置が異なります。AvalonDock のレイアウト保存を入れておくと、作業者が調整した画面を次回も維持できます。
+
+サポート時には「画面配置がおかしくなったら `%LOCALAPPDATA%\MyApp\layout.xml` を削除する」と案内できるため、復旧手順もシンプルです。
+
+## まとめ
+
+AvalonDock のレイアウト保存は、`XmlLayoutSerializer`、`ContentId`、`LayoutSerializationCallback` の 3 点を押さえると安定します。
+
+ユーザーが調整する前提の WPF ツールでは、初期段階から入れておくと使い勝手が大きく上がる機能です。

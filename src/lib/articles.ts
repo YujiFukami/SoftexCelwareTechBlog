@@ -85,5 +85,10 @@ export const categoryLabels: Record<string, string> = {
   nextjs: "Next.js + Supabase",
   vanillajs: "バニラJS Webアプリ",
   electron: "Electron デスクトップアプリ",
+  "python-windows": "Python + Windows配布",
+  vsto: "VSTO Officeアドイン",
+  wpf: "WPF デスクトップUI",
+  "code-analysis": "コード解析エンジン",
+  codex: "Codex・AI開発運用",
   vba: "Excel VBA",
 };

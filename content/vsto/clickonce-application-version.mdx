@@ -1,0 +1,105 @@
+---
+title: "VSTO ClickOnce の ApplicationVersion はワイルドカード不可"
+category: "vsto"
+slug: "clickonce-application-version"
+tags: ["VSTO", "ClickOnce", "ApplicationVersion", "Visual Studio", "配布"]
+description: "VSTO の ClickOnce 発行で ApplicationVersion にワイルドカードを使うと発行エラーになる理由と、AutoIncrementApplicationRevision で安全に版数を増やす設定を整理します。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+VSTO アドインを ClickOnce で発行するとき、通常の .NET アプリと同じ感覚で `3.1.0.*` のようなワイルドカード版数を設定すると、Visual Studio の発行で止まることがあります。
+
+代表的なエラーは次のようなものです。
+
+```text
+'AssemblyVersion' の無効な値です。
+```
+
+WPF、WinForms、Console アプリでは `AssemblyVersion("3.1.0.*")` や `<ApplicationVersion>3.1.0.%2a</ApplicationVersion>` が使える場面があります。しかし VSTO の ClickOnce 発行では、発行マニフェスト生成時に `ApplicationVersion` が **4 桁すべて数値** であることを要求されます。
+
+## こんな場面で使えます
+
+- Excel、Word、Outlook などの VSTO アドインを ClickOnce で配布する
+- 発行ごとに revision を自動で増やしたい
+- インストール済み端末へ自動更新を届けたい
+- `ApplicationVersion` に `*` を入れて発行エラーになった
+- VSTO と通常の .NET アプリの ClickOnce 挙動の違いを整理したい
+
+## 実装パターン
+
+VSTO では `ApplicationVersion` を 4 桁全数値で書き、4 桁目は `AutoIncrementApplicationRevision` に任せます。
+
+### NG: ワイルドカードを使う
+
+```xml
+<PropertyGroup>
+  <ApplicationVersion>3.1.0.%2a</ApplicationVersion>
+</PropertyGroup>
+```
+
+`%2a` は `*` を URL エンコードした値です。VSTO の発行タスクではこれが有効な数値版数として扱われず、発行エラーになります。
+
+### OK: 4 桁全数値にする
+
+```xml
+<PropertyGroup>
+  <ApplicationVersion>3.1.0.0</ApplicationVersion>
+  <AutoIncrementApplicationRevision>true</AutoIncrementApplicationRevision>
+</PropertyGroup>
+```
+
+この設定にすると、Visual Studio の発行時に 4 桁目が `0`、`1`、`2` のように増えていきます。
+
+## 設計のポイント
+
+版数の運用は、手動で上げる桁と自動で上げる桁を分けると混乱しにくくなります。
+
+| 桁 | 上げ方 | タイミング |
+|---|---|---|
+| Major | 手動 | アーキテクチャ変更、大規模機能追加 |
+| Minor | 手動 | 機能追加、仕様改善 |
+| Build | 手動 | バグ修正、小さな改善 |
+| Revision | 自動 | ClickOnce 発行ごと |
+
+Major、Minor、Build を上げるときは、少なくとも次の値を同期します。
+
+```csharp
+[assembly: AssemblyVersion("3.2.0.0")]
+[assembly: AssemblyFileVersion("3.2.0.0")]
+```
+
+```xml
+<ApplicationVersion>3.2.0.0</ApplicationVersion>
+```
+
+`AssemblyVersion` と `ApplicationVersion` は厳密に常に一致しなくても発行できます。ただし、運用上は見た目の版数と配布版数が大きくずれると調査しにくいため、Major、Minor、Build はそろえる方が安全です。
+
+## 注意点・ハマりポイント
+
+- VSTO の `ApplicationVersion` は 4 桁全数値にする
+- `3.1.0.*` だけでなく `3.1.0.%2a` も避ける
+- `AutoIncrementApplicationRevision` は Visual Studio の Publish 操作で増える前提で確認する
+- 自動更新では、前回インストールされた版数より大きい `ApplicationVersion` が必要
+- ZIP で単発配布するだけなら固定版数でも発行できるが、更新配布では revision 管理が重要
+
+トラブルシュートの観点では、次のように切り分けます。
+
+| 症状 | 原因 | 対処 |
+|---|---|---|
+| `'AssemblyVersion' の無効な値です` | `ApplicationVersion` にワイルドカードが入っている | 4 桁全数値に変更する |
+| 発行ごとに revision が増えない | `AutoIncrementApplicationRevision` が無効 | `true` を設定して Publish で確認する |
+| 更新が降ってこない | 前回と同じ、または小さい版数で発行した | revision を増やして再発行する |
+
+## 実際の活用事例
+
+小規模な Office アドイン配布では、最初は ZIP で発行物を渡すだけでも運用できます。しかし後から共有フォルダや Web 配布に切り替えると、自動更新の成否は `ApplicationVersion` の大小比較に依存します。
+
+そのため初期段階から `3.1.0.0` のような 4 桁全数値と `AutoIncrementApplicationRevision=true` をセットで入れておくと、後で配布形態を変えても版数運用を作り直さずに済みます。
+
+## まとめ
+
+VSTO の ClickOnce 発行では、通常の .NET アプリで使えるワイルドカード版数をそのまま持ち込まないことが重要です。
+
+`ApplicationVersion` は 4 桁全数値に固定し、発行ごとの増分は `AutoIncrementApplicationRevision` に任せます。これだけで発行エラーを避けやすくなり、自動更新の版数比較も安定します。

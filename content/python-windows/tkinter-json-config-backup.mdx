@@ -1,0 +1,111 @@
+---
+title: "tkinterアプリのJSON設定を読み込み・書き出し・自動バックアップする"
+category: "python-windows"
+slug: "tkinter-json-config-backup"
+tags: ["Python", "tkinter", "JSON", "設定管理", "バックアップ"]
+description: "ユーザー資産になるconfig.jsonを安全にインポート、エクスポート、自動バックアップするConfigManagerの実装パターンです。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+ローカルのデスクトップツールでは、`config.json` が単なる設定ファイルではなく、ユーザーが育てていく資産になることがあります。
+
+ショートカット、よく使うコマンド、画面設定、テンプレートなどをJSONに保存している場合、アプリ更新やPC移行のタイミングで「設定を移したい」「壊れたので戻したい」という要望が出ます。
+
+そのため、設定管理には読み込みと書き出しだけでなく、読み込み前の自動バックアップを入れておくと安心です。
+
+## こんな場面で使えます
+
+- tkinterの設定画面を持つデスクトップツール
+- JSON設定をユーザーが長く使い続ける
+- ZIP配布でインストーラーを使わない
+- 別PCへの設定移行をサポートしたい
+- 読み込みミスで現在設定を失わないようにしたい
+
+## 実装コード
+
+設定管理クラスに、インポート、エクスポート、バックアップ作成をまとめます。
+
+```python
+import json
+import os
+import shutil
+from datetime import datetime
+
+class ConfigManager:
+    def __init__(self, config_path):
+        self.config_path = config_path
+        self.data = {}
+
+    def get_config_dir(self):
+        return os.path.dirname(os.path.abspath(self.config_path))
+
+    def load(self):
+        with open(self.config_path, 'r', encoding='utf-8') as f:
+            self.data = json.load(f)
+        return self.data
+
+    def save(self):
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            json.dump(self.data, f, ensure_ascii=False, indent=2)
+
+    def export_to_file(self, export_path):
+        self.save()
+        shutil.copy2(self.config_path, export_path)
+
+    def import_from_file(self, import_path, create_backup=True):
+        with open(import_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        if not isinstance(data.get('actions'), list):
+            raise ValueError('actions が見つからないか、形式が正しくありません')
+
+        backup_path = None
+        if create_backup and os.path.exists(self.config_path):
+            backup_path = self._create_backup()
+
+        if os.path.abspath(import_path) != os.path.abspath(self.config_path):
+            shutil.copy2(import_path, self.config_path)
+
+        self.load()
+        return backup_path
+
+    def _create_backup(self):
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_path = os.path.join(
+            self.get_config_dir(),
+            f'config.backup.{timestamp}.json',
+        )
+        shutil.copy2(self.config_path, backup_path)
+        return backup_path
+```
+
+UI側では、`filedialog.askopenfilename` と `filedialog.asksaveasfilename` を使ってファイルを選ばせます。読み込み前には確認ダイアログを出し、読み込み後は一覧や設定画面を再描画します。
+
+## 設計のポイント
+
+| 設計判断 | 理由 |
+|---|---|
+| 読み込み前にバックアップする | 取り込み失敗や誤選択から復旧できる |
+| JSON構文だけでなく最低限の形を確認する | 別アプリのJSONや壊れたファイルを取り込まない |
+| `shutil.copy2` を使う | タイムスタンプなどのメタ情報をなるべく保持できる |
+| UI処理と設定管理を分ける | tkinter以外のUIでも再利用しやすい |
+
+## 注意点・ハマりポイント
+
+- **現在設定を必ず守る**: インポート前にバックアップを作らない設計は、ユーザーの設定資産を失う危険があります。
+- **スキーマ確認は最低限でも入れる**: `json.load` が成功しても、アプリが期待する構造とは限りません。
+- **読み込み後はUIを再描画する**: 内部データだけ更新して画面を更新し忘れると、ユーザーには反映されていないように見えます。
+- **公開配布用の設定に個人情報を入れない**: 個人パス、社内URL、顧客名、秘密情報が `config.json` に含まれていないか配布前に確認します。
+
+## 実際の活用事例
+
+Windows向けのtkinterツールで、ユーザーが登録したショートカット設定をJSONで管理し、エクスポートとインポートを実装しました。読み込み前に自動バックアップを作ることで、設定移行時の失敗から戻せる運用にしています。
+
+## まとめ
+
+- `config.json` はユーザー資産として扱う
+- インポート前には現在設定を自動バックアップする
+- JSON構文だけでなく、アプリが必要とする最低限の形も確認する
+- 設定読み込み後はUIの再描画までセットで実装する

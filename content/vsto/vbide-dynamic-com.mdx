@@ -1,0 +1,127 @@
+---
+title: "dynamic 経由で VBIDE / COM 参照競合を回避する"
+category: "vsto"
+slug: "vbide-dynamic-com"
+tags: ["VSTO", "VBIDE", "COM", "dynamic", "Excel"]
+description: "VSTO アドインから Application.VBE を呼びたいときに、Microsoft.Vbe.Interop の参照競合を避けるため dynamic でランタイム解決する実装パターンを紹介します。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+VSTO アドインから Excel の VBE、つまり VBA エディタや VBProject にアクセスしたい場面があります。しかし `Microsoft.Vbe.Interop` を VSTO プロジェクトへ直接追加すると、Office PIA との型名衝突や参照解決エラーが起きることがあります。
+
+このようなときは、VSTO 側で VBIDE 型を直接参照せず、`dynamic` 経由で `Application.VBE` を呼び出すと回避できます。
+
+## こんな場面で使えます
+
+- VSTO アドインから VBE の指定モジュールや指定行へジャンプしたい
+- `Microsoft.Vbe.Interop` を追加すると CS0576 や CS0012 が出る
+- Office PIA と VBIDE の参照競合を避けたい
+- COM 操作を別アセンブリに分離したい
+- VSTO 側の参照をできるだけ薄くしたい
+
+## 実装コード
+
+ポイントは、`Application.VBE` を直接静的に解決させないことです。最初に `Application` 自体を `dynamic` に受けます。
+
+```csharp
+internal sealed class HostImpl
+{
+    private readonly ThisAddIn _addin;
+
+    public HostImpl(ThisAddIn addin)
+    {
+        _addin = addin;
+    }
+
+    public void OpenVbe(string projectName, string moduleName, int line)
+    {
+        dynamic app = _addin.Application;
+        var vbe = app.VBE;
+
+        try
+        {
+            foreach (dynamic proj in vbe.VBProjects)
+            {
+                if ((string)proj.Name != projectName) continue;
+
+                foreach (dynamic comp in proj.VBComponents)
+                {
+                    if ((string)comp.Name != moduleName) continue;
+
+                    var pane = comp.CodeModule.CodePane;
+                    pane.SetSelection(line, 1, line, 1);
+                    pane.Show();
+                    vbe.MainWindow.Visible = true;
+                    return;
+                }
+            }
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            // VBE オブジェクトモデルへのアクセスが信頼されていない場合など
+        }
+    }
+}
+```
+
+次のように書くと、VSTO プロジェクト側に VBIDE の型参照が必要になります。
+
+```csharp
+using Microsoft.Vbe.Interop;
+
+public void OpenVbe()
+{
+    VBE vbe = _addin.Application.VBE;
+}
+```
+
+また、これも不十分です。
+
+```csharp
+dynamic vbe = _addin.Application.VBE;
+```
+
+`_addin.Application` は静的には `Excel.Application` 型なので、`.VBE` プロパティの戻り型をコンパイル時に解決しようとします。避けたい型解決がそこで発生します。
+
+## 設計のポイント
+
+本格的に VBIDE を扱う場合は、VSTO アドイン本体と VBIDE 操作を分離します。
+
+```text
+[Addin project]
+  VBIDE 参照なし
+  dynamic 経由で最小限の入口だけ呼ぶ
+
+[Vbe project]
+  Microsoft.Vbe.Interop 参照あり
+  VBProject、VBComponent、Reference などの COM 操作を閉じ込める
+```
+
+VSTO 側は UI、リボン、Excel との接続に集中し、VBIDE の詳細操作は専用プロジェクトに閉じ込めると、参照関係とテスト範囲を整理できます。
+
+## 注意点・ハマりポイント
+
+- `dynamic` はコンパイル時の型チェックを遅延させるだけで、実行時エラーは起こり得る
+- 存在しないメンバーを呼ぶと `RuntimeBinderException` になる
+- VBE アクセスには Excel の「VBA プロジェクト オブジェクト モデルへのアクセスを信頼する」が必要
+- 信頼設定が OFF の環境では COM 例外を捕捉する
+- `proj.Name` などは `(string)proj.Name` のように明示キャストすると扱いやすい
+- `dynamic` を使うプロジェクトには `Microsoft.CSharp` 参照が必要
+
+```xml
+<Reference Include="Microsoft.CSharp" />
+```
+
+## 実際の活用事例
+
+VBA 解析ツールや Office アドインでは、画面上の検索結果から VBE の該当モジュールへジャンプしたいことがあります。このとき VSTO 本体に VBIDE 参照を足してしまうと、配布やビルドで参照競合が表面化しやすくなります。
+
+VSTO 側では `dynamic app = _addin.Application` から最小限の操作だけを呼び、解析処理や COM 型を使う処理は別プロジェクトへ寄せると、UI と COM の境界が明確になります。
+
+## まとめ
+
+VSTO から VBIDE を扱うときは、最初に `Application` を `dynamic` に受けるのが重要です。
+
+`dynamic vbe = _addin.Application.VBE` では遅すぎます。`dynamic app = _addin.Application` としてから `app.VBE` を呼ぶことで、コンパイル時の VBIDE 型解決を避けられます。

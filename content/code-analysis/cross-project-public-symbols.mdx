@@ -1,0 +1,158 @@
+---
+title: "クロスプロジェクトのPublicシンボル参照を解決する"
+category: "code-analysis"
+slug: "cross-project-public-symbols"
+tags: ["CodeAnalysis", "VBA", "SymbolTable", "Resolver", "References"]
+description: "別プロジェクトのPublic関数や宣言を呼んでいる箇所を、参照設定とSymbolTableを使って抽出する方法です。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+VBAでは、別ブックや別プロジェクトを参照設定して、そこにある `Public Sub`、`Public Function`、API宣言、定数を呼び出すことがあります。
+
+コード移植や単体配布をするときは、「このプロジェクトが外部ライブラリのどのPublicシンボルに依存しているか」を知る必要があります。内部だけを解析していると、この依存関係を見落とします。
+
+ここでは、対象プロジェクトで解決できない名前を、参照中プロジェクトのPublicシンボルから探すパターンを紹介します。
+
+## こんな場面で使えます
+
+- VBAやVB6の参照設定を整理したい
+- 外部ライブラリ依存を可視化したい
+- 必要なPublic関数だけをコピーして単体配布したい
+- 不要な参照設定を削除できるか調べたい
+- 複数プロジェクトにまたがるコード解析をしたい
+
+## 実装パターン
+
+流れは次の通りです。
+
+```text
+Target Project
+  |
+  | 本文中の識別子をスキャン
+  v
+Target SymbolTableで解決できる名前は内部参照
+  |
+  | 解決できない名前だけ
+  v
+Referenced ProjectsのPublic SymbolTableを検索
+  |
+  v
+ExternalReferenceResult
+```
+
+結果モデルには、見つかった手続きや宣言だけでなく、それがどのプロジェクト由来かも持たせます。
+
+```csharp
+public sealed class ExternalReferenceResult
+{
+    public VbProject TargetProject { get; }
+    public IReadOnlyList<VbProcedure> Procedures { get; }
+    public IReadOnlyList<VbDeclaration> Declarations { get; }
+    public IReadOnlyDictionary<VbProcedure, VbProject> ProcedureProject { get; }
+    public IReadOnlyDictionary<VbDeclaration, VbProject> DeclarationProject { get; }
+
+    public bool HasAny => Procedures.Count > 0 || Declarations.Count > 0;
+}
+```
+
+Analyzerは、実際に参照設定されているプロジェクトだけを候補にします。
+
+```csharp
+public static ExternalReferenceResult Analyze(
+    VbProject target,
+    IReadOnlyList<VbProject> allProjects)
+{
+    var referencedNames = new HashSet<string>(
+        target.ReferencedProjectNames ?? Array.Empty<string>(),
+        StringComparer.OrdinalIgnoreCase);
+
+    var candidateProjects = allProjects
+        .Where(p => p != target && referencedNames.Contains(p.Name))
+        .ToList();
+
+    var targetTable = SymbolTable.Build(target);
+    var tables = candidateProjects.ToDictionary(
+        p => p,
+        p => SymbolTable.Build(p));
+
+    foreach (var module in target.Modules)
+    {
+        foreach (var proc in module.Procedures)
+        {
+            ScanAndCollect(proc.Body, targetTable, candidateProjects, tables);
+        }
+    }
+
+    return BuildResult();
+}
+```
+
+検索時は、まず対象プロジェクト内で解決できるか確認します。内部にある名前なら、外部参照としては扱いません。
+
+```csharp
+private static void ScanAndCollect(
+    string body,
+    SymbolTable targetTable,
+    IReadOnlyList<VbProject> candidateProjects,
+    Dictionary<VbProject, SymbolTable> tables)
+{
+    foreach (var name in Resolver.ScanIdentifierNames(body))
+    {
+        if (targetTable.ContainsName(name))
+            continue;
+
+        foreach (var project in candidateProjects)
+        {
+            foreach (var symbol in tables[project].LookupPublicOnly(name))
+            {
+                AddExternalSymbol(project, symbol);
+            }
+        }
+    }
+}
+```
+
+## 設計のポイント
+
+外部参照の候補は、全プロジェクトではなく「参照設定されているプロジェクト」に限定します。これをしないと、関係ないプロジェクトに同名のPublic関数があるだけで誤検出します。
+
+また、外部から見えるのは基本的にPublicだけです。FriendやPrivateは候補から外します。
+
+```csharp
+public IEnumerable<Symbol> LookupPublicOnly(string name)
+    => Lookup(name).Where(s => s.Access == AccessLevel.Public);
+```
+
+単体配布用にコピー文を作る場合は、元の場所をコメントで残すと後から追いやすくなります。
+
+```vb
+'=== Procedure TOC ===
+'SleepApi  source: CommonLib.M_Api
+'TrimAll   source: CommonLib.M_String
+
+'source: CommonLib.M_Api.SleepApi
+Public Declare PtrSafe Sub Sleep Lib "kernel32" (...)
+
+'source: CommonLib.M_String.TrimAll
+Public Function TrimAll(ByVal s As String) As String
+    ...
+End Function
+```
+
+## 注意点・ハマりポイント
+
+- 参照設定を見ずに全プロジェクトを検索すると、同名Publicシンボルの誤検出が増えます。
+- 対象プロジェクト内で解決できる名前は、外部検索しません。これだけで処理時間も誤検出も減ります。
+- 外部から利用できるのはPublicに限定します。PrivateやFriendを混ぜると、実際には呼べない依存として出てしまいます。
+- 結果の並び順は、プロジェクト名、シンボル名などで固定します。差分レビューが読みやすくなります。
+- コピー用出力では、PrivateをPublicに変換するかどうかを明確に決めます。配布先から呼ぶ必要があるならPublic化が必要です。
+
+## 実際の活用事例
+
+VBAコード解析ツールでは、対象プロジェクトの本文をLexerでスキャンし、内部SymbolTableで解決できなかった名前だけを、参照設定済みプロジェクトのPublicシンボルから探しました。これにより、ライブラリ依存の可視化や、必要な関数だけをコピーするための出力を作れるようになりました。
+
+## まとめ
+
+クロスプロジェクト参照は、内部解決できない名前を、参照設定済みプロジェクトのPublicシンボルから探すと安定します。`ReferencedProjectNames`、`SymbolTable`、`LookupPublicOnly` を組み合わせることで、外部依存の抽出、単体配布、参照設定の整理に使える解析基盤になります。

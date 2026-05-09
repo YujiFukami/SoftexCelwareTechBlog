@@ -1,0 +1,128 @@
+---
+title: "Property Get / Let / Set を別エンティティとして扱う"
+category: "code-analysis"
+slug: "property-accessor-entities"
+tags: ["CodeAnalysis", "VBA", "Parser", "Resolver", "Property"]
+description: "VBAやVB系言語のPropertyを、名前は同じでもGet/Let/Setの別アクセサとして解析するためのモデル設計です。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+VBAのPropertyは、書く側から見ると1つのプロパティ `Foo` ですが、内部では `Property Get Foo`、`Property Let Foo`、`Property Set Foo` という別々のアクセサとして定義されます。
+
+```vb
+Private mFoo As Long
+
+Public Property Get Foo() As Long
+    Foo = mFoo
+End Property
+
+Public Property Let Foo(ByVal value As Long)
+    mFoo = value
+End Property
+```
+
+これを「プロパティ `Foo` が1つある」とだけ扱うと、参照解決で困ります。`x = obj.Foo` はGet側、`obj.Foo = 5` はLet側に近い意味を持ちますし、GetとLetは本文も行番号も別です。
+
+そのため解析モデルでは、名前は同じでも `Kind` が違う別エンティティとして扱うのが実用的です。
+
+## こんな場面で使えます
+
+- VBA、VB.NET、C#などのProperty定義を解析したい
+- Propertyの読み取り側と書き込み側を区別したい
+- コード一覧でGet、Let、Setをわかりやすく表示したい
+- 参照グラフで同じPropertyアクセサ同士の誤検出を避けたい
+- Read-only、Write-only、Object Setを自然に表現したい
+
+## 実装パターン
+
+手続きの種類に、Propertyのアクセサ種別を含めます。
+
+```csharp
+public enum ProcKind
+{
+    Sub,
+    Function,
+    PropertyGet,
+    PropertyLet,
+    PropertySet,
+}
+```
+
+手続きモデルは、`Name` と `Kind` を分けます。`Name` に `(Get)` のような表示用文字列を混ぜないのが重要です。
+
+```csharp
+public sealed class VbProcedure
+{
+    public string Name { get; }
+    public ProcKind Kind { get; }
+    public AccessLevel Access { get; }
+    public string Body { get; }
+    public int StartLine { get; }
+    public int EndLine { get; }
+
+    public string DisplayName => Kind switch
+    {
+        ProcKind.PropertyGet => $"{Name} (Get)",
+        ProcKind.PropertyLet => $"{Name} (Let)",
+        ProcKind.PropertySet => $"{Name} (Set)",
+        _ => Name
+    };
+}
+```
+
+Parserは、`Property Get`、`Property Let`、`Property Set` のキーワード列を見て、同じ名前でも別の `ProcKind` として抽出します。
+
+## 設計のポイント
+
+Resolverは、名前だけで候補を探すと、同じPropertyの別アクセサに誤って線を引くことがあります。Resolverは「名前を解決する処理」です。コード本文に現れた識別子が、どの関数、変数、宣言を指しているかを決めます。
+
+同じPropertyのGet/Let/Set同士は、互いに呼び合っているわけではないことが多いため、必要に応じて除外します。
+
+```csharp
+public static bool IsSamePropertyVariant(VbProcedure a, VbProcedure b)
+{
+    if (a == null || b == null) return false;
+    if (!StringComparer.OrdinalIgnoreCase.Equals(a.Name, b.Name)) return false;
+
+    bool aIsProp = a.Kind == ProcKind.PropertyGet
+        || a.Kind == ProcKind.PropertyLet
+        || a.Kind == ProcKind.PropertySet;
+
+    bool bIsProp = b.Kind == ProcKind.PropertyGet
+        || b.Kind == ProcKind.PropertyLet
+        || b.Kind == ProcKind.PropertySet;
+
+    return aIsProp && bIsProp;
+}
+```
+
+UIでは、元のソース順を基本にしつつ、同名Propertyを近くに並べると読みやすくなります。
+
+```csharp
+public static IEnumerable<VbProcedure> OrderByPropertyGroup(
+    IEnumerable<VbProcedure> procs)
+{
+    return procs
+        .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+        .OrderBy(g => g.Min(p => p.StartLine))
+        .SelectMany(g => g.OrderBy(p => p.Kind));
+}
+```
+
+## 注意点・ハマりポイント
+
+- `Name` は元の名前のまま保持します。`Foo (Get)` のように加工すると、検索や参照解決が壊れます。
+- 表示用の加工は `DisplayName` など別プロパティに閉じ込めます。
+- `Property Let` は値を代入するための引数を1つ持ちます。`Property Set` も参照代入用の引数を1つ持ちます。`Property Get` は通常、戻り値で値を返します。
+- 同じ名前のPropertyとSub/Functionは、VBA構文上は共存できない前提で扱えます。ただし壊れたコードや途中の編集中コードを読む場合は、防御的に実装します。
+- 色分けやアイコン表示をすると、一覧画面でGet/Let/Setの違いが伝わりやすくなります。
+
+## 実際の活用事例
+
+VBAコード解析ツールでは、Propertyを1つに潰すのではなく、Get、Let、Setを別手続きとして保持しました。これにより、読み取り専用Property、代入専用Property、Object参照のSetが一覧上で判別しやすくなり、参照グラフの誤検出も減りました。
+
+## まとめ
+
+Propertyは名前だけを見ると1つに見えますが、解析モデルではGet、Let、Setを別エンティティとして扱う方が安定します。名前は同じまま、種類を `Kind` で分け、表示だけを加工する。この小さな分離が、検索、参照解決、UI表示のすべてを扱いやすくします。

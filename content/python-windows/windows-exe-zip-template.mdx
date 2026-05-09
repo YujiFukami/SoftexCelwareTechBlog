@@ -1,0 +1,73 @@
+---
+title: "Windows EXE配布ZIPの構成テンプレート"
+category: "python-windows"
+slug: "windows-exe-zip-template"
+tags: ["Windows", "EXE配布", "ZIP配布", "PyInstaller", "リリース"]
+description: "インストーラーなしで小型Windowsツールを配布するときのZIP構成、同梱ファイル、除外すべきファイルを整理します。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+小型のWindowsツールは、インストーラーを作らずZIPで配布することがあります。PyInstaller製のPythonアプリ、Electronアプリ、.NETの単体EXEなどではよくある形です。
+
+ただし、EXEだけを渡すと、使い方、設定初期化、アンインストール方法、ライセンス情報が伝わりません。利用者に安心して使ってもらうには、配布ZIPの中身も設計対象として扱う必要があります。
+
+## こんな場面で使えます
+
+- PyInstallerで作ったPythonアプリをZIP配布する
+- インストーラーを作るほどではない小型Windowsツールを配布する
+- GitHub Releasesやブログからダウンロードしてもらう
+- EXE本体だけでなくREADMEやライセンスも同梱したい
+- 配布前の入れ忘れを減らしたい
+
+## 実装パターン
+
+配布ZIPは、バージョン番号付きフォルダを1つ作り、その中に実行に必要なファイルだけを入れます。
+
+```text
+ToolName-v1.0.0/
+  MainApp.exe
+  ToolLauncher.exe
+  config.json
+  config.sample.json
+  ToolName.ico
+  README.txt
+  LICENSE.txt
+  THIRD_PARTY_NOTICES.txt
+  配布前チェックリスト.txt
+```
+
+必ずしも全ファイルが必要とは限りません。ランチャーEXEがないアプリなら `ToolLauncher.exe` は不要です。初期設定をアプリ側で自動生成するなら、`config.json` を同梱しない選択もあります。
+
+## 設計のポイント
+
+| ファイル | 役割 |
+|---|---|
+| `MainApp.exe` | 実行する本体 |
+| `ToolLauncher.exe` | タスクバーやショートカット用の呼び出しEXE |
+| `config.json` | 初期設定またはユーザー設定 |
+| `config.sample.json` | 初期状態へ戻すためのサンプル |
+| `README.txt` | 利用者向けの短い説明 |
+| `LICENSE.txt` | 自作部分のライセンス |
+| `THIRD_PARTY_NOTICES.txt` | 外部ライブラリの表記 |
+| `配布前チェックリスト.txt` | リリース前の確認用 |
+
+## 注意点・ハマりポイント
+
+- **開発用フォルダを入れない**: `build/`、`__pycache__/`、`.git/`、仮想環境、テストデータは配布ZIPに入れません。
+- **個人設定を入れない**: `config.json` に個人パス、顧客名、社内URL、秘密情報がないか検索します。
+- **ZIP名にバージョンを入れる**: `ToolName-v1.0.0.zip` のようにしておくと、利用者も開発者も版を区別しやすくなります。
+- **EXEを更新したらZIPも作り直す**: `dist` のEXEだけ差し替えて、配布ZIPが古いままになるミスに注意します。
+- **READMEはGitHub用と配布用を分ける**: 配布ZIP内のREADMEは、利用者がすぐ動かすための短い説明にします。
+
+## 実際の活用事例
+
+Windows向けの小型デスクトップツールをZIP配布する際、本体EXE、ランチャーEXE、設定サンプル、README、ライセンス、外部ライブラリ表記を1フォルダにまとめました。インストーラーなしでも、利用者が導入、設定、削除まで判断できる構成になります。
+
+## まとめ
+
+- EXEだけでなく、README、ライセンス、設定サンプルまで含めて配布物を設計する
+- 配布ZIPはバージョン番号付きフォルダにまとめる
+- 開発用ファイルや個人設定は入れない
+- ZIP作成後は別フォルダで展開して起動確認する

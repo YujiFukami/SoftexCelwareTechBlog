@@ -1,0 +1,166 @@
+---
+title: "AvalonEdit の検索ハイライトを DocumentColorizingTransformer で実装する"
+category: "wpf"
+slug: "avalonedit-search-highlight"
+tags: ["WPF", "AvalonEdit", "検索", "ハイライト", "DocumentColorizingTransformer"]
+description: "AvalonEdit で検索キーワードに一致した箇所を半透明背景でハイライトするための DocumentColorizingTransformer 実装と再描画、パフォーマンス注意点をまとめます。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+AvalonEdit は WPF でコードエディタやテキストビューアを作るときに便利なライブラリです。検索ボックスと組み合わせる場合、該当キーワードを本文中でハイライトしたくなります。
+
+この用途には、`DocumentColorizingTransformer` を継承して、検索ヒット箇所に背景色を設定する方法が扱いやすいです。シンタックスハイライトとも共存できます。
+
+## こんな場面で使えます
+
+- WPF + AvalonEdit でコードビューアを作る
+- 検索語に一致する箇所を背景色で強調したい
+- XSHD などのシンタックスハイライトと共存させたい
+- TextBox の入力に合わせてリアルタイムにハイライトしたい
+- 大量テキストでも可視範囲中心に軽く動かしたい
+
+## 実装コード
+
+まず、検索ハイライト用の transformer を作ります。
+
+```csharp
+using System.Windows.Media;
+using ICSharpCode.AvalonEdit.Document;
+using ICSharpCode.AvalonEdit.Rendering;
+
+public sealed class SearchHighlightTransformer : DocumentColorizingTransformer
+{
+    private string _keyword;
+
+    public string Keyword
+    {
+        get => _keyword;
+        set => _keyword = value;
+    }
+
+    public bool CaseInsensitive { get; set; } = true;
+
+    public Brush HighlightBrush { get; set; } =
+        new SolidColorBrush(Color.FromArgb(160, 255, 235, 0));
+
+    protected override void ColorizeLine(DocumentLine line)
+    {
+        if (string.IsNullOrEmpty(_keyword)) return;
+
+        var lineText = CurrentContext.Document.GetText(line.Offset, line.Length);
+        var comparison = CaseInsensitive
+            ? System.StringComparison.OrdinalIgnoreCase
+            : System.StringComparison.Ordinal;
+
+        int index = 0;
+        while ((index = lineText.IndexOf(_keyword, index, comparison)) >= 0)
+        {
+            int start = line.Offset + index;
+            int end = start + _keyword.Length;
+
+            ChangeLinePart(start, end, element =>
+            {
+                element.BackgroundBrush = HighlightBrush;
+            });
+
+            index += _keyword.Length;
+        }
+    }
+}
+```
+
+AvalonEdit の `TextView.LineTransformers` に追加します。
+
+```csharp
+private SearchHighlightTransformer _highlight;
+
+private void InitEditor()
+{
+    _highlight = new SearchHighlightTransformer();
+    codeEditor.TextArea.TextView.LineTransformers.Add(_highlight);
+}
+
+public void ApplySearchHighlight(string keyword)
+{
+    _highlight.Keyword = keyword;
+    codeEditor.TextArea.TextView.Redraw();
+}
+```
+
+検索ボックスと連動させます。
+
+```xaml
+<TextBox x:Name="SearchBox" TextChanged="OnSearchChanged" />
+```
+
+```csharp
+private void OnSearchChanged(object sender, TextChangedEventArgs e)
+{
+    ApplySearchHighlight(SearchBox.Text);
+}
+```
+
+## 設計のポイント
+
+`ChangeLinePart` に渡す `start` と `end` は、行頭からの相対位置ではなく、ドキュメント先頭からの絶対オフセットです。
+
+```csharp
+int start = line.Offset + index;
+int end = start + _keyword.Length;
+```
+
+ここを `index` のまま渡すと、2 行目以降のハイライト位置がずれます。
+
+ハイライト色は半透明にすると、シンタックスハイライトの文字色を潰しにくくなります。
+
+```csharp
+new SolidColorBrush(Color.FromArgb(160, 255, 235, 0));
+```
+
+## 注意点・ハマりポイント
+
+- キーワード変更後は `TextView.Redraw()` を呼ぶ
+- `ChangeLinePart` は絶対オフセットで指定する
+- 大文字小文字無視は `OrdinalIgnoreCase` が扱いやすい
+- `CurrentCultureIgnoreCase` は環境依存の挙動を招くことがある
+- 空文字検索では何もしない
+- 同じ transformer を何度も追加しない
+
+大量テキストで TextBox 入力のたびに再描画すると重く感じる場合は、デバウンスします。
+
+```csharp
+private DispatcherTimer _debounce;
+
+private void OnSearchChanged(object sender, TextChangedEventArgs e)
+{
+    if (_debounce == null)
+    {
+        _debounce = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(300)
+        };
+        _debounce.Tick += (_, __) =>
+        {
+            _debounce.Stop();
+            ApplySearchHighlight(SearchBox.Text);
+        };
+    }
+
+    _debounce.Stop();
+    _debounce.Start();
+}
+```
+
+## 実際の活用事例
+
+VBA や C# のコードを閲覧する解析ツールでは、モジュール内検索、プロシージャ検索、参照語句の強調表示が必要になります。
+
+AvalonEdit に transformer を追加しておくと、本文の構文色を残したまま検索語だけを背景色で示せるため、読み取りやすいコードビューアになります。
+
+## まとめ
+
+AvalonEdit の検索ハイライトは、`DocumentColorizingTransformer` を 1 クラス作るだけで実装できます。
+
+重要なのは、絶対オフセットで `ChangeLinePart` を呼ぶこと、キーワード変更後に `Redraw()` すること、入力頻度が高い場合はデバウンスすることです。

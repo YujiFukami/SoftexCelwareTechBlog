@@ -1,0 +1,112 @@
+---
+title: "PyInstallerのEXEアイコンとtkinterウィンドウアイコンを共通化する"
+category: "python-windows"
+slug: "pyinstaller-tkinter-icon"
+tags: ["Python", "Windows", "PyInstaller", "tkinter", "アイコン"]
+description: "PyInstallerで作ったEXEのアイコンと、tkinterウィンドウ左上のアイコンを同じICOで統一する実装パターンです。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+Python/tkinterアプリをEXE化して配布すると、アイコン周りで見た目が崩れることがあります。
+
+エクスプローラー上のEXEは独自アイコンなのに、ウィンドウ左上だけtkinterの既定アイコンになる。あるいは、タスクバーにピン留めしたときに汎用アイコンのまま表示される。こうした小さな違和感は、利用者から見ると「ちゃんとしたアプリに見えるか」に直結します。
+
+PyInstallerのEXE埋め込みアイコンと、tkinterのウィンドウアイコンは別に設定する必要があります。この記事では、同じICOファイルを両方に使うための構成を整理します。
+
+## こんな場面で使えます
+
+- Python/tkinterアプリをWindows向けにEXE配布する
+- タスクバーにピン留めされる前提のツールを作る
+- 設定画面、メイン画面、ダイアログで同じブランドアイコンを出したい
+- 開発時とPyInstaller実行時のリソースパス差分でハマりたくない
+
+## 実装コード
+
+### specでICOを同梱し、EXEにも埋め込む
+
+`.spec` では、ICOファイルを `datas` に入れ、さらに `EXE` の `icon` にも指定します。
+
+```python
+main_analysis = Analysis(
+    ['main.py'],
+    datas=[('MyTool.ico', '.')],
+)
+
+main_pyz = PYZ(main_analysis.pure)
+
+main_exe = EXE(
+    main_pyz,
+    main_analysis.scripts,
+    main_analysis.binaries,
+    main_analysis.datas,
+    [],
+    name='MyTool',
+    console=False,
+    icon='MyTool.ico',
+)
+```
+
+`icon='MyTool.ico'` はEXE自体のアイコン用です。`datas=[('MyTool.ico', '.')]` は、実行中のtkinterアプリからICOファイルを読み込むために必要です。
+
+### tkinter側で同じICOを適用する
+
+開発時とPyInstaller実行時では、リソースファイルの場所が変わります。共通ヘルパーを用意しておくと、どちらの実行方法でも同じコードで動きます。
+
+```python
+import os
+import sys
+import tkinter as tk
+
+ICON_FILE_NAME = 'MyTool.ico'
+
+def get_resource_path(file_name):
+    base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_dir, file_name)
+
+def apply_window_icon(window):
+    icon_path = get_resource_path(ICON_FILE_NAME)
+    if not os.path.exists(icon_path):
+        return
+    try:
+        window.iconbitmap(icon_path)
+    except (tk.TclError, OSError):
+        pass
+```
+
+ウィンドウ生成後に呼び出します。
+
+```python
+root = tk.Tk()
+apply_window_icon(root)
+```
+
+設定画面やサブウィンドウにも同じ関数を使えば、アイコン表示を統一できます。
+
+## 設計のポイント
+
+| 設計判断 | 理由 |
+|---|---|
+| ICOを `datas` と `icon` の両方に指定する | EXE埋め込み用と実行時読込用は用途が違う |
+| `sys._MEIPASS` を見る | PyInstaller実行時の一時展開先からリソースを読める |
+| アイコン適用失敗を握りつぶす | アイコン欠落だけでアプリ全体を落とさない |
+| ヘルパー関数にする | 複数ウィンドウで同じ実装を使い回せる |
+
+## 注意点・ハマりポイント
+
+- **Windowsのアイコンキャッシュが残る**: EXEを更新しても、タスクバーやエクスプローラーに古いアイコンが残ることがあります。ピン留め解除、再ピン留め、Explorer再起動で確認します。
+- **ICOは複数サイズを含める**: 16、24、32、48、64、128、256pxなどを含めると、表示場所ごとの崩れを減らせます。
+- **`overrideredirect(True)` のウィンドウは特殊**: 通常のタスクバー表示やウィンドウ装飾が出ないため、左上アイコンも期待通り出ないことがあります。
+- **PNGではなくICOを使う**: tkinterの `iconbitmap` はWindowsではICOが扱いやすいです。
+
+## 実際の活用事例
+
+Windows向けのtkinter常駐ツールで、EXE、ランチャー、設定画面の見た目をそろえるためにこの構成を使いました。特にタスクバーに固定して使うツールでは、アイコンの統一だけで利用者の認識しやすさがかなり変わります。
+
+## まとめ
+
+- PyInstallerのEXEアイコンとtkinterウィンドウアイコンは別設定
+- ICOは `EXE(icon=...)` と `Analysis(datas=...)` の両方に指定する
+- `sys._MEIPASS` 対応のリソースパス関数を用意する
+- Windowsのアイコンキャッシュも確認対象に入れる

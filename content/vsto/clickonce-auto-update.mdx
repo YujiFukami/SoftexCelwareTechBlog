@@ -1,0 +1,138 @@
+---
+title: "VSTO ClickOnce 自動更新の仕組み"
+category: "vsto"
+slug: "clickonce-auto-update"
+tags: ["VSTO", "ClickOnce", "自動更新", "PublishUrl", "配布"]
+description: "VSTO や WPF の ClickOnce 自動更新がいつ、どこを、どのように確認するのかを整理し、ZIP、共有フォルダ、UNC、Web 配布の違いを解説します。"
+date: "2026-05-09"
+---
+
+## はじめに
+
+ClickOnce の自動更新は「発行フォルダを常時監視している」仕組みではありません。VSTO アドインの場合も、基本は **アプリ起動時に PublishUrl を確認し、発行マニフェストの版数を比較する** だけです。
+
+この仕組みを誤解すると、「発行したのに相手の環境へ更新が降ってこない」「ZIP で送ったのに自動更新されると思っていた」といった問題につながります。
+
+## こんな場面で使えます
+
+- VSTO アドインを ClickOnce で配布する
+- Excel 起動時にアドインを自動更新したい
+- ZIP 配布、共有フォルダ配布、Web 配布の違いを整理したい
+- `PublishUrl` をどこに向けるべきか判断したい
+- ユーザーに再インストールさせずに更新を届けたい
+
+## 実装パターン
+
+ClickOnce の更新元は、インストール時に読み込まれた `.vsto` マニフェスト内の `PublishUrl` です。
+
+```text
+[初回インストール]
+  setup.exe
+    -> アプリ名.vsto を読む
+    -> PublishUrl を更新元として記録
+    -> 本体を ClickOnce キャッシュへ配置
+    -> Office アドインとして登録
+
+[Excel 起動時]
+  Excel がアドインを読み込む
+    -> ClickOnce ランタイムが PublishUrl を確認
+    -> アプリ名.vsto の版数を比較
+    -> 新しければダウンロードして入れ替え
+    -> 見えなければ更新をスキップ
+```
+
+発行フォルダは、通常このような構成になります。
+
+```text
+Publish\
+├── setup.exe
+├── AppName.vsto
+└── Application Files\
+    ├── AppName_3_1_0_0\
+    ├── AppName_3_1_0_1\
+    └── AppName_3_1_0_2\
+```
+
+`setup.exe` は初回インストール用です。更新時に主に見られるのは、最新バージョンを示す `AppName.vsto` と `Application Files` 配下の実体です。
+
+## 配布形態ごとの考え方
+
+| 配布形態 | PublishUrl | 自動更新 | 用途 |
+|---|---|---|---|
+| ZIP 一発配布 | 発行したローカルパス | 基本的に動かない | 動作確認、少人数への手渡し |
+| OneDrive / Dropbox 共有 | 同期フォルダのパス | 条件付きで動く | 小規模配布 |
+| UNC 共有 | `\\server\share\App\` | 動く | 社内配布 |
+| Web 配布 | `https://example.com/app/` | 動く | 広い範囲への配布 |
+
+判断基準は単純で、**インストールした利用者の PC から PublishUrl が見えるか** です。見えなければ更新チェックは失敗し、通常は起動を止めずにスキップされます。
+
+## csproj 設定例
+
+```xml
+<PropertyGroup>
+  <BootstrapperEnabled>true</BootstrapperEnabled>
+  <PublishUrl>\\server\share\MyAddin\</PublishUrl>
+  <ApplicationVersion>3.1.0.0</ApplicationVersion>
+  <AutoIncrementApplicationRevision>true</AutoIncrementApplicationRevision>
+  <UpdateEnabled>true</UpdateEnabled>
+  <UpdateMode>Foreground</UpdateMode>
+  <UpdateInterval>7</UpdateInterval>
+  <UpdateIntervalUnits>Days</UpdateIntervalUnits>
+  <ProductName>My Excel Add-in</ProductName>
+  <PublisherName>My Company</PublisherName>
+  <Install>true</Install>
+  <InstallFrom>Disk</InstallFrom>
+  <IsWebBootstrapper>false</IsWebBootstrapper>
+  <GenerateManifests>true</GenerateManifests>
+</PropertyGroup>
+```
+
+VSTO Runtime や .NET Framework などの前提コンポーネントが必要な場合は、`BootstrapperPackage` も含めます。
+
+```xml
+<ItemGroup>
+  <BootstrapperPackage Include=".NETFramework,Version=v4.8">
+    <Visible>False</Visible>
+    <ProductName>Microsoft .NET Framework 4.8</ProductName>
+    <Install>true</Install>
+  </BootstrapperPackage>
+  <BootstrapperPackage Include="Microsoft.VSTORuntime.4.0">
+    <Visible>False</Visible>
+    <ProductName>Microsoft Visual Studio Tools for Office Runtime</ProductName>
+    <Install>true</Install>
+  </BootstrapperPackage>
+</ItemGroup>
+```
+
+## 設計のポイント
+
+ZIP 配布の場合は、発行フォルダの一部だけを送るとインストールに失敗します。少なくとも次の一式をまとめます。
+
+- `setup.exe`
+- `*.vsto`
+- `Application Files\`
+
+利用者には `.vsto` を直接開かせるのではなく、初回は `setup.exe` からインストールしてもらいます。
+
+自動更新を使いたい場合は、最初から利用者がアクセスできる共有フォルダ、UNC、HTTP URL を `PublishUrl` にして発行します。後から発行元を変える場合は、その新しい `PublishUrl` で再発行し、利用者へ再インストールまたは更新導線を用意する必要があります。
+
+## 注意点・ハマりポイント
+
+- ClickOnce は常時ファイル監視していない
+- 更新チェックは起動時、または設定された更新間隔を過ぎたタイミングで行われる
+- `UpdateInterval=7 Days` なら、前回チェックから 7 日未満は確認しない
+- `PublishUrl` にアクセスできない場合、多くはサイレントに更新スキップされる
+- 自動更新には、前回より大きい `ApplicationVersion` が必要
+- VSTO の `ApplicationVersion` は 4 桁全数値にする
+
+## 実際の活用事例
+
+社内向け Excel アドインなら、最初は ZIP 配布で数人に検証してもらい、運用が固まったら UNC 共有に切り替える流れが現実的です。
+
+検証段階では「自動更新しない前提」と明記し、本番運用では `PublishUrl` を共有フォルダに向けます。これにより、利用者は Excel を起動するだけで新しい発行版を受け取れるようになります。
+
+## まとめ
+
+ClickOnce 自動更新の要点は、`PublishUrl` が利用者の PC から見える場所にあること、そして `ApplicationVersion` が前回より大きいことです。
+
+ZIP で送った発行物は、基本的に自動更新の仕組みとは別物として扱います。自動更新したい場合は、共有フォルダ、UNC、Web など、利用者から到達可能な発行元を設計に含める必要があります。
