@@ -9,7 +9,7 @@ date: "2026-04-22"
 
 ## はじめに
 
-sql.js を使った Electron アプリで CSV の一括取込み機能を実装すると、少量のデータでは問題なく動いても、数百行・数千行になった途端に「Maximum call stack size exceeded」が出たり、処理が終わらなかったりする経験はありますよね。
+<Term>sql.js</Term> を使った <Term query="Electron アプリ">Electron アプリ</Term>で CSV の一括取込み機能を実装すると、少量のデータでは問題なく動いても、数百行・数千行になった途端に「Maximum call stack size exceeded」が出たり、処理が終わらなかったりする経験はありますよね。
 
 原因のほとんどは、DBManager のような薄いラッパーを作った際に「`run()` の中で毎回 `save()` を呼ぶ」設計になっていることです。N 行のデータを取り込む場合、DB のエクスポートとファイル書き込みが N 回走る **O(n²) の設計**になってしまいます。
 

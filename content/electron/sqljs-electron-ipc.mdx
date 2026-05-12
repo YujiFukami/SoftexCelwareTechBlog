@@ -9,17 +9,17 @@ date: "2026-04-22"
 
 ## はじめに
 
-Electron アプリでローカル DB を使いたい場合、SQLite が最有力候補になりますよね。しかし `better-sqlite3` などのネイティブ Node.js モジュールは、`electron-rebuild` の設定や ABI 互換の問題でビルド周りのトラブルが多いです。特に Windows 環境では、Visual C++ Build Tools の有無などが絡んで詰まることが少なくありません。
+<Term query="Electron アプリ">Electron アプリ</Term>でローカル DB を使いたい場合、<Term>SQLite</Term> が最有力候補になりますよね。しかし <Term>better-sqlite3</Term> などのネイティブ <Term query="Node.js モジュール">Node.js モジュール</Term>は、<Term>electron-rebuild</Term> の設定や <Term query="ABI 互換">ABI 互換</Term>の問題でビルド周りのトラブルが多いです。特に Windows 環境では、<Term>Visual C++ Build Tools</Term> の有無などが絡んで詰まることが少なくありません。
 
-そこで採用したいのが **<Term>sql.js</Term>（<Term>WebAssembly</Term> 版 SQLite）** です。WebAssembly で動くためネイティブモジュールのビルドが不要で、ブラウザでも Electron でも同一コードで動きます。`npm run dev` でブラウザ上でテストしながら開発し、本番は Electron でファイルに永続化する——という構成が自然に作れます。
+そこで採用したいのが **<Term>sql.js</Term>（<Term>WebAssembly</Term> 版 <Term>SQLite</Term>）** です。<Term>WebAssembly</Term> で動くためネイティブモジュールのビルドが不要で、ブラウザでも <Term query="Electron アプリ">Electron</Term> でも同一コードで動きます。`npm run dev` でブラウザ上でテストしながら開発し、本番は <Term query="Electron アプリ">Electron</Term> でファイルに永続化する——という構成が自然に作れます。
 
-ファイルへの書き込みだけ Electron の <Term>IPC</Term>（プロセス間通信）経由でメインプロセスに委譲することで、**セキュリティを保ちながらローカル DB の永続化を実現**します。
+ファイルへの書き込みだけ <Term query="Electron アプリ">Electron</Term> の <Term>IPC</Term>（プロセス間通信）経由でメインプロセスに委譲することで、**セキュリティを保ちながらローカル DB の永続化を実現**します。
 
 ## こんな場面で使えます
 
 - インストール不要・サーバ不要・単一ユーザーのデスクトップアプリが欲しい
-- `better-sqlite3` のビルドでハマりたくない
-- 開発中はブラウザで動かしてテストし、本番は Electron でファイル保存したい
+- <Term>better-sqlite3</Term> のビルドでハマりたくない
+- 開発中はブラウザで動かしてテストし、本番は <Term query="Electron アプリ">Electron</Term> でファイル保存したい
 - CSV や ZIP などの任意ファイル入出力も同じ IPC パターンで対応したい
 - アプリのアップデート時に DB データが消えないようにしたい
 
@@ -176,10 +176,10 @@ mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
 
 ## 実際の活用事例
 
-このテクニックは、お客様からご依頼いただいた業務系デスクトップアプリ開発案件で実際に活用したノウハウです。守秘義務の都合から詳細は伏せますが、`better-sqlite3` のビルドトラブルを完全に回避しながら、業務データをローカル `.db` ファイルに永続化しました。開発時はブラウザ上でテストし、本番は Electron でファイルに書き込む二重対応の構成が、開発体験を大きく向上させています。
+このテクニックは、お客様からご依頼いただいた業務系デスクトップアプリ開発案件で実際に活用したノウハウです。守秘義務の都合から詳細は伏せますが、<Term>better-sqlite3</Term> のビルドトラブルを完全に回避しながら、業務データをローカル `.db` ファイルに永続化しました。開発時はブラウザ上でテストし、本番は <Term query="Electron アプリ">Electron</Term> でファイルに書き込む二重対応の構成が、開発体験を大きく向上させています。
 
 ## まとめ
 
-- sql.js（WebAssembly）で **ネイティブモジュール不要のローカル SQLite** を実現
+- <Term>sql.js</Term>（<Term>WebAssembly</Term>）で **ネイティブモジュール不要のローカル <Term>SQLite</Term>** を実現
 - ファイル IO のみ IPC でメインプロセスに委譲し、**`contextIsolation: true` の安全設計**を維持
 - `app.isPackaged` で開発・本番の DB パスを自動切替し、**アップデート時に DB が消えない**構成にする
