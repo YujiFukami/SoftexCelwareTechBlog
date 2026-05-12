@@ -96,7 +96,7 @@ const closeOnboarding = () => {
 
 ### 機能ごとにキーを分ける
 
-複数のオンボーディングを管理する場合は、localStorageのキーを分けます。
+複数のオンボーディングを管理する場合は、<Term>localStorage</Term>のキーを分けます。
 
 ```typescript
 // 出勤機能のオンボーディング
@@ -117,8 +117,8 @@ localStorage.getItem('app-onboarded-report')
 ## 注意点・ハマりポイント
 
 - **「次回以降表示しない」は閉じる時に保存**: チェックしただけでは保存されません。閉じるボタンを押した時に保存するのがポイントです（誤操作防止）
-- **localStorageはブラウザ固有**: 別のブラウザやシークレットモードでは再表示されます
-- **SSR環境での注意**: Next.jsではサーバーサイドで `localStorage` にアクセスできません。`useEffect` 内でのみ使用してください
+- **<Term>localStorage</Term>はブラウザ固有**: 別のブラウザやシークレットモードでは再表示されます
+- **SSR環境での注意**: <Term>Next.js</Term>ではサーバーサイドで `localStorage` にアクセスできません。`useEffect` 内でのみ使用してください
 
 ## 実際の活用事例
 

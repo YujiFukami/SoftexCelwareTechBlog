@@ -9,18 +9,18 @@ date: "2026-05-09"
 
 ## はじめに
 
-WPF で複数の `ListView`、`TreeView`、`TabControl` を並べた画面では、矢印キーで操作している最中にフォーカスが隣のコントロールへ飛ぶことがあります。
+<Term>WPF</Term> で複数の `ListView`、`TreeView`、`TabControl` を並べた画面では、矢印キーで操作している最中にフォーカスが隣のコントロールへ飛ぶことがあります。
 
 たとえば、左側のリストで最下行まで移動してから下矢印を押すと、右側のエディタへフォーカスが移ってしまうような挙動です。
 
-これは WPF の `KeyboardNavigation.DirectionalNavigation` の既定値が `Continue` で、端まで来たら次のコントロールへ移動できるためです。
+これは <Term>WPF</Term> の `KeyboardNavigation.DirectionalNavigation` の既定値が `Continue` で、端まで来たら次のコントロールへ移動できるためです。
 
 ## こんな場面で使えます
 
-- WPF でリストやツリーを複数並べた画面を作る
+- <Term>WPF</Term> でリストやツリーを複数並べた画面を作る
 - 矢印キーでリスト内を操作させたい
 - リスト端で隣のコントロールへフォーカスが移るのを止めたい
-- AvalonDock 内の複数ペインでキーボード操作を安定させたい
+- <Term>AvalonDock</Term> 内の複数ペインでキーボード操作を安定させたい
 - Tab キーの移動は残しつつ、矢印キーだけ閉じ込めたい
 
 ## 実装コード
@@ -85,7 +85,7 @@ WPF で複数の `ListView`、`TreeView`、`TabControl` を並べた画面では
 - ItemsControl が入れ子になっている場合は、外側と内側の両方に設定が必要なことがある
 - 端で逆端に戻したい場合は `Contained` ではなく `Cycle` を使う
 - `TextBox` 内のカーソル移動まで止めたいわけではない場合、コンテナ単位で設定範囲を調整する
-- AvalonDock のペイン単位で暴れる場合は、各ペインのルート要素に設定する
+- <Term>AvalonDock</Term> のペイン単位で暴れる場合は、各ペインのルート要素に設定する
 
 ## 実際の活用事例
 
@@ -95,6 +95,6 @@ WPF で複数の `ListView`、`TreeView`、`TabControl` を並べた画面では
 
 ## まとめ
 
-WPF で矢印キーのフォーカス移動が意図せず隣へ飛ぶ場合は、まず `KeyboardNavigation.DirectionalNavigation="Contained"` を試します。
+<Term>WPF</Term> で矢印キーのフォーカス移動が意図せず隣へ飛ぶ場合は、まず `KeyboardNavigation.DirectionalNavigation="Contained"` を試します。
 
 1 行の XAML で改善できることが多く、リストやツリー中心の業務 UI では初期設定として入れておく価値があります。

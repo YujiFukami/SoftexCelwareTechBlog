@@ -9,14 +9,14 @@ date: "2026-05-09"
 
 ## はじめに
 
-AvalonDock を使うと、Visual Studio や VS Code のようなペイン型 UI を WPF で作れます。ユーザーがペイン位置やタブ順を調整できる一方で、毎回初期配置に戻ると使い勝手が悪くなります。
+<Term>AvalonDock</Term> を使うと、Visual Studio や VS Code のようなペイン型 UI を <Term>WPF</Term> で作れます。ユーザーがペイン位置やタブ順を調整できる一方で、毎回初期配置に戻ると使い勝手が悪くなります。
 
-`XmlLayoutSerializer` を使うと、AvalonDock のレイアウトを XML として保存し、次回起動時に復元できます。
+`XmlLayoutSerializer` を使うと、<Term>AvalonDock</Term> のレイアウトを XML として保存し、次回起動時に復元できます。
 
 ## こんな場面で使えます
 
-- WPF で IDE 風、解析ツール風の UI を作る
-- AvalonDock のペイン配置をユーザーごとに保存したい
+- <Term>WPF</Term> で IDE 風、解析ツール風の UI を作る
+- <Term>AvalonDock</Term> のペイン配置をユーザーごとに保存したい
 - フローティングウィンドウの位置やサイズも復元したい
 - アプリ終了時にレイアウトを保存し、次回起動時に戻したい
 - 壊れたレイアウトファイルを無視して初期配置に戻したい
@@ -147,17 +147,17 @@ Install-Package Dirkster.AvalonDock
 - `LayoutSerializationCallback` で既存コンテンツを差し戻す
 - 保存失敗や復元失敗でアプリを止めない
 - 壊れた `layout.xml` は削除すれば初期配置に戻せる
-- VSTO + WPF で使う場合は、`Unloaded` だけでなくアドイン終了時にも保存を呼ぶと安全
-- AvalonDock の Floating Window は XML に含まれるが、VSTO の CustomTaskPane の位置とは別物
+- <Term>VSTO</Term> + <Term>WPF</Term> で使う場合は、`Unloaded` だけでなくアドイン終了時にも保存を呼ぶと安全
+- <Term>AvalonDock</Term> の Floating Window は XML に含まれるが、<Term>VSTO</Term> の <Term>CustomTaskPane</Term> の位置とは別物
 
 ## 実際の活用事例
 
-コードビューア、プロジェクトツリー、検索結果、詳細ペインを持つ解析ツールでは、ユーザーによって使いやすい配置が異なります。AvalonDock のレイアウト保存を入れておくと、作業者が調整した画面を次回も維持できます。
+コードビューア、プロジェクトツリー、検索結果、詳細ペインを持つ解析ツールでは、ユーザーによって使いやすい配置が異なります。<Term>AvalonDock</Term> のレイアウト保存を入れておくと、作業者が調整した画面を次回も維持できます。
 
 サポート時には「画面配置がおかしくなったら `%LOCALAPPDATA%\MyApp\layout.xml` を削除する」と案内できるため、復旧手順もシンプルです。
 
 ## まとめ
 
-AvalonDock のレイアウト保存は、`XmlLayoutSerializer`、`ContentId`、`LayoutSerializationCallback` の 3 点を押さえると安定します。
+<Term>AvalonDock</Term> のレイアウト保存は、`XmlLayoutSerializer`、`ContentId`、`LayoutSerializationCallback` の 3 点を押さえると安定します。
 
-ユーザーが調整する前提の WPF ツールでは、初期段階から入れておくと使い勝手が大きく上がる機能です。
+ユーザーが調整する前提の <Term>WPF</Term> ツールでは、初期段階から入れておくと使い勝手が大きく上がる機能です。

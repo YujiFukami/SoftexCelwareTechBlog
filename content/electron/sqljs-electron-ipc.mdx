@@ -20,7 +20,7 @@ date: "2026-04-22"
 - インストール不要・サーバ不要・単一ユーザーのデスクトップアプリが欲しい
 - <Term>better-sqlite3</Term> のビルドでハマりたくない
 - 開発中はブラウザで動かしてテストし、本番は <Term query="Electron アプリ">Electron</Term> でファイル保存したい
-- CSV や ZIP などの任意ファイル入出力も同じ IPC パターンで対応したい
+- CSV や ZIP などの任意ファイル入出力も同じ <Term>IPC</Term> パターンで対応したい
 - アプリのアップデート時に DB データが消えないようにしたい
 
 ## 実装コード
@@ -170,8 +170,8 @@ mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
 
 - **DB ファイルは exe の外に置く**: `data/database.db` を exe 内の `resources/` に置くと、アプリ更新時に DB ごと上書きされます。`path.dirname(process.execPath)` で exe の隣に配置するのが正解です。
 - **開発・本番の自動切替**: `app.isPackaged` が `false`（開発時）は `app.getAppPath()`、`true`（本番）は `path.dirname(process.execPath)` で切り替えます。パスをハードコードしないようにしてください。
-- **`nodeIntegration: false` は必須**: セキュリティ上、レンダラーから直接 Node.js API を呼ぶのは避けてください。IPC 経由に限定することで、XSS 攻撃からファイルシステムを守れます。
-- **ブラウザフォールバックの base64 エンコード**: localStorage 経由の場合、DB が 100KB を超えると `String.fromCharCode.apply` でスタックオーバーフローが起きます。32KB チャンク分割エンコードを使ってください（コード内に実装済み）。
+- **`nodeIntegration: false` は必須**: セキュリティ上、レンダラーから直接 Node.js API を呼ぶのは避けてください。<Term>IPC</Term> 経由に限定することで、<Term>XSS</Term> 攻撃からファイルシステムを守れます。
+- **ブラウザフォールバックの <Term>base64</Term> エンコード**: <Term>localStorage</Term> 経由の場合、DB が 100KB を超えると `String.fromCharCode.apply` でスタックオーバーフローが起きます。32KB チャンク分割エンコードを使ってください（コード内に実装済み）。
 - **sql-wasm.wasm の配置**: `extraResources` で wasm ファイルをパッケージに含めないと、本番 exe で SQL が動きません。ビルド設定の確認を忘れずに。
 
 ## 実際の活用事例
@@ -181,5 +181,5 @@ mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
 ## まとめ
 
 - <Term>sql.js</Term>（<Term>WebAssembly</Term>）で **ネイティブモジュール不要のローカル <Term>SQLite</Term>** を実現
-- ファイル IO のみ IPC でメインプロセスに委譲し、**`contextIsolation: true` の安全設計**を維持
+- ファイル IO のみ <Term>IPC</Term> でメインプロセスに委譲し、**`contextIsolation: true` の安全設計**を維持
 - `app.isPackaged` で開発・本番の DB パスを自動切替し、**アップデート時に DB が消えない**構成にする

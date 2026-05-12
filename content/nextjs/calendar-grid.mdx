@@ -11,7 +11,7 @@ date: "2026-04-16"
 
 カレンダー表示が必要になったとき、`react-calendar` や `fullcalendar` のようなライブラリを使うのが一般的です。でも、「日付セルにカスタムデータ（作業時間、金額、件数など）を自由に表示したい」となると、ライブラリのカスタマイズが大変になることがあります。
 
-CSS Gridの `grid-cols-7` を使えば、ライブラリ不要で柔軟なカレンダーが作れます。日付の計算もJavaScriptの `Date` オブジェクトだけで十分です。
+<Term>CSS Grid</Term>の `grid-cols-7` を使えば、ライブラリ不要で柔軟なカレンダーが作れます。日付の計算もJavaScriptの `Date` オブジェクトだけで十分です。
 
 ## こんな場面で使えます
 
@@ -124,6 +124,6 @@ const monthKeys = Object.keys(allCalData).sort()
 
 ## まとめ
 
-- CSS Grid `grid-cols-7` で **ライブラリ不要のカレンダー** が作れる
+- <Term>CSS Grid</Term> `grid-cols-7` で **ライブラリ不要のカレンダー** が作れる
 - `firstDayOfWeek` の空白セルが曜日の位置合わせのカギ
 - コンポーネント化すれば全期間表示（複数月並列）にも簡単に再利用できる

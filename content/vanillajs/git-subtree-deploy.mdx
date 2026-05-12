@@ -9,7 +9,7 @@ date: "2026-04-17"
 
 ## はじめに
 
-プロジェクトのルートには開発資料・設計ドキュメント・素材などが混在していて、でも Vercel/GitHub Pages には `Web/` サブフォルダの中身だけを公開したい、というケースは多いですよね。
+プロジェクトのルートには開発資料・設計ドキュメント・素材などが混在していて、でも <Term>Vercel</Term>/GitHub Pages には `Web/` サブフォルダの中身だけを公開したい、というケースは多いですよね。
 
 通常の `git push` だとルート全体がアップされてしまいます。`git subtree split` を使えば、**サブフォルダだけの独立した履歴を抽出して、GitHub に push** できます。
 
@@ -18,7 +18,7 @@ date: "2026-04-17"
 - 設計資料・ドキュメントをGitHubには上げたくないが、ローカルで一緒に管理したい
 - モノレポ的に複数のデプロイ対象を1リポジトリで管理している
 - 個人開発で親リポジトリが散らかっていて公開したくない
-- Vercel/GitHub Pages は特定サブフォルダをroot扱いしてくれない
+- <Term>Vercel</Term>/GitHub Pages は特定サブフォルダをroot扱いしてくれない
 
 ## 実装コード
 
@@ -87,7 +87,7 @@ git push origin "${SPLIT_SHA}:refs/heads/main"
 }
 ```
 
-Vercel は GitHub main ブランチを自動検知してデプロイします。
+<Term>Vercel</Term> は GitHub main ブランチを自動検知してデプロイします。
 
 ## 注意点・ハマりポイント
 
@@ -98,7 +98,7 @@ Vercel は GitHub main ブランチを自動検知してデプロイします。
 
 ## 実際の活用事例
 
-このテクニックは、モールス信号学習アプリ「[KochSprint モールス道場](https://morse-master-psi.vercel.app)」（[GitHub](https://github.com/YujiFukami/morse-master)）で実際に使用しています。親リポジトリには設計資料・素材が含まれますが、GitHub/Vercel には `Web/` のみが公開されています。
+このテクニックは、モールス信号学習アプリ「[KochSprint モールス道場](https://morse-master-psi.vercel.app)」（[GitHub](https://github.com/YujiFukami/morse-master)）で実際に使用しています。親リポジトリには設計資料・素材が含まれますが、GitHub/<Term>Vercel</Term> には `Web/` のみが公開されています。
 
 ## まとめ
 

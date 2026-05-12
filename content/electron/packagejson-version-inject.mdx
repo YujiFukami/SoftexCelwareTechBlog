@@ -9,18 +9,18 @@ date: "2026-04-22"
 
 ## はじめに
 
-アプリのバージョン番号を管理するとき、`package.json` だけ更新して HTML のバッジ表示を直し忘れた、Electron ウィンドウのタイトルが古いままだった——という「更新漏れ事故」は意外と多いですよね。
+アプリのバージョン番号を管理するとき、`package.json` だけ更新して HTML のバッジ表示を直し忘れた、<Term query="Electron アプリ">Electron</Term> ウィンドウのタイトルが古いままだった——という「更新漏れ事故」は意外と多いですよね。
 
-バージョン番号が `package.json`、HTML ヘッダー、document.title、Electron ウィンドウタイトルと複数箇所に散らばると、リリースのたびに全箇所を手動で確認する必要があります。これは手間がかかるだけでなく、見落としのリスクがあります。
+バージョン番号が `package.json`、HTML ヘッダー、document.title、<Term query="Electron アプリ">Electron</Term> ウィンドウタイトルと複数箇所に散らばると、リリースのたびに全箇所を手動で確認する必要があります。これは手間がかかるだけでなく、見落としのリスクがあります。
 
 **`package.json` の `version` を唯一の出典（Single Source of Truth）とし、ビルド時にコードへ自動注入する**ことで、バージョン更新は1箇所だけで完結します。
 
 ## こんな場面で使えます
 
 - HTML ヘッダーや画面内にバージョンバッジを表示したい
-- Electron のタイトルバーにバージョンを表示したい
+- <Term query="Electron アプリ">Electron</Term> のタイトルバーにバージョンを表示したい
 - リリースのたびにバージョンを複数箇所で手動更新している
-- ブラウザモードと Electron モードの両方でバージョンを表示したい
+- ブラウザモードと <Term query="Electron アプリ">Electron</Term> モードの両方でバージョンを表示したい
 - ビルド日時や Git コミットハッシュも同様に注入したい
 
 ## 実装コード
@@ -76,7 +76,7 @@ mainWindow = new BrowserWindow({
 });
 ```
 
-`app.getVersion()` は Electron が自動で `package.json` の `version` を読む組み込み API です。設定不要で `package.json` と同期されます。
+`app.getVersion()` は <Term query="Electron アプリ">Electron</Term> が自動で `package.json` の `version` を読む組み込み API です。設定不要で `package.json` と同期されます。
 
 ### バッジの CSS
 
@@ -131,16 +131,16 @@ export default defineConfig({
 
 - **`JSON.stringify()` を忘れない**: `define: { __APP_VERSION__: pkg.version }` と書くと `__APP_VERSION__ = 1.0.0` のように bare token として展開されて構文エラーになります。必ず `JSON.stringify()` で文字列化してください。
 - **`typeof` チェックを入れる**: `typeof __APP_VERSION__ !== 'undefined'` のガードを入れておくと、`define` が有効でない環境（Jest などのテスト実行時）でも `ReferenceError` で落ちません。
-- **Electron 側は `app.getVersion()` で十分**: フロントエンドへ `__APP_VERSION__` を伝搬させる必要はありません。メインプロセスでは組み込み API を使うのがシンプルです。
+- **<Term query="Electron アプリ">Electron</Term> 側は `app.getVersion()` で十分**: フロントエンドへ `__APP_VERSION__` を伝搬させる必要はありません。メインプロセスでは組み込み API を使うのがシンプルです。
 - **バージョン更新手順の統一**: `package.json` の `version` を書き換えて `npm run build` するだけでよいため、リリース手順書にこの 1 ステップだけ書けば済みます。
-- **`document.title` は Electron でも効く**: `loadFile()` でページを読み込んだ後、レンダラー側の `document.title` 変更は Electron のタイトルバーにも反映されます。`BrowserWindow` の `title` 設定と重複する場合は後勝ちになります。
+- **`document.title` は <Term query="Electron アプリ">Electron</Term> でも効く**: `loadFile()` でページを読み込んだ後、レンダラー側の `document.title` 変更は <Term query="Electron アプリ">Electron</Term> のタイトルバーにも反映されます。`BrowserWindow` の `title` 設定と重複する場合は後勝ちになります。
 
 ## 実際の活用事例
 
-このテクニックは、お客様からご依頼いただいた業務系デスクトップアプリ開発案件で実際に活用したノウハウです。守秘義務の都合から詳細は伏せますが、`package.json` の `"version": "1.0.0"` を複数箇所（HTML バッジ、`document.title`、Electron ウィンドウタイトル）に自動反映しており、バージョンアップ時は `package.json` の 1 行を書き換えて再ビルドするだけで全箇所が更新されます。
+このテクニックは、お客様からご依頼いただいた業務系デスクトップアプリ開発案件で実際に活用したノウハウです。守秘義務の都合から詳細は伏せますが、`package.json` の `"version": "1.0.0"` を複数箇所（HTML バッジ、`document.title`、<Term query="Electron アプリ">Electron</Term> ウィンドウタイトル）に自動反映しており、バージョンアップ時は `package.json` の 1 行を書き換えて再ビルドするだけで全箇所が更新されます。
 
 ## まとめ
 
 - Vite の `define` で `__APP_VERSION__` を注入し、**`package.json` をバージョンの唯一の出典**にする
-- Electron メインプロセスでは `app.getVersion()` が自動で `package.json` を読むため、追加設定は不要
+- <Term query="Electron アプリ">Electron</Term> メインプロセスでは `app.getVersion()` が自動で `package.json` を読むため、追加設定は不要
 - `typeof __APP_VERSION__ !== 'undefined'` のガードで、**テスト環境でも安全に動作**する

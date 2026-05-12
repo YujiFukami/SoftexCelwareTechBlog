@@ -72,11 +72,11 @@ public sealed class VbProcedure
 }
 ```
 
-Parserは、`Property Get`、`Property Let`、`Property Set` のキーワード列を見て、同じ名前でも別の `ProcKind` として抽出します。
+<Term>Parser</Term>は、`Property Get`、`Property Let`、`Property Set` のキーワード列を見て、同じ名前でも別の `ProcKind` として抽出します。
 
 ## 設計のポイント
 
-Resolverは、名前だけで候補を探すと、同じPropertyの別アクセサに誤って線を引くことがあります。Resolverは「名前を解決する処理」です。コード本文に現れた識別子が、どの関数、変数、宣言を指しているかを決めます。
+<Term>Resolver</Term>は、名前だけで候補を探すと、同じPropertyの別アクセサに誤って線を引くことがあります。<Term>Resolver</Term>は「名前を解決する処理」です。コード本文に現れた識別子が、どの関数、変数、宣言を指しているかを決めます。
 
 同じPropertyのGet/Let/Set同士は、互いに呼び合っているわけではないことが多いため、必要に応じて除外します。
 

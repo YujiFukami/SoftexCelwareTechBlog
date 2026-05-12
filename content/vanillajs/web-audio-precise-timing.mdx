@@ -113,7 +113,7 @@ function ensureCtx() {
 
 ## 注意点・ハマりポイント
 
-- **30msバッファ**: `now = currentTime + 0.03` のバッファがないと、AudioContextの処理待ちで最初の音が欠けることがあります
+- **30msバッファ**: `now = currentTime + 0.03` のバッファがないと、<Term>AudioContext</Term>の処理待ちで最初の音が欠けることがあります
 - **UI更新はsetTimeoutでOK**: インジケーター点灯は多少ズレても視覚的には気にならないので、JSタイマーで十分
 - **`scheduledOscs` の配列保持**: `stop()` 時に全ノードをキャンセルするため必須です
 

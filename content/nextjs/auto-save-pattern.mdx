@@ -13,7 +13,7 @@ date: "2026-04-15"
 
 最近のWebアプリでは、変更を即座に自動保存する**保存ボタン不要**のUIが主流になっています。ユーザーが値を変えた瞬間にデータベースに保存され、完了のフィードバックが表示される、というパターンです。
 
-この記事では、Supabaseへの自動保存とlocalStorageへの自動保存、そしてこの2つを**併用する場合の設計指針**を紹介します。
+この記事では、<Term>Supabase</Term>への自動保存と<Term>localStorage</Term>への自動保存、そしてこの2つを**併用する場合の設計指針**を紹介します。
 
 ## こんな場面で使えます
 
@@ -54,7 +54,7 @@ const handleChange = async (field: string, value: string | boolean) => {
 
 ### パターン2: localStorage自動保存
 
-メッセージの文面や色設定など、デバイスごとに異なる値はlocalStorageに保存します。
+メッセージの文面や色設定など、デバイスごとに異なる値は<Term>localStorage</Term>に保存します。
 
 ```tsx
 const [message, setMessage] = useState(() =>
@@ -67,7 +67,7 @@ const handleMessageChange = (val: string) => {
 }
 ```
 
-`useState(() => ...)` の関数形式で初期値を設定しています。これにより、SSR（サーバーサイドレンダリング）時にlocalStorageにアクセスしてエラーになるのを防ぎます。
+`useState(() => ...)` の関数形式で初期値を設定しています。これにより、SSR（サーバーサイドレンダリング）時に<Term>localStorage</Term>にアクセスしてエラーになるのを防ぎます。
 
 ## 使い方・カスタマイズ
 
@@ -80,7 +80,7 @@ const handleMessageChange = (val: string) => {
 | **Supabase** | ユーザー共通（別デバイスでも反映したい） | デフォルト開始作業、表示設定 |
 | **localStorage** | デバイス固有 / 見た目のカスタマイズ | メッセージ文面、背景色、文字色 |
 
-迷ったときは「別のデバイスでログインしたときにも同じ設定がいいか？」と考えてみましょう。Yesなら Supabase、NoならlocalStorageです。
+迷ったときは「別のデバイスでログインしたときにも同じ設定がいいか？」と考えてみましょう。Yesなら <Term>Supabase</Term>、Noなら<Term>localStorage</Term>です。
 
 ### localStorageのキー命名規則
 
@@ -111,5 +111,5 @@ const handleMessageChange = (val: string) => {
 ## まとめ
 
 - 自動保存は**楽観的更新**で実装すると体感速度が向上する
-- SupabaseとlocalStorageは「別デバイスでも同じ設定が必要か？」で使い分ける
+- <Term>Supabase</Term>と<Term>localStorage</Term>は「別デバイスでも同じ設定が必要か？」で使い分ける
 - `upsert` + `saving` ステートで、シンプルかつ確実な自動保存が実現できる

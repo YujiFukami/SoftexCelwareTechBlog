@@ -72,7 +72,7 @@ GAS（Google Apps Script）でWebアプリを作ったとき、PCでは良い感
 
 - `.container` は `max-width: 640px` と `margin: 0 auto` で、PCでは中央寄せ、スマホでは自動的に画面幅いっぱいになります
 - `.card` は白背景 + 角丸 + 控えめな影で、見た目のまとまりを作ります
-- `.card-meta` は CSS Grid の2列レイアウト（`auto 1fr`）で、ラベルは幅固定、値は残りの幅をすべて使います
+- `.card-meta` は <Term>CSS Grid</Term> の2列レイアウト（`auto 1fr`）で、ラベルは幅固定、値は残りの幅をすべて使います
 - `@media (max-width: 480px)` でスマホ時は余白や角丸を少し小さくして、画面を有効活用します
 
 ### HTML部分
@@ -128,5 +128,5 @@ function renderCards(dataArray) {
 ## まとめ
 
 - **`max-width` + `margin: 0 auto`** で、PCでもスマホでも最適な幅になるコンテナが作れる
-- **CSS Grid の `auto 1fr`** で、ラベルと値をきれいに2列表示できる
+- **<Term>CSS Grid</Term> の `auto 1fr`** で、ラベルと値をきれいに2列表示できる
 - テーブルよりカード型の方がスマホでは圧倒的に見やすく、GAS Webアプリのベースレイアウトとしておすすめ

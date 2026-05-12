@@ -15,7 +15,7 @@ date: "2026-05-09"
 
 ## こんな場面で使えます
 
-- WPF + AvalonEdit でコードビューアを作る
+- <Term>WPF</Term> + <Term>AvalonEdit</Term> でコードビューアを作る
 - 検索語に一致する箇所を背景色で強調したい
 - XSHD などのシンタックスハイライトと共存させたい
 - TextBox の入力に合わせてリアルタイムにハイライトしたい
@@ -71,7 +71,7 @@ public sealed class SearchHighlightTransformer : DocumentColorizingTransformer
 }
 ```
 
-AvalonEdit の `TextView.LineTransformers` に追加します。
+<Term>AvalonEdit</Term> の `TextView.LineTransformers` に追加します。
 
 ```csharp
 private SearchHighlightTransformer _highlight;
@@ -157,10 +157,10 @@ private void OnSearchChanged(object sender, TextChangedEventArgs e)
 
 VBA や C# のコードを閲覧する解析ツールでは、モジュール内検索、プロシージャ検索、参照語句の強調表示が必要になります。
 
-AvalonEdit に transformer を追加しておくと、本文の構文色を残したまま検索語だけを背景色で示せるため、読み取りやすいコードビューアになります。
+<Term>AvalonEdit</Term> に transformer を追加しておくと、本文の構文色を残したまま検索語だけを背景色で示せるため、読み取りやすいコードビューアになります。
 
 ## まとめ
 
-AvalonEdit の検索ハイライトは、`DocumentColorizingTransformer` を 1 クラス作るだけで実装できます。
+<Term>AvalonEdit</Term> の検索ハイライトは、`DocumentColorizingTransformer` を 1 クラス作るだけで実装できます。
 
 重要なのは、絶対オフセットで `ChangeLinePart` を呼ぶこと、キーワード変更後に `Redraw()` すること、入力頻度が高い場合はデバウンスすることです。

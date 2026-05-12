@@ -13,12 +13,12 @@ date: "2026-05-09"
 
 `Activate()`、`SetForegroundWindow`、`AttachThreadInput` などを組み合わせても、Office のフォーカス管理とぶつかると安定しません。`ShowDialog()` なら動くこともありますが、Excel 操作と並行できないため、実用上困る場面があります。
 
-この問題は、WPF Window を独立ウィンドウとして出すのではなく、VSTO の <Term>CustomTaskPane</Term> に WPF UserControl を埋め込むことで解決しやすくなります。
+この問題は、<Term>WPF</Term> Window を独立ウィンドウとして出すのではなく、<Term>VSTO</Term> の <Term>CustomTaskPane</Term> に <Term>WPF</Term> UserControl を埋め込むことで解決しやすくなります。
 
 ## こんな場面で使えます
 
-- Excel VSTO アドインに WPF UI を載せたい
-- WPF Window の ListView や TextBox がキーボード入力を受け取れない
+- Excel <Term>VSTO</Term> アドインに <Term>WPF</Term> UI を載せたい
+- <Term>WPF</Term> Window の ListView や TextBox がキーボード入力を受け取れない
 - Excel と並行して操作できるツール画面を作りたい
 - `ShowDialog()` ではなく非モーダル表示にしたい
 - 見た目は独立ウィンドウに近いが、Office のフォーカス管理に乗せたい
@@ -38,7 +38,7 @@ date: "2026-05-09"
   実際の画面を実装する
 ```
 
-WPF Window ではなく WPF UserControl を作り、WinForms の <Term>ElementHost</Term> 経由で `CustomTaskPane` に載せます。
+<Term>WPF</Term> Window ではなく <Term>WPF</Term> UserControl を作り、WinForms の <Term>ElementHost</Term> 経由で `CustomTaskPane` に載せます。
 
 ## 実装コード
 
@@ -66,7 +66,7 @@ public partial class AddinTaskPaneHost : System.Windows.Forms.UserControl
 }
 ```
 
-VSTO 側で `CustomTaskPane` を生成します。
+<Term>VSTO</Term> 側で `CustomTaskPane` を生成します。
 
 ```csharp
 private Microsoft.Office.Tools.CustomTaskPane _taskPane;
@@ -110,11 +110,11 @@ public void OnToggleClick(Office.IRibbonControl control)
 
 ## 設計のポイント
 
-`CustomTaskPane` は Office のメインウィンドウと同じフォーカス管理の中で扱われます。そのため、独立した WPF Window よりも、Excel とのキーボードフォーカス衝突が起きにくくなります。
+`CustomTaskPane` は Office のメインウィンドウと同じフォーカス管理の中で扱われます。そのため、独立した <Term>WPF</Term> Window よりも、Excel とのキーボードフォーカス衝突が起きにくくなります。
 
 `MsoCTPDockPositionFloating` を使うと、見た目は独立ウィンドウに近くなります。ただし、内部的には Office のタスクペインとして管理されます。
 
-WPF UI と VSTO の間は、コールバック interface で分離しておくと再利用しやすくなります。
+<Term>WPF</Term> UI と <Term>VSTO</Term> の間は、コールバック interface で分離しておくと再利用しやすくなります。
 
 ```csharp
 public interface IAddinHost
@@ -127,21 +127,21 @@ public interface IAddinHost
 
 ## 注意点・ハマりポイント
 
-- VSTO プロジェクトに `WindowsFormsIntegration.dll` 参照が必要
+- <Term>VSTO</Term> プロジェクトに `WindowsFormsIntegration.dll` 参照が必要
 - `System.Windows.Forms` 参照も必要
-- `CustomTaskPane.Width` や `Height` はドック状態によって COM 例外を投げるため、設定は try-catch で守る
+- `CustomTaskPane.Width` や `Height` はドック状態によって <Term>COM</Term> 例外を投げるため、設定は try-catch で守る
 - Floating のウィンドウ位置は `CustomTaskPane` API だけでは細かく制御できない
-- WPF 側を Window ではなく UserControl として作る
-- WPF UserControl が VSTO や COM に直接依存しないようにする
+- <Term>WPF</Term> 側を Window ではなく UserControl として作る
+- <Term>WPF</Term> UserControl が <Term>VSTO</Term> や <Term>COM</Term> に直接依存しないようにする
 
 ## 実際の活用事例
 
-VBA 解析や Excel 支援ツールのように、Excel を開いたまま横にツール画面を出したい場合に有効です。検索結果リスト、ツリー、コードビューアなどを WPF で作り、Excel 側の状態取得や VBE ジャンプだけを VSTO 側の host interface に任せます。
+VBA 解析や Excel 支援ツールのように、Excel を開いたまま横にツール画面を出したい場合に有効です。検索結果リスト、ツリー、コードビューアなどを <Term>WPF</Term> で作り、Excel 側の状態取得や VBE ジャンプだけを <Term>VSTO</Term> 側の host interface に任せます。
 
-これにより、UI は WPF として作り込める一方で、Office のフォーカス問題を避けられます。
+これにより、UI は <Term>WPF</Term> として作り込める一方で、Office のフォーカス問題を避けられます。
 
 ## まとめ
 
-VSTO で WPF Window のフォーカス問題に詰まったら、Win32 API で無理に前面化するより、`CustomTaskPane` に載せる構成を検討します。
+<Term>VSTO</Term> で <Term>WPF</Term> Window のフォーカス問題に詰まったら、Win32 API で無理に前面化するより、`CustomTaskPane` に載せる構成を検討します。
 
-`CustomTaskPane` + WinForms `ElementHost` + WPF UserControl の組み合わせは、Office アドインで実用的な WPF UI を作るための安定したパターンです。
+`CustomTaskPane` + WinForms `ElementHost` + <Term>WPF</Term> UserControl の組み合わせは、Office アドインで実用的な <Term>WPF</Term> UI を作るための安定したパターンです。
