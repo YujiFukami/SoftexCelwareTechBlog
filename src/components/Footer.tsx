@@ -25,6 +25,12 @@ export default function Footer() {
             >
               知識資産化
             </Link>
+            <Link
+              href="/terms"
+              className="text-xs text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              用語集
+            </Link>
             <a
               href="https://www.softex-celware.com/"
               target="_blank"

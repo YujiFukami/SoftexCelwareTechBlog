@@ -1,11 +1,13 @@
 import type { MetadataRoute } from "next";
 import { getAllArticles, getCategories } from "@/lib/articles";
+import { getAllTerms } from "@/lib/terms";
 
 const BASE_URL = "https://tech.softex-celware.com";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const articles = getAllArticles();
   const categories = getCategories();
+  const terms = getAllTerms();
 
   const staticPages: MetadataRoute.Sitemap = [
     {
@@ -32,6 +34,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "monthly",
       priority: 0.7,
     },
+    {
+      url: `${BASE_URL}/terms`,
+      lastModified: new Date(),
+      changeFrequency: "weekly",
+      priority: 0.7,
+    },
   ];
 
   const categoryPages: MetadataRoute.Sitemap = categories.map((category) => ({
@@ -47,6 +55,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
     changeFrequency: "monthly",
     priority: 0.7,
   }));
+  const termPages: MetadataRoute.Sitemap = terms.map((term) => ({
+    url: `${BASE_URL}/terms/${term.slug}`,
+    lastModified: new Date(),
+    changeFrequency: "monthly",
+    priority: 0.5,
+  }));
 
-  return [...staticPages, ...categoryPages, ...articlePages];
+  return [...staticPages, ...categoryPages, ...articlePages, ...termPages];
 }

@@ -38,6 +38,12 @@ export default function Header() {
             知識資産化
           </Link>
           <Link
+            href="/terms"
+            className="text-sm text-gray-600 hover:text-blue-600 transition-colors"
+          >
+            用語集
+          </Link>
+          <Link
             href="/about"
             className="text-sm text-gray-600 hover:text-blue-600 transition-colors"
           >
@@ -107,6 +113,13 @@ export default function Header() {
             onClick={() => setMenuOpen(false)}
           >
             知識資産化
+          </Link>
+          <Link
+            href="/terms"
+            className="block text-sm text-gray-600 hover:text-blue-600"
+            onClick={() => setMenuOpen(false)}
+          >
+            用語集
           </Link>
           <a
             href="https://www.softex-celware.com/"
