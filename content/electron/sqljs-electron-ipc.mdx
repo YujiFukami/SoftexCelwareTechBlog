@@ -11,9 +11,9 @@ date: "2026-04-22"
 
 Electron アプリでローカル DB を使いたい場合、SQLite が最有力候補になりますよね。しかし `better-sqlite3` などのネイティブ Node.js モジュールは、`electron-rebuild` の設定や ABI 互換の問題でビルド周りのトラブルが多いです。特に Windows 環境では、Visual C++ Build Tools の有無などが絡んで詰まることが少なくありません。
 
-そこで採用したいのが **sql.js（WebAssembly 版 SQLite）** です。WebAssembly で動くためネイティブモジュールのビルドが不要で、ブラウザでも Electron でも同一コードで動きます。`npm run dev` でブラウザ上でテストしながら開発し、本番は Electron でファイルに永続化する——という構成が自然に作れます。
+そこで採用したいのが **<Term>sql.js</Term>（<Term>WebAssembly</Term> 版 SQLite）** です。WebAssembly で動くためネイティブモジュールのビルドが不要で、ブラウザでも Electron でも同一コードで動きます。`npm run dev` でブラウザ上でテストしながら開発し、本番は Electron でファイルに永続化する——という構成が自然に作れます。
 
-ファイルへの書き込みだけ Electron の IPC（プロセス間通信）経由でメインプロセスに委譲することで、**セキュリティを保ちながらローカル DB の永続化を実現**します。
+ファイルへの書き込みだけ Electron の <Term>IPC</Term>（プロセス間通信）経由でメインプロセスに委譲することで、**セキュリティを保ちながらローカル DB の永続化を実現**します。
 
 ## こんな場面で使えます
 

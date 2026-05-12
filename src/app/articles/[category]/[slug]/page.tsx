@@ -7,6 +7,7 @@ import { MDXRemote } from "next-mdx-remote/rsc";
 import rehypeHighlight from "rehype-highlight";
 import rehypeSlug from "rehype-slug";
 import CTA from "@/components/CTA";
+import Term from "@/components/Term";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -97,6 +98,7 @@ export default async function ArticlePage({ params }: Props) {
       <article className="prose prose-gray prose-headings:text-gray-900 prose-a:text-blue-600 prose-code:text-sm prose-pre:bg-gray-900 prose-pre:text-gray-100 max-w-none">
         <MDXRemote
           source={content}
+          components={{ Term }}
           options={{
             mdxOptions: {
               rehypePlugins: [rehypeHighlight, rehypeSlug],
