@@ -8,6 +8,8 @@ import {
   SITE_DESCRIPTION,
   SITE_NAME,
   SITE_URL,
+  SOCIAL_DESCRIPTION,
+  SOCIAL_TITLE,
   TWITTER_CARD,
 } from "@/lib/seo";
 
@@ -32,15 +34,15 @@ export const metadata: Metadata = {
     type: "website",
     locale: "ja_JP",
     siteName: SITE_NAME,
-    title: SITE_NAME,
-    description: SITE_DESCRIPTION,
+    title: SOCIAL_TITLE,
+    description: SOCIAL_DESCRIPTION,
     url: SITE_URL,
     images: [DEFAULT_OG_IMAGE],
   },
   twitter: {
     card: TWITTER_CARD,
-    title: SITE_NAME,
-    description: SITE_DESCRIPTION,
+    title: SOCIAL_TITLE,
+    description: SOCIAL_DESCRIPTION,
     images: [DEFAULT_OG_IMAGE.url],
   },
   verification: {
