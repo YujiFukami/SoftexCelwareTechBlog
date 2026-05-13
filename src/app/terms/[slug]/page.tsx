@@ -7,6 +7,7 @@ import {
   getRelatedTerms,
   getTermBySlug,
 } from "@/lib/terms";
+import { DEFAULT_OG_IMAGE, SITE_NAME, TWITTER_CARD } from "@/lib/seo";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -28,6 +29,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: `${term.title}とは`,
       description: term.summary,
       type: "article",
+      siteName: SITE_NAME,
+      url: `/terms/${slug}`,
+      images: [DEFAULT_OG_IMAGE],
+    },
+    twitter: {
+      card: TWITTER_CARD,
+      title: `${term.title}とは`,
+      description: term.summary,
+      images: [DEFAULT_OG_IMAGE.url],
     },
   };
 }

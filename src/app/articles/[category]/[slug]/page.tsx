@@ -11,6 +11,7 @@ import Term from "@/components/Term";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { DEFAULT_OG_IMAGE, SITE_NAME, TWITTER_CARD } from "@/lib/seo";
 
 type Props = {
   params: Promise<{ category: string; slug: string }>;
@@ -35,8 +36,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: article.meta.title,
       description: article.meta.description,
       type: "article",
+      siteName: SITE_NAME,
+      url: `/articles/${category}/${slug}`,
+      images: [DEFAULT_OG_IMAGE],
       publishedTime: article.meta.date,
       tags: article.meta.tags,
+    },
+    twitter: {
+      card: TWITTER_CARD,
+      title: article.meta.title,
+      description: article.meta.description,
+      images: [DEFAULT_OG_IMAGE.url],
     },
   };
 }

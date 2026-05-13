@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAllCases, getCaseBySlug } from "@/lib/cases";
+import { DEFAULT_OG_IMAGE, SITE_NAME, TWITTER_CARD } from "@/lib/seo";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -29,6 +30,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: `${caseStudy.title} | 開発事例`,
       description: caseStudy.summary,
       type: "article",
+      siteName: SITE_NAME,
+      url: `/cases/${slug}`,
+      images: [DEFAULT_OG_IMAGE],
+    },
+    twitter: {
+      card: TWITTER_CARD,
+      title: caseStudy.title,
+      description: caseStudy.summary,
+      images: [DEFAULT_OG_IMAGE.url],
     },
   };
 }
