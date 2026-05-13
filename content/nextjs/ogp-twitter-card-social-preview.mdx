@@ -1,0 +1,158 @@
+---
+title: "Next.jsでOGP / Twitter Cardを設定してSNSリンクプレビューを整える"
+category: "nextjs"
+slug: "ogp-twitter-card-social-preview"
+tags: ["Next.js", "OGP", "Twitter Card", "SNS", "SEO"]
+description: "XやSNSにURLを貼ったときに、タイトル・説明文・画像付きカードを表示するためのNext.js Metadata API設定パターンを解説します。"
+date: "2026-05-13"
+---
+
+## はじめに
+
+ブログ記事やサービスページをXに貼ったとき、URLだけが表示されるよりも、画像付きのカードが表示された方が内容は伝わりやすくなります。
+
+このリンクプレビューを整えるために使うのが <Term>OGP</Term> と <Term>Twitter Card</Term> です。<Term>Next.js</Term> ではMetadata APIを使うと、サイト全体の共通設定と記事ごとの個別設定を分けて管理できます。
+
+## こんな場面で使えます
+
+- 技術ブログをXやSNSで紹介したい
+- 記事タイトル、説明文、画像をカード形式で見せたい
+- 共通OGP画像を用意し、後から画像だけ差し替えられるようにしたい
+- 記事ページ、用語ページ、開発事例ページで同じカード設計を使いたい
+
+## OGPで設定するもの
+
+最低限、次の情報を設定しておくと扱いやすくなります。
+
+- サイト名
+- ページタイトル
+- ページ説明文
+- OGP画像
+- ページURL
+- X向けのカード形式
+
+Xで大きな画像を出したい場合は、<Term>Twitter Card</Term> の `summary_large_image` を指定します。
+
+## 共通SEO設定を1ファイルにまとめる
+
+まず、サイト名、URL、説明文、OGP画像のパスを共通ファイルにまとめます。
+
+```ts
+export const SITE_NAME = "Softex Celware Tech Blog";
+export const SITE_URL = "https://tech.softex-celware.com";
+export const SITE_DESCRIPTION =
+  "AIコーディングや実務開発で得た知見を、技術記事・用語集・開発事例として蓄積するテックブログです。";
+
+export const SOCIAL_TITLE =
+  "Softex Celware Tech Blog | 開発ノウハウを次の開発へ";
+export const SOCIAL_DESCRIPTION =
+  "AIコーディング、Webアプリ、デスクトップアプリ、Office開発で得た実践ノウハウを、記事・用語集・開発事例として整理しています。";
+
+export const DEFAULT_OG_IMAGE = {
+  url: "/og-image.png",
+  width: 1200,
+  height: 630,
+  alt: "Softex Celware Tech Blog - AIコーディングと実務開発の知見を記事・用語集・開発事例として整理",
+};
+
+export const TWITTER_CARD = "summary_large_image";
+```
+
+ポイントは、画像パスやSNS向け文言を各ページへ直接書かず、共通ファイルへ集約することです。後からOGP画像や説明文を差し替えるときに、修正箇所を絞れます。
+
+## layout.tsxでサイト全体のOGPを設定する
+
+<Term>Next.js</Term> の `src/app/layout.tsx` で、サイト全体の標準メタデータを設定します。
+
+```tsx
+export const metadata: Metadata = {
+  title: {
+    default: SITE_NAME,
+    template: `%s | ${SITE_NAME}`,
+  },
+  description: SITE_DESCRIPTION,
+  metadataBase: new URL(SITE_URL),
+  openGraph: {
+    type: "website",
+    locale: "ja_JP",
+    siteName: SITE_NAME,
+    title: SOCIAL_TITLE,
+    description: SOCIAL_DESCRIPTION,
+    url: SITE_URL,
+    images: [DEFAULT_OG_IMAGE],
+  },
+  twitter: {
+    card: TWITTER_CARD,
+    title: SOCIAL_TITLE,
+    description: SOCIAL_DESCRIPTION,
+    images: [DEFAULT_OG_IMAGE.url],
+  },
+};
+```
+
+`metadataBase` は重要です。`/og-image.png` のような相対パスを、実際の本番ドメインを基準にした絶対URLとして扱うために使います。
+
+## 記事ページでは記事ごとのタイトルと説明文を使う
+
+記事詳細ページでは、共通のOGP画像を使いつつ、タイトルと説明文は記事ごとに変えます。
+
+```tsx
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { category, slug } = await params;
+  const article = getArticle(category, slug);
+  if (!article) return {};
+
+  return {
+    title: article.meta.title,
+    description: article.meta.description,
+    openGraph: {
+      title: article.meta.title,
+      description: article.meta.description,
+      type: "article",
+      siteName: SITE_NAME,
+      url: `/articles/${category}/${slug}`,
+      images: [DEFAULT_OG_IMAGE],
+      publishedTime: article.meta.date,
+      tags: article.meta.tags,
+    },
+    twitter: {
+      card: TWITTER_CARD,
+      title: article.meta.title,
+      description: article.meta.description,
+      images: [DEFAULT_OG_IMAGE.url],
+    },
+  };
+}
+```
+
+これで、トップページを共有したときはサイト全体の説明、記事を共有したときは記事タイトルと記事説明文が使われます。
+
+## OGP画像の置き場所
+
+共通画像は `public/og-image.png` に置きます。
+
+推奨サイズは `1200 x 630px` です。XやSNS上では縮小されるため、細かい文字を詰め込みすぎず、タイトルと内容が一目で分かる画像にします。
+
+画像を差し替えるときは、ファイル名を変えずに `public/og-image.png` を上書きすると、コード側の変更を最小化できます。
+
+## 注意点
+
+- Xは説明文をカード上に必ず表示するとは限らない
+- 確実に見せたい短いコピーはOGP画像内にも入れる
+- SNS側のキャッシュにより、画像や文言の反映が遅れることがある
+- 記事ページ、用語ページ、開発事例ページでタイトルと説明文を個別に設定する
+- `metadataBase` を設定して、画像URLが本番ドメインで解決されるようにする
+
+## SEOとの関係
+
+<Term>OGP</Term> 自体が直接検索順位を大きく上げるものではありません。ただし、SNSで共有されたときの見え方が良くなることで、クリックされやすくなり、記事への流入導線を作りやすくなります。
+
+技術ブログでは、記事本文、用語集、開発事例の内部リンクを整えた上で、SNS共有時のカード表示も整えると、読者が入りやすく、回遊しやすい構成になります。
+
+## まとめ
+
+<Term>Next.js</Term> でSNSリンクプレビューを整えるなら、共通SEO設定を1ファイルにまとめ、`layout.tsx` でサイト全体の <Term>OGP</Term> と <Term>Twitter Card</Term> を設定します。
+
+記事詳細ページでは `generateMetadata` を使い、記事タイトル・説明文・共通OGP画像を設定します。
+
+まずは `public/og-image.png` の共通画像を1枚用意し、サイト全体で使い回せる状態にするのが実装しやすい進め方です。
