@@ -18,12 +18,18 @@ export default function Footer() {
               Excel VBA・GAS・Webアプリ開発で業務を自動化
             </p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center justify-center gap-4">
             <Link
               href="/knowledge-flow"
               className="text-xs text-blue-600 hover:text-blue-700 transition-colors"
             >
               知識資産化
+            </Link>
+            <Link
+              href="/cases"
+              className="text-xs text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              開発事例
             </Link>
             <Link
               href="/terms"

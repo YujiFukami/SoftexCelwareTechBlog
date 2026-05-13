@@ -1,4 +1,5 @@
 import { getAllArticles, categoryLabels, getCategories } from "@/lib/articles";
+import { getAllCases } from "@/lib/cases";
 import ArticleCard from "@/components/ArticleCard";
 import Image from "next/image";
 import Link from "next/link";
@@ -6,10 +7,10 @@ import Link from "next/link";
 export default function HomePage() {
   const articles = getAllArticles();
   const categories = getCategories();
+  const cases = getAllCases().slice(0, 3);
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
-      {/* Hero Section */}
       <section className="text-center mb-12">
         <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">
           Softex Celware Tech Blog
@@ -28,15 +29,20 @@ export default function HomePage() {
             記事を読む
           </Link>
           <Link
-            href="/knowledge-flow"
+            href="/cases"
             className="inline-flex justify-center rounded border border-blue-200 px-5 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-50 transition-colors"
           >
-            知識資産化の仕組みを見る
+            開発事例を見る
+          </Link>
+          <Link
+            href="/knowledge-flow"
+            className="inline-flex justify-center rounded border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            知識資産化を見る
           </Link>
         </div>
       </section>
 
-      {/* Category Links */}
       <section className="mb-10">
         <div className="flex flex-wrap justify-center gap-3">
           {categories.map((cat) => (
@@ -51,7 +57,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Knowledge Flow */}
       <section className="mb-12 border-y border-gray-200 py-10">
         <div className="grid gap-8 lg:grid-cols-[1fr_1.2fr] lg:items-center">
           <div>
@@ -64,7 +69,7 @@ export default function HomePage() {
             <p className="text-sm leading-7 text-gray-600 mb-5">
               このブログでは、開発中に見つかった課題、実装パターン、注意点、
               再利用判断をMarkdownで整理し、AI開発でも人間の確認でも使いやすい形に残します。
-              その一部を、初めて読む方にも分かる技術記事として公開しています。
+              その一部を、読者にも分かる技術記事として公開しています。
             </p>
             <Link
               href="/knowledge-flow"
@@ -85,7 +90,38 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Latest Articles */}
+      <section className="mb-12">
+        <div className="mb-5 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-blue-600 mb-2">Portfolio</p>
+            <h2 className="text-2xl font-bold text-gray-900">開発事例</h2>
+          </div>
+          <Link
+            href="/cases"
+            className="text-sm font-medium text-blue-600 hover:text-blue-700"
+          >
+            すべて見る &rarr;
+          </Link>
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          {cases.map((caseStudy) => (
+            <Link
+              key={caseStudy.slug}
+              href={`/cases/${caseStudy.slug}`}
+              className="block rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50/40"
+            >
+              <div className="mb-2 text-xs font-medium text-blue-600">
+                {caseStudy.category}
+              </div>
+              <h3 className="font-semibold text-gray-900">{caseStudy.title}</h3>
+              <p className="mt-2 line-clamp-3 text-sm leading-6 text-gray-600">
+                {caseStudy.summary}
+              </p>
+            </Link>
+          ))}
+        </div>
+      </section>
+
       <section>
         <h2 className="text-xl font-bold text-gray-800 mb-4">最新の記事</h2>
         {articles.length === 0 ? (

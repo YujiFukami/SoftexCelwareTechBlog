@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { getAllArticles, getCategories } from "@/lib/articles";
+import { getAllCases } from "@/lib/cases";
 import { getAllTerms } from "@/lib/terms";
 
 const BASE_URL = "https://tech.softex-celware.com";
@@ -7,6 +8,7 @@ const BASE_URL = "https://tech.softex-celware.com";
 export default function sitemap(): MetadataRoute.Sitemap {
   const articles = getAllArticles();
   const categories = getCategories();
+  const cases = getAllCases();
   const terms = getAllTerms();
 
   const staticPages: MetadataRoute.Sitemap = [
@@ -35,6 +37,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.7,
     },
     {
+      url: `${BASE_URL}/cases`,
+      lastModified: new Date(),
+      changeFrequency: "monthly",
+      priority: 0.7,
+    },
+    {
       url: `${BASE_URL}/terms`,
       lastModified: new Date(),
       changeFrequency: "weekly",
@@ -55,6 +63,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
     changeFrequency: "monthly",
     priority: 0.7,
   }));
+
+  const casePages: MetadataRoute.Sitemap = cases.map((caseStudy) => ({
+    url: `${BASE_URL}/cases/${caseStudy.slug}`,
+    lastModified: new Date(),
+    changeFrequency: "monthly",
+    priority: 0.6,
+  }));
+
   const termPages: MetadataRoute.Sitemap = terms.map((term) => ({
     url: `${BASE_URL}/terms/${term.slug}`,
     lastModified: new Date(),
@@ -62,5 +78,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.5,
   }));
 
-  return [...staticPages, ...categoryPages, ...articlePages, ...termPages];
+  return [
+    ...staticPages,
+    ...categoryPages,
+    ...articlePages,
+    ...casePages,
+    ...termPages,
+  ];
 }

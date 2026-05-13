@@ -4,13 +4,20 @@ import Link from "next/link";
 import Image from "next/image";
 import { useState } from "react";
 
+const navItems = [
+  { href: "/articles", label: "記事一覧" },
+  { href: "/cases", label: "開発事例" },
+  { href: "/knowledge-flow", label: "知識資産化" },
+  { href: "/terms", label: "用語集" },
+  { href: "/about", label: "About" },
+];
+
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
     <header className="border-b border-gray-200 bg-white sticky top-0 z-50">
       <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between">
-        {/* Logo / Site Name */}
         <Link href="/" className="flex items-center gap-2 group">
           <Image
             src="/logo.png"
@@ -23,32 +30,16 @@ export default function Header() {
           <span className="text-sm font-medium text-gray-500">Tech Blog</span>
         </Link>
 
-        {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center gap-6">
-          <Link
-            href="/articles"
-            className="text-sm text-gray-600 hover:text-blue-600 transition-colors"
-          >
-            記事一覧
-          </Link>
-          <Link
-            href="/knowledge-flow"
-            className="text-sm text-gray-600 hover:text-blue-600 transition-colors"
-          >
-            知識資産化
-          </Link>
-          <Link
-            href="/terms"
-            className="text-sm text-gray-600 hover:text-blue-600 transition-colors"
-          >
-            用語集
-          </Link>
-          <Link
-            href="/about"
-            className="text-sm text-gray-600 hover:text-blue-600 transition-colors"
-          >
-            About
-          </Link>
+        <nav className="hidden md:flex items-center gap-5">
+          {navItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="text-sm text-gray-600 hover:text-blue-600 transition-colors"
+            >
+              {item.label}
+            </Link>
+          ))}
           <a
             href="https://www.softex-celware.com/"
             target="_blank"
@@ -59,7 +50,6 @@ export default function Header() {
           </a>
         </nav>
 
-        {/* Mobile Menu Button */}
         <button
           className="md:hidden p-2 text-gray-600"
           onClick={() => setMenuOpen(!menuOpen)}
@@ -90,37 +80,18 @@ export default function Header() {
         </button>
       </div>
 
-      {/* Mobile Menu */}
       {menuOpen && (
         <nav className="md:hidden border-t border-gray-200 bg-white px-4 py-3 space-y-3">
-          <Link
-            href="/articles"
-            className="block text-sm text-gray-600 hover:text-blue-600"
-            onClick={() => setMenuOpen(false)}
-          >
-            記事一覧
-          </Link>
-          <Link
-            href="/about"
-            className="block text-sm text-gray-600 hover:text-blue-600"
-            onClick={() => setMenuOpen(false)}
-          >
-            About
-          </Link>
-          <Link
-            href="/knowledge-flow"
-            className="block text-sm text-gray-600 hover:text-blue-600"
-            onClick={() => setMenuOpen(false)}
-          >
-            知識資産化
-          </Link>
-          <Link
-            href="/terms"
-            className="block text-sm text-gray-600 hover:text-blue-600"
-            onClick={() => setMenuOpen(false)}
-          >
-            用語集
-          </Link>
+          {navItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="block text-sm text-gray-600 hover:text-blue-600"
+              onClick={() => setMenuOpen(false)}
+            >
+              {item.label}
+            </Link>
+          ))}
           <a
             href="https://www.softex-celware.com/"
             target="_blank"
