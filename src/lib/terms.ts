@@ -17,6 +17,11 @@ export type TermEntry = {
   references?: TermReference[];
 };
 
+export type LinkedTermTextSegment = {
+  text: string;
+  term?: TermEntry;
+};
+
 export const terms: TermEntry[] = [
   {
     slug: "electron",
@@ -856,4 +861,80 @@ export function getRelatedTerms(term: TermEntry): TermEntry[] {
   return (term.related ?? [])
     .map((slug) => getTermBySlug(slug))
     .filter((value): value is TermEntry => Boolean(value));
+}
+
+function isAsciiWordChar(value: string | undefined): boolean {
+  return Boolean(value && /[A-Za-z0-9_.-]/.test(value));
+}
+
+function canMatchAt(text: string, index: number, termText: string): boolean {
+  const before = text[index - 1];
+  const after = text[index + termText.length];
+  const startsAscii = /[A-Za-z0-9]/.test(termText[0] ?? "");
+  const endsAscii = /[A-Za-z0-9]/.test(termText[termText.length - 1] ?? "");
+
+  if (startsAscii && isAsciiWordChar(before)) return false;
+  if (endsAscii && isAsciiWordChar(after)) return false;
+
+  return true;
+}
+
+function getLinkableTermTexts(term: TermEntry): string[] {
+  return [term.title, ...(term.aliases ?? [])]
+    .filter((value) => value.trim().length >= 2)
+    .sort((a, b) => b.length - a.length);
+}
+
+export function getLinkedTermTextSegments(
+  text: string,
+  currentSlug?: string,
+  maxLinks = 4
+): LinkedTermTextSegment[] {
+  if (!text) return [];
+
+  const candidates = terms
+    .filter((term) => term.slug !== currentSlug)
+    .flatMap((term) => getLinkableTermTexts(term).map((label) => ({ term, label })))
+    .sort((a, b) => b.label.length - a.label.length);
+
+  const segments: LinkedTermTextSegment[] = [];
+  const linkedSlugs = new Set<string>();
+  const lowerText = text.toLowerCase();
+  let cursor = 0;
+  let linkCount = 0;
+
+  while (cursor < text.length) {
+    const match =
+      linkCount < maxLinks
+        ? candidates.find(({ term, label }) => {
+            if (linkedSlugs.has(term.slug)) return false;
+
+            const lowerLabel = label.toLowerCase();
+            if (!lowerText.startsWith(lowerLabel, cursor)) return false;
+
+            return canMatchAt(text, cursor, label);
+          })
+        : undefined;
+
+    if (!match) {
+      const last = segments[segments.length - 1];
+      if (last && !last.term) {
+        last.text += text[cursor];
+      } else {
+        segments.push({ text: text[cursor] });
+      }
+      cursor += 1;
+      continue;
+    }
+
+    segments.push({
+      text: text.slice(cursor, cursor + match.label.length),
+      term: match.term,
+    });
+    linkedSlugs.add(match.term.slug);
+    linkCount += 1;
+    cursor += match.label.length;
+  }
+
+  return segments;
 }

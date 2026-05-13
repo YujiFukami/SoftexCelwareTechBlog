@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   getAllTerms,
+  getLinkedTermTextSegments,
   getRelatedTerms,
   getTermBySlug,
 } from "@/lib/terms";
@@ -29,6 +30,34 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       type: "article",
     },
   };
+}
+
+function LinkedTermText({
+  text,
+  currentSlug,
+}: {
+  text: string;
+  currentSlug: string;
+}) {
+  const segments = getLinkedTermTextSegments(text, currentSlug);
+
+  return (
+    <>
+      {segments.map((segment, index) =>
+        segment.term ? (
+          <Link
+            key={`${segment.term.slug}-${index}`}
+            href={`/terms/${segment.term.slug}`}
+            className="text-blue-700 underline decoration-blue-200 underline-offset-4 hover:decoration-blue-600"
+          >
+            {segment.text}
+          </Link>
+        ) : (
+          <span key={`text-${index}`}>{segment.text}</span>
+        )
+      )}
+    </>
+  );
 }
 
 export default async function TermDetailPage({ params }: Props) {
@@ -71,7 +100,9 @@ export default async function TermDetailPage({ params }: Props) {
           <h2 className="mb-3 text-xl font-bold text-gray-900">簡単にいうと</h2>
           <div className="space-y-3 text-sm leading-7 text-gray-700">
             {term.description.map((paragraph) => (
-              <p key={paragraph}>{paragraph}</p>
+              <p key={paragraph}>
+                <LinkedTermText text={paragraph} currentSlug={term.slug} />
+              </p>
             ))}
           </div>
         </section>
@@ -82,7 +113,9 @@ export default async function TermDetailPage({ params }: Props) {
           </h2>
           <ul className="list-disc space-y-2 pl-5 text-sm leading-7 text-gray-700">
             {term.useCases.map((useCase) => (
-              <li key={useCase}>{useCase}</li>
+              <li key={useCase}>
+                <LinkedTermText text={useCase} currentSlug={term.slug} />
+              </li>
             ))}
           </ul>
         </section>
