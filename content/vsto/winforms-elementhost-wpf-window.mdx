@@ -1,0 +1,280 @@
+---
+title: "VSTOでWPF UIを独立ウィンドウ表示するWinForms Form + ElementHostパターン"
+category: "vsto"
+slug: "winforms-elementhost-wpf-window"
+tags: ["VSTO", "WPF", "WinForms", "ElementHost", "Excel"]
+description: "VSTOアドインでExcelと並行操作できるWPF UIを出すために、WinForms FormへElementHostでWPF UserControlを載せる実装パターンを解説します。"
+date: "2026-05-13"
+---
+
+## はじめに
+
+<Term>VSTO</Term> アドインで、Excelと並行操作できる大きめのツール画面を出したいことがあります。たとえば、左にツリー、中央に一覧、右にコードビューアを置くような解析ツールでは、通常のタスクペインよりも独立したウィンドウに近いUIが欲しくなります。
+
+ただし、<Term>WPF</Term> Windowをそのまま `Show()` すると、Excel側のフォーカス管理とぶつかり、TextBoxに文字が入らない、Tabキーが効かない、といった問題が起きることがあります。
+
+一方、<Term>CustomTaskPane</Term> のFloating表示はキーボード入力は安定しやすいものの、位置やサイズをExcelが後から上書きすることがあります。
+
+このような場合に実用的なのが、**WinForms Formを独立ウィンドウとして表示し、その中にElementHostでWPF UserControlを載せる構成**です。
+
+## こんな場面で使えます
+
+- Excel <Term>VSTO</Term> アドインから、独立ウィンドウ風の大きな画面を出したい
+- <Term>WPF</Term> Windowを直接表示するとTextBoxやTabキーが安定しない
+- <Term>CustomTaskPane</Term> Floatingの位置やサイズを完全に制御できず困っている
+- <Term>WPF</Term> UserControl、AvalonDock、AvalonEditなどをOfficeアドイン内で使いたい
+- Excelとツール画面を並行操作しながら、最大化やリサイズも使いたい
+
+## 結論：WinForms Form + ElementHost + WPF UserControlにする
+
+構成は次のようにします。
+
+```text
+[VSTO Add-in]
+  ThisAddIn から Form を表示
+
+[WinForms Form]
+  独立した Win32 ウィンドウ
+  Excel を owner にして Show
+
+[ElementHost]
+  WinForms と WPF の橋渡し
+
+[WPF UserControl]
+  実際の画面
+```
+
+ポイントは、<Term>WPF</Term> Windowを直接出さず、<Term>WPF</Term>画面をUserControlとして作ることです。WinForms Formの中に `ElementHost` で載せると、WinForms側の入力ブリッジが効き、Office環境でもキーボード入力が安定しやすくなります。
+
+## 実装コード
+
+### WinForms Formを作る
+
+まず、WPF UserControlを受け取り、`ElementHost` に載せるFormを作ります。
+
+```csharp
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+using System.Windows.Forms.Integration;
+
+internal sealed class MainToolForm : Form
+{
+    public MyWpfView MainView { get; }
+    public Action OnBeforeHide { get; set; }
+
+    public MainToolForm(MyWpfView mainView)
+    {
+        MainView = mainView ?? throw new ArgumentNullException(nameof(mainView));
+
+        Text = "Tool Window";
+        ClientSize = new Size(1200, 800);
+        MinimumSize = new Size(600, 400);
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MaximizeBox = true;
+        MinimizeBox = true;
+        ShowInTaskbar = false;
+        StartPosition = FormStartPosition.Manual;
+
+        var elementHost = new ElementHost
+        {
+            Dock = DockStyle.Fill,
+            Child = mainView,
+        };
+
+        Controls.Add(elementHost);
+
+        FormClosing += (s, e) =>
+        {
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                try { OnBeforeHide?.Invoke(); } catch { }
+                e.Cancel = true;
+                Hide();
+            }
+        };
+    }
+}
+```
+
+`ShowInTaskbar = false` にしておくと、Excelとは別アプリのような見え方になりにくくなります。
+
+また、ユーザーが×ボタンで閉じたときは `Close()` ではなく `Hide()` に変換しています。これにより、WPF側の状態やレイアウトを保持したまま再表示できます。
+
+### Excelをownerにして表示する
+
+FormをExcelと無関係なウィンドウとして出すと、Z-orderや終了時の扱いが不自然になることがあります。Excelのメインウィンドウハンドルをownerとして渡します。
+
+```csharp
+internal sealed class Win32WindowWrapper : IWin32Window
+{
+    public IntPtr Handle { get; }
+
+    public Win32WindowWrapper(IntPtr handle)
+    {
+        Handle = handle;
+    }
+}
+```
+
+`ThisAddIn` 側では、初回作成と2回目以降の表示切替を分けます。
+
+```csharp
+private MainToolForm _mainForm;
+
+public void ToggleToolWindow()
+{
+    if (_mainForm == null)
+    {
+        var mainView = new MyWpfView();
+        _mainForm = new MainToolForm(mainView)
+        {
+            OnBeforeHide = SaveFormGeometry,
+        };
+
+        ApplyFormGeometry();
+
+        var excelHwnd = GetExcelMainWindowHandle();
+        if (excelHwnd != IntPtr.Zero)
+        {
+            _mainForm.Show(new Win32WindowWrapper(excelHwnd));
+        }
+        else
+        {
+            _mainForm.Show();
+        }
+
+        return;
+    }
+
+    if (_mainForm.Visible)
+    {
+        SaveFormGeometry();
+        _mainForm.Hide();
+    }
+    else
+    {
+        ApplyFormGeometry();
+        _mainForm.Show();
+        _mainForm.Activate();
+    }
+}
+
+private IntPtr GetExcelMainWindowHandle()
+{
+    try
+    {
+        dynamic app = Application;
+        object hwndObj = app.Hwnd;
+        long hwndLong = Convert.ToInt64(hwndObj);
+        return new IntPtr(hwndLong);
+    }
+    catch
+    {
+        return IntPtr.Zero;
+    }
+}
+```
+
+`Form.Show(new Win32WindowWrapper(excelHwnd))` とすることで、Excelの上に表示され、Excel終了時にも一緒に閉じられる自然な挙動になります。
+
+## 位置とサイズを保存する
+
+独立ウィンドウとして使うなら、前回の位置とサイズを復元できると便利です。保存時は、最大化中のサイズではなく `RestoreBounds` を使うのがポイントです。
+
+```csharp
+private void SaveFormGeometry()
+{
+    if (_mainForm == null) return;
+
+    int x, y, w, h;
+
+    if (_mainForm.WindowState == FormWindowState.Normal)
+    {
+        x = _mainForm.Location.X;
+        y = _mainForm.Location.Y;
+        w = _mainForm.Size.Width;
+        h = _mainForm.Size.Height;
+    }
+    else
+    {
+        var rb = _mainForm.RestoreBounds;
+        x = rb.X;
+        y = rb.Y;
+        w = rb.Width;
+        h = rb.Height;
+    }
+
+    // LocalApplicationDataなどへ保存する
+}
+```
+
+復元時は、モニタ構成が変わっている可能性も考えます。保存された位置が現在の画面外なら、Excelのあるモニタの中央へ出すようにします。
+
+```csharp
+private void CenterForm()
+{
+    var excelHwnd = GetExcelMainWindowHandle();
+    Screen screen = excelHwnd != IntPtr.Zero
+        ? Screen.FromHandle(excelHwnd)
+        : Screen.PrimaryScreen;
+
+    var work = screen.WorkingArea;
+    int w = 1200;
+    int h = 800;
+
+    if (w > work.Width * 0.95) w = (int)(work.Width * 0.95);
+    if (h > work.Height * 0.95) h = (int)(work.Height * 0.95);
+
+    int x = work.Left + Math.Max(0, (work.Width - w) / 2);
+    int y = work.Top + Math.Max(0, (work.Height - h) / 2);
+
+    _mainForm.Location = new Point(x, y);
+    _mainForm.Size = new Size(w, h);
+}
+```
+
+マルチモニタでは、Form自身ではなくExcelのウィンドウハンドルを基準にする方が自然です。ユーザーが見ているExcelと同じ画面にツールを出せます。
+
+## CustomTaskPaneと比べた違い
+
+<Term>CustomTaskPane</Term> はOffice公式の拡張ポイントなので、ドック型のタスクペインには向いています。しかし、Floatingモードで独立ウィンドウのように扱おうとすると、位置やサイズをExcel側が管理し続けるため、完全制御が難しくなります。
+
+一方、WinForms Form + ElementHost構成では、Formが通常のWin32ウィンドウとして動くため、最大化、リサイズ、位置保存、マルチモニタ対応を自前で制御しやすくなります。
+
+## 注意点・ハマりポイント
+
+- WPF側はWindowではなくUserControlとして作る
+- `WindowsFormsIntegration` 参照が必要
+- `System.Windows.Forms` 参照が必要
+- Excelをownerにして表示しないと、Z-orderや終了時の挙動が不自然になる
+- `ShowInTaskbar = false` にするかどうかは、Excelと一体に見せたいかで判断する
+- ×ボタンで破棄せず `Hide()` にするなら、アプリ終了時だけは通常終了を許可する
+- 最大化中に位置保存する場合は `RestoreBounds` を使う
+- 保存位置の復元では、画面外に出ないようにモニタ判定を入れる
+
+## 実際の活用事例
+
+Excel VBAプロジェクトの解析・参照可視化アドインでは、コードツリー、モジュール一覧、コードビューア、検索結果などを大きな画面で扱う必要があります。
+
+当初は <Term>CustomTaskPane</Term> をFloating表示していましたが、位置やサイズがExcel側に上書きされる問題がありました。<Term>WPF</Term> Window直接表示も試しましたが、キーボード入力が安定しませんでした。
+
+最終的に、WinForms Form + ElementHost + WPF UserControl構成へ切り替えることで、Excelと並行操作しながら、最大化やリサイズも自然に使える画面にできました。
+
+関連する開発事例:
+
+- [階層化フォーム VSTO版](/cases/vsto-hierarchical-form)
+
+## 関連記事
+
+- [VSTO + WPF のキーボードフォーカス問題を CustomTaskPane で解決する](/articles/vsto/wpf-custom-task-pane-focus)
+- [dynamic 経由で VBIDE / COM 参照競合を回避する](/articles/vsto/vbide-dynamic-com)
+- [WPF UIからホスト依存処理をコールバックinterfaceで分離する](/articles/wpf/callback-interface-dependency-inversion)
+
+## まとめ
+
+<Term>VSTO</Term> で <Term>WPF</Term> UIを独立ウィンドウのように表示したい場合、WPF Windowを直接出すとキーボード入力で詰まりやすく、<Term>CustomTaskPane</Term> Floatingでは位置制御に限界があります。
+
+WinForms Form + ElementHost + WPF UserControlにすると、WinFormsの入力ブリッジを使いながら、通常のウィンドウとして位置・サイズ・最大化を制御できます。
+
+Excelと並行操作できる本格的なツール画面を作るなら、この構成を基本パターンとして検討します。

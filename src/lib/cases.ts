@@ -270,6 +270,11 @@ export const caseStudies: CaseStudy[] = [
         category: "VSTO",
       },
       {
+        title: "VSTOでWPF UIを独立ウィンドウ表示するWinForms Form + ElementHostパターン",
+        href: "/articles/vsto/winforms-elementhost-wpf-window",
+        category: "VSTO",
+      },
+      {
         title: "dynamic経由でVBIDE COM参照競合を回避する方法",
         href: "/articles/vsto/vbide-dynamic-com",
         category: "VSTO",
