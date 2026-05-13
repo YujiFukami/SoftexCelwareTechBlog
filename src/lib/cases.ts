@@ -200,16 +200,16 @@ export const caseStudies: CaseStudy[] = [
     ],
   },
   {
-    slug: "goagoa-invoice-manager",
-    title: "goagoa-invoice-manager",
-    subtitle: "顧客請求・入金管理デスクトップアプリ",
+    slug: "business-invoice-desktop-app",
+    title: "請求・入金管理デスクトップアプリ",
+    subtitle: "匿名事例：ローカルDBを使った業務管理アプリ",
     category: "デスクトップアプリ",
     summary:
-      "Electron、Vite、sql.jsで構築した、顧客請求・入金管理向けのローカルDBデスクトップアプリです。",
+      "Electron、Vite、sql.jsで構築した、請求・入金管理向けのローカルDBデスクトップアプリ開発事例です。",
     description: [
-      "請求・入金管理に必要な業務データを、ローカルSQLite DBとして扱うElectronデスクトップアプリです。",
+      "顧客名や業務固有情報は伏せたうえで、請求・入金管理に必要な業務データをローカルSQLite DBとして扱うElectronデスクトップアプリの事例として整理しています。",
       "sql.jsとIPCを使い、ネイティブモジュールのビルドトラブルを避けながら、ファイル永続化やCSV一括取込みに対応しています。",
-      "Electronアプリの配布、DB永続化、高速化、バージョン管理、GitHub納品のノウハウを記事化しています。",
+      "Electronアプリの配布、DB永続化、高速化、バージョン管理、ソース納品のノウハウを、案件固有情報を出さない形で記事化しています。",
     ],
     stack: ["Electron", "Vite", "sql.js", "SQLite", "IPC"],
     highlights: [
@@ -217,10 +217,9 @@ export const caseStudies: CaseStudy[] = [
       "CSV一括取込みの高速化",
       "削除済みIDの再利用ロジック",
       "package.jsonのversionをアプリ全体へ自動反映",
-      "GitHubへのソース納品バッチ",
+      "ソース納品用バッチ",
     ],
-    githubUrl: "https://github.com/YujiFukami/goagoa-invoice-manager",
-    visibility: "limited",
+    visibility: "anonymous",
     relatedArticles: [
       {
         title: "sql.jsとElectron IPCでローカルDBを永続化する方法",
