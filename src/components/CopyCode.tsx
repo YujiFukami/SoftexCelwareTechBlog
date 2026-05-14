@@ -47,6 +47,170 @@ End If`,
     MsgInputCheck = Output
 
 End Function`,
+  "xlookup-2col-usage": `Dim Data As Variant
+Dim Result As Variant
+
+Data = Worksheets("Master").Range("A1:D100").Value
+Result = F_XLookUp_2Col(Data, 4, "東京", 1, "A001", 2)
+
+If IsEmpty(Result) = False Then
+    MsgBox Result
+End If`,
+  "xlookup-2col-full": `' === Module: ModWSFunction ===
+
+Public Function F_XLookUp_2Col(ByRef Array2D As Variant, _
+                             ByRef ReturnCol As Long, _
+                                ByRef Value1 As Variant, _
+                            ByRef SearchCol1 As Long, _
+                                ByRef Value2 As Variant, _
+                            ByRef SearchCol2 As Long) _
+                                             As Variant
+'Xlookup関数の応用で、検索列を2つ指定する
+'20250410
+
+'引数
+'Array2D   ・・・対象の二次元配列
+'ReturnCol ・・・値を取得対象の列
+'Value1    ・・・検索する値1
+'SearchCol1・・・検索対象列番号1
+'Value2    ・・・検索する値2
+'SearchCol2・・・検索対象列番号2
+
+    Dim Output As Variant
+    Dim I      As Long
+    Dim N      As Long: N = UBound(Array2D, 1)
+    Dim Judge1 As Boolean
+    Dim Judge2 As Boolean
+    For I = 1 To N
+
+        '検索対象列1の判定
+        Judge1 = False
+        If Array2D(I, SearchCol1) = Value1 Then
+            Judge1 = True
+
+        ElseIf IsNumeric(Array2D(I, SearchCol1)) = True And IsNumeric(Value1) = True Then
+            If Val(Array2D(I, SearchCol1)) = Val(Value1) Then
+                '両方数値型で表される場合は、数値型に変換も行って判定
+                Judge1 = True
+            End If
+        End If
+
+        '検索対象列2の判定
+        Judge2 = False
+        If Array2D(I, SearchCol2) = Value2 Then
+            Judge2 = True
+
+        ElseIf IsNumeric(Array2D(I, SearchCol2)) = True And IsNumeric(Value2) = True Then
+            If Val(Array2D(I, SearchCol2)) = Val(Value2) Then
+                '両方数値型で表される場合は、数値型に変換も行って判定
+                Judge2 = True
+            End If
+        End If
+
+        '判定結果をもとに処理
+        If Judge1 = True And Judge2 = True Then
+            Output = Array2D(I, ReturnCol)
+            Exit For
+        End If
+    Next
+
+    F_XLookUp_2Col = Output
+
+End Function`,
+  "make-label-on-user-form-usage": `Private Sub UserForm_Initialize()
+    Dim NewLabel As MSForms.Label
+
+    Set NewLabel = MakeLabelOnUserForm( _
+        Me, 18, 120, 20, 10, "受付日", 10, "lblReceptionDate")
+End Sub`,
+  "make-label-on-user-form-full": `' === Module: ModUserForm ===
+
+Public Function MakeLabelOnUserForm(ByRef TargetForm As UserForm, _
+                                        ByRef Height As Double, _
+                                         ByRef Width As Double, _
+                                           ByRef Top As Double, _
+                                          ByRef Left As Double, _
+                                          ByRef Text As String, _
+                                      ByRef FontSize As Double, _
+                                   ByRef ControlName As String) _
+                                                     As MSForms.Label
+
+'ユーザーフォームにラベルを1つ設置する。
+'1行でラベルのテキスト(Caption)、位置、サイズ、フォントサイズを設定できるようにする
+'参考:https://docs.microsoft.com/ja-jp/office/vba/language/reference/user-interface-help/add-method-microsoft-forms
+'20260420
+
+'引数
+'TargetForm ・・・対象のユーザーフォーム
+'Height     ・・・ラベルの高さ
+'Width      ・・・ラベルの幅
+'Top        ・・・ラベルの上位置
+'Left       ・・・ラベルの下位置
+'Text       ・・・ラベルのテキスト
+'Fontsize   ・・・ラベルのフォントサイズ
+'ControlName・・・ラベルのコントロール名
+
+    Dim Output As MSForms.Label '追加するラベル
+    Set Output = TargetForm.Controls.Add("Forms.Label.1") 'ラベルの追加
+    With Output
+        .Name = ControlName
+        .Top = Top
+        .Left = Left
+        .Height = Height
+        .Width = Width
+        .Font.size = FontSize
+        .Caption = Text
+    End With
+
+    Set MakeLabelOnUserForm = Output
+
+End Function`,
+  "rotate-shape-fit-cell-usage": `Dim BarcodeShape As Shape
+
+Set BarcodeShape = ActiveSheet.Shapes("BarcodeShape")
+Set BarcodeShape = RotateShapeFitCell(BarcodeShape, ActiveSheet.Range("B2"))`,
+  "rotate-shape-fit-cell-full": `' === Module: ModShape ===
+
+Public Function RotateShapeFitCell(ByRef Shape As Shape, _
+                                    ByRef Cell As Range) _
+                                               As Shape
+'Shapeを90度回転させてCellのサイズにあわせる
+'20260122
+
+'引数
+'Shape・・・対象のShape
+'Cell ・・・位置をあわせるCell
+
+    '一旦移動する(左上から遠くに置いておかないと変形に影響が出る)
+    Shape.Left = WorksheetFunction.Max(Shape.Width, Shape.Height) * 2
+    Shape.Top = WorksheetFunction.Max(Shape.Width, Shape.Height) * 2
+
+    '縦横比変更
+    Shape.Width = Cell.Height
+    Shape.Height = Cell.Width
+
+    '90度回転
+    Shape.Rotation = 90
+
+    'CellとShapeの中心座標計算
+    Dim ShapeCenterTop  As Double: ShapeCenterTop = Shape.Top + Shape.Height / 2
+    Dim ShapeCenterLeft As Double: ShapeCenterLeft = Shape.Left + Shape.Width / 2
+    Dim CellCenterTop   As Double: CellCenterTop = Cell.Top + Cell.Height / 2
+    Dim CellCenterLeft  As Double: CellCenterLeft = Cell.Left + Cell.Width / 2
+
+    '移動量計算(中心座標の差分が移動量)
+    Dim MoveLeft As Double: MoveLeft = CellCenterLeft - ShapeCenterLeft
+    Dim MoveTop As Double: MoveTop = CellCenterTop - ShapeCenterTop
+
+    'Shape移動
+    Call Shape.IncrementLeft(MoveLeft)
+    Call Shape.IncrementTop(MoveTop)
+    '※ 「Shape.Left = ** 」の処理はマイナスを指定できない
+
+    '出力
+    Set RotateShapeFitCell = Shape
+
+End Function`,
 } as const;
 
 type SampleKey = keyof typeof codeSamples;

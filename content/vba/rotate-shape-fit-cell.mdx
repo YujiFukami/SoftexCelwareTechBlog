@@ -1,0 +1,62 @@
+---
+title: "Shapeを90度回転してセル範囲に合わせるExcel VBA汎用プロシージャ"
+category: "vba"
+slug: "rotate-shape-fit-cell"
+tags: ["Excel VBA", "汎用プロシージャ", "Shape", "Range", "図形"]
+description: "Excel VBAでShapeを90度回転し、指定したセル範囲の中心とサイズに合わせる汎用プロシージャを解説します。"
+date: "2026-05-14"
+---
+
+## 概要
+
+`RotateShapeFitCell`は、<Term>Excel VBA</Term>で<Term>Shape</Term>を90度回転し、指定した<Term>Range</Term>の位置とサイズに合わせるための汎用関数です。
+
+バーコード画像や矢印などの図形を、印刷用レイアウトのセル範囲にきれいに収めたいときに使えます。回転後の幅と高さをセルに合わせ、中心座標の差分を計算して図形を移動します。
+
+## 使う場面
+
+- 横向きに作成したバーコードを、印刷用紙に合わせて縦向きに配置したい
+- 図形を90度回転したうえで、指定セル範囲の中央に合わせたい
+- `Shape.Left`や`Shape.Top`の直接指定だけでは位置合わせが崩れる処理を共通化したい
+- 帳票やラベル印刷用の図形配置を再利用できる形にしたい
+
+## 処理イメージ図
+
+![RotateShapeFitCellの図形回転とセル合わせイメージ](/articles/vba/rotate-shape-fit-cell-flow.png)
+
+## 使用例
+
+下の例では、`BarcodeShape`という名前の図形を取得し、`B2`セルの位置とサイズに合わせます。
+
+<CopyCode language="vba" filename="使用例" sample="rotate-shape-fit-cell-usage" />
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="RotateShapeFitCell.bas" sample="rotate-shape-fit-cell-full" />
+
+## 初心者向けコード解説
+
+`ByRef Shape As Shape`は、回転・移動させたい図形を受け取る引数です。Excel上の図形、画像、バーコード画像などは<Term>Shape</Term>として扱えます。
+
+`ByRef Cell As Range`は、図形を合わせたいセル範囲です。単一セルだけでなく、結合セルや複数セル範囲を渡す設計にも応用できます。
+
+最初に`Shape.Left`と`Shape.Top`を大きめの位置へ一旦移動しています。これは、左上付近で回転やサイズ変更を行うと、図形の変形や位置計算に影響が出ることを避けるためです。
+
+`Shape.Width = Cell.Height`、`Shape.Height = Cell.Width`では、90度回転する前提で幅と高さを入れ替えています。
+
+`Shape.Rotation = 90`で図形を90度回転します。その後、図形とセルの中心座標をそれぞれ計算し、中心同士の差分を`MoveLeft`と`MoveTop`として求めています。
+
+最後に`IncrementLeft`と`IncrementTop`で図形を移動します。コメントにもある通り、`Shape.Left = **`だけでは扱いにくいケースがあるため、移動量で調整しています。
+
+## 注意点
+
+- 図形名は事前に把握しておく必要があります。`ActiveSheet.Shapes("BarcodeShape")`のように取得します。
+- 90度回転専用の関数です。180度や任意角度にはそのまま対応していません。
+- セルの幅や高さが小さすぎる場合、図形も小さくなりすぎることがあります。
+- 図形の種類や元画像の余白によっては、見た目上の中央と座標上の中央がずれて見える場合があります。
+
+## まとめ
+
+`RotateShapeFitCell`を使うと、<Term>VBA</Term>で図形を90度回転してセル範囲に合わせる処理を共通化できます。
+
+バーコード、矢印、印刷用画像など、図形を帳票レイアウトへ合わせる処理で再利用しやすい汎用プロシージャです。

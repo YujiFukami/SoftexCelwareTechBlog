@@ -1,0 +1,60 @@
+---
+title: "ユーザーフォームにラベルを動的追加するExcel VBA汎用プロシージャ"
+category: "vba"
+slug: "make-label-on-user-form"
+tags: ["Excel VBA", "汎用プロシージャ", "UserForm", "MSForms", "ラベル"]
+description: "UserForm上にMSForms.Labelを追加し、位置・サイズ・表示テキストをまとめて設定するExcel VBA汎用プロシージャを解説します。"
+date: "2026-05-14"
+---
+
+## 概要
+
+`MakeLabelOnUserForm`は、<Term>UserForm</Term>上に<Term>MSForms</Term>のラベルを動的に追加するための<Term>Excel VBA</Term>汎用関数です。
+
+高さ、幅、上位置、左位置、表示テキスト、フォントサイズ、コントロール名を引数で渡すと、`Controls.Add("Forms.Label.1")`でラベルを追加し、設定済みの`MSForms.Label`を返します。
+
+## 使う場面
+
+- 入力項目数が変わるフォームで、ラベルをコードから生成したい
+- 同じようなラベル作成処理を何行も書かず、1行の呼び出しにまとめたい
+- フォームの表示内容をデータや設定に応じて動的に変えたい
+- ラベルの位置、サイズ、表示テキスト、フォントサイズを一括で指定したい
+
+## 処理イメージ図
+
+![MakeLabelOnUserFormのラベル追加イメージ](/articles/vba/make-label-on-user-form-flow.png)
+
+## 使用例
+
+`UserForm_Initialize`などで呼び出すと、フォーム表示時にラベルを動的に配置できます。
+
+<CopyCode language="vba" filename="使用例" sample="make-label-on-user-form-usage" />
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="MakeLabelOnUserForm.bas" sample="make-label-on-user-form-full" />
+
+## 初心者向けコード解説
+
+`TargetForm As UserForm`は、ラベルを追加する対象のフォームです。使用例のようにフォーム自身から呼ぶ場合は、`Me`を渡します。
+
+戻り値は`MSForms.Label`です。作成したラベルを呼び出し元で受け取れるため、あとから色や罫線などを追加設定することもできます。
+
+`TargetForm.Controls.Add("Forms.Label.1")`が、実際にラベルを追加している行です。<Term>MSForms</Term>では、フォーム上の部品を`Controls`コレクションとして扱います。
+
+`With Output`の中では、作成したラベルに対して`.Name`、`.Top`、`.Left`、`.Height`、`.Width`、`.Font.Size`、`.Caption`をまとめて設定しています。
+
+`Set MakeLabelOnUserForm = Output`では、作成済みのラベルを関数の戻り値として返しています。オブジェクトを返すため、`Set`が必要です。
+
+## 注意点
+
+- `ControlName`はフォーム内で重複しない名前にします。既存コントロールと同じ名前を指定するとエラーの原因になります。
+- `Top`と`Left`はフォーム上の位置です。セル位置ではありません。
+- `Caption`に表示する文字列は`Text`引数で渡します。長い文字列を入れる場合は、ラベルの幅も合わせて調整します。
+- この関数はラベル作成だけを担当します。色、配置、フォント種類などを統一したい場合は、別の共通関数として分けると扱いやすくなります。
+
+## まとめ
+
+`MakeLabelOnUserForm`を使うと、<Term>VBA</Term>の<Term>UserForm</Term>でラベルを動的に生成する処理を短く書けます。
+
+入力項目を自動生成するフォームや、設定に応じて表示内容が変わるフォームを作るときに、再利用しやすい汎用プロシージャです。
