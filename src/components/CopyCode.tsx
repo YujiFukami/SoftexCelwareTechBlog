@@ -1,22 +1,77 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+
+const codeSamples = {
+  "msg-input-check-usage": `If MsgInputCheck("ユーザー名", UserName, "パスワード", Password) = False Then
+    Exit Sub
+End If`,
+  "msg-input-check-full": `Public Function MsgInputCheck(ParamArray NameAndValue() As Variant) As Boolean
+'入力値名(Name)、入力値(Value)を交互に引数として入れて、
+'1つでもValueが空白「""」があったら警告メッセージを表示してFalseを返す
+'20260514
+
+'NameAndValue・・・入力値名(Name)、入力値(Value)を交互に入力
+
+'記述例
+'If MsgInputCheck("ユーザー名", UserName, "パスワード", Password) = False Then
+'    Exit Sub
+'End If
+
+    '入力個数チェック
+    Dim N As Long: N = UBound(NameAndValue, 1) + 1 '入力個数
+    If N Mod 2 <> 0 Then '偶数である必要がある
+        MsgBox "入力値名(Name)、入力値(Value)を交互に入力してください", vbExclamation
+        Exit Function
+    End If
+
+    '処理
+    Dim Name   As String
+    Dim Value  As String
+    Dim I      As Long
+    Dim Row    As Long
+    Dim Output As Boolean: Output = True
+    For I = 0 To N / 2 - 1
+        Row = I * 2
+        Name = NameAndValue(Row)
+        Value = NameAndValue(Row + 1)
+
+        If Value = "" Then
+            MsgBox "「" & Name & "」が入力されていません", vbExclamation
+            Output = False
+            Exit For
+        End If
+    Next
+
+    '出力
+    MsgInputCheck = Output
+
+End Function`,
+} as const;
+
+type SampleKey = keyof typeof codeSamples;
 
 type CopyCodeProps = {
-  code: string;
+  code?: string;
+  sample?: SampleKey;
   language?: string;
   filename?: string;
 };
 
 export default function CopyCode({
   code,
+  sample,
   language = "text",
   filename,
 }: CopyCodeProps) {
   const [copied, setCopied] = useState(false);
+  const resolvedCode = useMemo(() => {
+    if (sample) return codeSamples[sample];
+    return code ?? "";
+  }, [code, sample]);
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(code);
+    await navigator.clipboard.writeText(resolvedCode);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);
   }
@@ -43,7 +98,7 @@ export default function CopyCode({
         </button>
       </div>
       <pre className="m-0 max-h-[560px] overflow-auto p-4 text-sm leading-relaxed text-gray-100">
-        <code>{code}</code>
+        <code>{resolvedCode}</code>
       </pre>
     </div>
   );

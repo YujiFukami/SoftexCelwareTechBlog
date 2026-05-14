@@ -28,63 +28,13 @@ date: "2026-05-14"
 
 入力値名と入力値を、`"ユーザー名", UserName, "パスワード", Password`のようにペアで渡します。
 
-<CopyCode
-  language="vba"
-  filename="使用例"
-  code={`If MsgInputCheck("ユーザー名", UserName, "パスワード", Password) = False Then
-    Exit Sub
-End If`}
-/>
+<CopyCode language="vba" filename="使用例" sample="msg-input-check-usage" />
 
 この例では、`UserName`が空欄なら「ユーザー名が入力されていません」、`Password`が空欄なら「パスワードが入力されていません」と表示して処理を止めます。
 
 ## コピー可能な実装コード
 
-<CopyCode
-  language="vba"
-  filename="MsgInputCheck.bas"
-  code={`Public Function MsgInputCheck(ParamArray NameAndValue() As Variant) As Boolean
-'入力値名(Name)、入力値(Value)を交互に引数として入れて、
-'1つでもValueが空白「""」があったら警告メッセージを表示してFalseを返す
-'20260514
-
-'NameAndValue・・・入力値名(Name)、入力値(Value)を交互に入力
-
-'記述例
-'If MsgInputCheck("ユーザー名", UserName, "パスワード", Password) = False Then
-'    Exit Sub
-'End If
-
-    '入力個数チェック
-    Dim N As Long: N = UBound(NameAndValue, 1) + 1 '入力個数
-    If N Mod 2 <> 0 Then '偶数である必要がある
-        MsgBox "入力値名(Name)、入力値(Value)を交互に入力してください", vbExclamation
-        Exit Function
-    End If
-    
-    '処理
-    Dim Name   As String
-    Dim Value  As String
-    Dim I      As Long
-    Dim Row    As Long
-    Dim Output As Boolean: Output = True
-    For I = 0 To N / 2 - 1
-        Row = I * 2
-        Name = NameAndValue(Row)
-        Value = NameAndValue(Row + 1)
-        
-        If Value = "" Then
-            MsgBox "「" & Name & "」が入力されていません", vbExclamation
-            Output = False
-            Exit For
-        End If
-    Next
-    
-    '出力
-    MsgInputCheck = Output
-    
-End Function`}
-/>
+<CopyCode language="vba" filename="MsgInputCheck.bas" sample="msg-input-check-full" />
 
 ## 初心者向けコード解説
 
