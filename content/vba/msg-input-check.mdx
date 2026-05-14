@@ -1,0 +1,116 @@
+---
+title: "入力漏れチェックとメッセージ表示をまとめるExcel VBA汎用プロシージャ"
+category: "vba"
+slug: "msg-input-check"
+tags: ["Excel VBA", "汎用プロシージャ", "入力チェック", "MsgBox", "ParamArray"]
+description: "入力項目名と入力値をペアで渡し、空欄があれば警告メッセージを表示してFalseを返すExcel VBA汎用プロシージャを解説します。"
+date: "2026-05-14"
+---
+
+## 概要
+
+このプロシージャは、<Term>Excel VBA</Term>でフォーム入力やセル入力を受け取ったあとに、入力漏れがないかをまとめて確認するための汎用関数です。
+
+入力値名と入力値を交互に渡すと、1つでも空欄があった時点で「どの項目が入力されていないか」を<Term>MsgBox</Term>で表示し、戻り値として<Term>Boolean</Term>の`False`を返します。問題がなければ`True`を返すため、呼び出し側では`If`文で処理を止めるか続けるかを判断できます。
+
+## 使う場面
+
+- ユーザー名、パスワード、日付、金額など、複数の入力欄をまとめてチェックしたい
+- 入力漏れがあった項目名を、その場でわかりやすく表示したい
+- 各マクロで同じ入力チェック処理を何度も書かず、共通関数として再利用したい
+- セル入力値やフォーム入力値を本処理に渡す前に、最低限の未入力チェックを入れたい
+
+## 処理イメージ図
+
+![MsgInputCheckの入力漏れチェック処理イメージ](/articles/vba/msg-input-check-flow.png)
+
+## 使用例
+
+入力値名と入力値を、`"ユーザー名", UserName, "パスワード", Password`のようにペアで渡します。
+
+<CopyCode
+  language="vba"
+  filename="使用例"
+  code={`If MsgInputCheck("ユーザー名", UserName, "パスワード", Password) = False Then
+    Exit Sub
+End If`}
+/>
+
+この例では、`UserName`が空欄なら「ユーザー名が入力されていません」、`Password`が空欄なら「パスワードが入力されていません」と表示して処理を止めます。
+
+## コピー可能な実装コード
+
+<CopyCode
+  language="vba"
+  filename="MsgInputCheck.bas"
+  code={`Public Function MsgInputCheck(ParamArray NameAndValue() As Variant) As Boolean
+'入力値名(Name)、入力値(Value)を交互に引数として入れて、
+'1つでもValueが空白「""」があったら警告メッセージを表示してFalseを返す
+'20260514
+
+'NameAndValue・・・入力値名(Name)、入力値(Value)を交互に入力
+
+'記述例
+'If MsgInputCheck("ユーザー名", UserName, "パスワード", Password) = False Then
+'    Exit Sub
+'End If
+
+    '入力個数チェック
+    Dim N As Long: N = UBound(NameAndValue, 1) + 1 '入力個数
+    If N Mod 2 <> 0 Then '偶数である必要がある
+        MsgBox "入力値名(Name)、入力値(Value)を交互に入力してください", vbExclamation
+        Exit Function
+    End If
+    
+    '処理
+    Dim Name   As String
+    Dim Value  As String
+    Dim I      As Long
+    Dim Row    As Long
+    Dim Output As Boolean: Output = True
+    For I = 0 To N / 2 - 1
+        Row = I * 2
+        Name = NameAndValue(Row)
+        Value = NameAndValue(Row + 1)
+        
+        If Value = "" Then
+            MsgBox "「" & Name & "」が入力されていません", vbExclamation
+            Output = False
+            Exit For
+        End If
+    Next
+    
+    '出力
+    MsgInputCheck = Output
+    
+End Function`}
+/>
+
+## 初心者向けコード解説
+
+`Public Function MsgInputCheck(...) As Boolean`は、この関数が`True`または`False`を返すことを表しています。入力に問題がなければ`True`、入力漏れが見つかれば`False`です。
+
+`ParamArray NameAndValue() As Variant`は、引数の数を固定しないための書き方です。<Term>ParamArray</Term>を使うことで、2項目でも5項目でも同じ関数に渡せます。値の型が毎回同じとは限らないため、ここでは<Term>Variant</Term>の配列として受け取っています。
+
+`UBound(NameAndValue, 1) + 1`では、渡された引数の個数を数えています。<Term>UBound</Term>は配列の最後の位置を返す関数です。配列は0番目から始まるため、個数として扱うために`+ 1`しています。
+
+`If N Mod 2 <> 0 Then`では、引数の個数が偶数かどうかを確認しています。この関数は「入力値名」と「入力値」を2個1組で受け取るため、奇数個だとペアが崩れます。その場合は<Term>MsgBox</Term>で使い方の間違いを表示して終了します。
+
+`For I = 0 To N / 2 - 1`のループでは、1組ずつ入力値名と入力値を取り出しています。`Row = I * 2`により、0番目、2番目、4番目というように、各ペアの先頭位置を計算しています。
+
+`If Value = "" Then`で空欄を見つけたら、項目名を使って「入力されていません」という警告を表示します。その後、`Output = False`にして`Exit For`でループを抜けます。
+
+最後の`MsgInputCheck = Output`で、チェック結果を関数の戻り値として返します。
+
+## 注意点
+
+- 引数は必ず「入力値名」「入力値」の順で、2個1組にして渡します。
+- 未入力の判定は`Value = ""`です。スペースだけの入力や`Null`も未入力扱いにしたい場合は、別途判定を追加します。
+- `Variant`で受け取った値を`String`に代入しているため、日付や数値も文字列として判定されます。通常の入力漏れチェックでは扱いやすい一方、型を厳密に見たい処理には向きません。
+- この関数は最初に見つけた入力漏れで止まります。すべての未入力項目をまとめて表示したい場合は、別の設計にします。
+
+## まとめ
+
+`MsgInputCheck`を共通関数として用意しておくと、<Term>VBA</Term>マクロごとに入力漏れチェックとメッセージ表示を毎回書く必要がなくなります。
+
+入力値名と入力値をペアで渡すだけで使えるため、フォーム入力、セル入力、処理開始前の必須項目チェックなどに再利用しやすい汎用プロシージャです。
