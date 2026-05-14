@@ -176,7 +176,9 @@ export const caseStudies: CaseStudy[] = [
       "JSON設定の読み書きとバックアップ",
       "タスクバー固定を前提にした運用設計",
       "ZIP配布向けのREADME・ライセンス整備",
+      "GitHub PagesとReleasesを使った配布ページ整備",
     ],
+    projectUrl: "https://yujifukami.github.io/NandemoShortCut/",
     githubUrl: "https://github.com/YujiFukami/NandemoShortCut",
     externalArticleUrl:
       "https://www.softex-celware.com/post/nandemo-shortcut-windows-launcher",
@@ -195,6 +197,11 @@ export const caseStudies: CaseStudy[] = [
       {
         title: "常駐型Windowsツールのタスクバー運用設計",
         href: "/articles/python-windows/windows-taskbar-launcher",
+        category: "Python",
+      },
+      {
+        title: "GitHub Pages + ReleasesでWindows EXE配布ページを作る",
+        href: "/articles/python-windows/github-pages-releases-exe-distribution",
         category: "Python",
       },
     ],

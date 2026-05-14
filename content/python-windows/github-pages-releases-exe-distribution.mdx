@@ -1,0 +1,207 @@
+---
+title: "GitHub Pages + ReleasesでWindows EXE配布ページを作る"
+category: "python-windows"
+slug: "github-pages-releases-exe-distribution"
+tags: ["Python", "Windows", "EXE配布", "GitHub Pages", "GitHub Releases"]
+description: "Windows向けEXEツールの紹介ページをGitHub Pagesに置き、配布ZIPをGitHub Releasesで管理する構成を解説します。"
+date: "2026-05-14"
+---
+
+## はじめに
+
+Windows向けEXEツールを配布するとき、GitHubリポジトリのREADMEだけでは、利用者がどこからダウンロードすればよいか分かりにくいことがあります。
+
+また、配布ZIPをリポジトリに直接コミットすると、Git履歴が重くなります。そこで、紹介ページは <Term>GitHub Pages</Term> に置き、ZIP本体は <Term>GitHub Releases</Term> に置く構成にします。
+
+## こんな場面で使えます
+
+- <Term>PyInstaller</Term> で作ったWindows EXEをZIP配布したい
+- READMEより分かりやすい紹介・ダウンロードページを用意したい
+- ブログ、GitHub、最新版ダウンロードへの導線を1ページにまとめたい
+- 配布ZIPをGit管理対象に入れたくない
+
+## 基本構成
+
+リポジトリは次のように分けます。
+
+```text
+repo/
+  docs/
+    index.html
+    favicon.ico
+    .nojekyll
+  .github/
+    workflows/
+      release.yml
+```
+
+- `docs/index.html`: <Term>GitHub Pages</Term>で公開する紹介・ダウンロードページ
+- `docs/favicon.ico`: ページ用アイコン
+- `docs/.nojekyll`: 静的ファイルをそのまま配信するための空ファイル
+- `.github/workflows/release.yml`: タグpush時にEXEをビルドし、ZIPを<Term>GitHub Releases</Term>へ添付する
+
+## GitHub Pages側の設定
+
+<Term>GitHub Pages</Term> は、GitHub画面で一度だけ設定します。
+
+1. リポジトリの `Settings` を開く
+2. 左メニューの `Pages` を開く
+3. `Build and deployment` の `Source` を `Deploy from a branch` にする
+4. `Branch` を `main` にする
+5. フォルダを `/docs` にする
+6. `Save`
+
+公開URLは通常、次の形になります。
+
+```text
+https://<ユーザー名>.github.io/<リポジトリ名>/
+```
+
+なんでもショートカットでは、次のURLを配布ページとして使います。
+
+```text
+https://yujifukami.github.io/NandemoShortCut/
+```
+
+## ダウンロードリンクの考え方
+
+<Term>GitHub Pages</Term> 上のボタンは、<Term>GitHub Releases</Term> のZIPに直接リンクします。
+
+```html
+<a href="https://github.com/YujiFukami/NandemoShortCut/releases/download/v1.0.1/NandemoShortcut-v1.0.1.zip">
+  v1.0.1をダウンロード
+</a>
+```
+
+最新版を見せたい場合は、Release一覧にもリンクしておきます。
+
+```html
+<a href="https://github.com/YujiFukami/NandemoShortCut/releases/latest">
+  最新リリース
+</a>
+```
+
+固定バージョンの直リンクと、最新版ページへのリンクを両方置くと、ブログ記事やマニュアルから参照しやすくなります。
+
+## ブログ記事側にもリンクを置く
+
+配布ページを作ったら、対象ツールの紹介ブログや開発事例にもリンクを追加します。
+
+```text
+配布ページ:
+https://yujifukami.github.io/NandemoShortCut/
+
+最新版ダウンロード:
+https://github.com/YujiFukami/NandemoShortCut/releases/latest
+
+GitHub:
+https://github.com/YujiFukami/NandemoShortCut
+```
+
+ブログ側では、まず配布ページへ誘導します。必要に応じて、Releaseページや固定バージョンZIPを補助リンクとして置きます。
+
+案内文は次のようにすると分かりやすいです。
+
+```text
+最新版は以下の配布ページからダウンロードできます。
+GitHub ReleasesにZIPファイルを置いているため、バージョンごとの配布ファイルも確認できます。
+```
+
+## Release自動生成ワークフロー例
+
+タグをpushしたときにWindows上で<Term>PyInstaller</Term>ビルドを行い、ZIPを<Term>GitHub Releases</Term>へ添付します。
+
+```yaml
+name: Build Release ZIP
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build executables
+        run: python -m PyInstaller NandemoShortcut.spec --noconfirm
+
+      - name: Prepare release folder
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          $releaseDir = "NandemoShortcut-$version"
+          New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+          Copy-Item "dist\NandemoShortcut.exe" "$releaseDir\NandemoShortcut.exe"
+          Copy-Item "dist\NandemoShortcutLauncher.exe" "$releaseDir\NandemoShortcutLauncher.exe"
+          Copy-Item "NandemoShortcut.ico" "$releaseDir\NandemoShortcut.ico"
+          Copy-Item "config.json" "$releaseDir\config.json"
+          Copy-Item "config.json" "$releaseDir\config.sample.json"
+          Copy-Item "LICENSE" "$releaseDir\LICENSE.txt"
+          Copy-Item "THIRD_PARTY_NOTICES.md" "$releaseDir\THIRD_PARTY_NOTICES.txt"
+          Copy-Item "README.md" "$releaseDir\README.txt"
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath "NandemoShortcut-$version.zip" -Force
+
+      - name: Upload GitHub Release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: NandemoShortcut-${{ github.ref_name }}.zip
+          generate_release_notes: true
+```
+
+この構成では、<Term>GitHub Actions</Term> がタグpushをきっかけにZIPを作成し、<Term>GitHub Releases</Term>へ添付します。
+
+## タグ作成と公開手順
+
+```powershell
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+タグpush後、<Term>GitHub Actions</Term> がReleaseを作成し、ZIPを添付します。
+
+`docs/index.html` 側は、公開済みReleaseのURLへリンクしておきます。
+
+## 注意点
+
+- <Term>GitHub Pages</Term> の初回有効化は、GitHub画面の `Settings > Pages` で行うのが確実
+- ActionsからPagesを自動有効化しようとすると、権限不足で失敗することがある
+- ZIP本体はGitにコミットしない
+- `.gitignore` に `*.zip` と配布フォルダを入れる
+- PagesのURLは反映まで数分かかる場合がある
+- `release.yml` で作るZIP構成と、手元で作る配布ZIP構成は同じ内容に保つ
+
+## 実際の活用事例
+
+なんでもショートカットでは、<Term>GitHub Pages</Term> を配布ページ、<Term>GitHub Releases</Term> をZIP配布先として使います。
+
+関連する開発事例:
+
+- [なんでもショートカット](/cases/nandemo-shortcut)
+
+配布ページ:
+
+- [なんでもショートカット配布ページ](https://yujifukami.github.io/NandemoShortCut/)
+
+## まとめ
+
+Windows向けEXEツールを公開する場合、紹介ページと配布ファイルを分けて考えると運用しやすくなります。
+
+<Term>GitHub Pages</Term> には紹介ページとダウンロード導線を置き、<Term>GitHub Releases</Term> にはバージョンごとのZIPを置きます。
+
+この構成にしておくと、ブログや開発事例からは配布ページへ誘導しつつ、GitHub側では過去バージョンの配布ファイルも管理できます。
