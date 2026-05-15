@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const codeSamples = {
+  "large-number-cube-sum-usage": `Call S_立法数の和が42確認`,
   "msg-input-check-usage": `If MsgInputCheck("ユーザー名", UserName, "パスワード", Password) = False Then
     Exit Sub
 End If`,
@@ -218,6 +219,7 @@ type SampleKey = keyof typeof codeSamples;
 type CopyCodeProps = {
   code?: string;
   sample?: SampleKey;
+  src?: string;
   language?: string;
   filename?: string;
 };
@@ -233,14 +235,37 @@ function escapeHtml(value: string) {
 export default function CopyCode({
   code,
   sample,
+  src,
   language = "text",
   filename,
 }: CopyCodeProps) {
   const [copied, setCopied] = useState(false);
+  const [remoteCode, setRemoteCode] = useState("");
+  const [loading, setLoading] = useState(Boolean(src));
   const resolvedCode = useMemo(() => {
+    if (src) return remoteCode;
     if (sample) return codeSamples[sample];
     return code ?? "";
-  }, [code, sample]);
+  }, [code, remoteCode, sample, src]);
+
+  useEffect(() => {
+    if (!src) return;
+
+    let ignore = false;
+    setLoading(true);
+    fetch(src)
+      .then((response) => response.text())
+      .then((text) => {
+        if (!ignore) setRemoteCode(text);
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [src]);
 
   async function handleCopy() {
     await navigator.clipboard.writeText(resolvedCode);
@@ -352,6 +377,7 @@ export default function CopyCode({
           <button
             type="button"
             onClick={handleOpenFullView}
+            disabled={!resolvedCode}
             className="rounded-md border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-white/20"
           >
             全体表示
@@ -359,6 +385,7 @@ export default function CopyCode({
           <button
             type="button"
             onClick={handleCopy}
+            disabled={!resolvedCode}
             className="rounded-md border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-white/20"
           >
             {copied ? "コピー済み" : "コピー"}
@@ -366,7 +393,7 @@ export default function CopyCode({
         </div>
       </div>
       <pre className="m-0 max-h-[560px] overflow-auto p-4 text-sm leading-relaxed text-gray-100">
-        <code>{resolvedCode}</code>
+        <code>{loading ? "コードを読み込み中..." : resolvedCode}</code>
       </pre>
     </div>
   );
