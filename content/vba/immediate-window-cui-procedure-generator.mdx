@@ -74,9 +74,18 @@ End Function
 
 ## コピー可能な実装コード
 
-下のコードは、`MCCP`、`ICMD1`、`ReceiveArg_MCCP`、コード生成用の補助関数、クリップボード格納処理を1つにまとめた貼り付け用パッケージです。
+下のコードは、`MCCP`、`ICMD1`、`ReceiveArg_MCCP`、`ShowCodeWindow`、コード生成用の補助関数、クリップボード格納処理を1つにまとめた貼り付け用パッケージです。
 
 これを標準モジュールに貼り付ければ、まず`MCCP`を実行し、イミディエイトウィンドウ上で`ICMD1 "..."`に入力値を入れていく流れを試せます。
+
+このコードは<Term>Scripting.Dictionary</Term>と<Term>VBIDE</Term>を使うため、VBEの「ツール」→「参照設定」で、少なくとも次の参照を有効にしてから使います。
+
+- `Microsoft Scripting Runtime`
+- `Microsoft Visual Basic for Applications Extensibility 5.3`
+
+`ShowCodeWindow`では`Application.VBE.Windows`を見てコードウィンドウを探し、`vbext_wt_CodeWindow`や`vbext_ws_Maximize`でウィンドウ種類と状態を判定します。そのため、VBIDE関連の参照がないと、コードウィンドウへ戻す処理でコンパイルエラーになります。
+
+![VBIDE参照設定を確認するための補足スクリーンショット](/articles/vba/immediate-window-cui-vbide-reference.png)
 
 <CopyCode language="vba" filename="ImmediateWindowCuiProcedureGenerator.bas" src="/articles/vba/immediate-window-cui-procedure-generator-package.bas" />
 
@@ -94,12 +103,15 @@ End Function
 
 コード生成では、Subなら`S_`または`S__`、Functionなら`Get_`または`Get__`のように接頭辞を付けています。PublicとPrivateで接頭辞を変えることで、あとからコードを読んだときに公開範囲を見分けやすくしています。
 
-最後に`ClipText`で生成コードをクリップボードへコピーし、`ShowCodeWindowDelay`でコードウィンドウへ戻す処理を予約しています。ここでは<Term>Application.OnTime</Term>を使い、イミディエイトウィンドウ上の処理が終わった直後に画面復帰処理を走らせる構成にしています。
+最後に`ClipText`で生成コードをクリップボードへコピーし、`ShowCodeWindowDelay`でコードウィンドウへ戻す処理を予約しています。ここでは<Term>Application.OnTime</Term>を使い、イミディエイトウィンドウ上の処理が終わった直後に`ShowCodeWindow`を走らせる構成にしています。
+
+`ShowCodeWindow`は、<Term>VBIDE</Term>のウィンドウ一覧を調べ、最大化されているコードウィンドウを見つけて`SetFocus`します。これにより、イミディエイトウィンドウで対話入力したあと、生成コードを貼り付けるコードウィンドウへ戻りやすくしています。
 
 ## 注意点
 
 - `SendKeys`はアクティブウィンドウに依存します。別の画面にフォーカスが移っていると、意図しない場所へキー入力が送られる可能性があります。
 - `Dictionary`を早期バインディングで使う場合は、VBEの参照設定で`Microsoft Scripting Runtime`が必要です。参照設定を避けたい場合は、`CreateObject("Scripting.Dictionary")`を使う設計に変えます。
+- `ShowCodeWindow`は`Application.VBE.Windows`を使うため、`Microsoft Visual Basic for Applications Extensibility 5.3`の参照が必要です。環境によっては、Excelのトラストセンターで「VBAプロジェクト オブジェクト モデルへのアクセスを信頼する」も確認します。
 - クリップボードを使うため、実行直前にコピーしていた内容は上書きされます。
 - この仕組みは開発者向けの補助マクロです。一般ユーザーへ配布する業務マクロではなく、自分のVBE操作を速くするための道具として扱うのが向いています。
 - `SendKeys`や画面復帰のタイミングは環境差が出やすいため、処理が不安定な場合は、入力補助部分とコード生成部分を分けて検証します。
@@ -109,6 +121,7 @@ End Function
 - [Microsoft Learn - SendKeys statement](https://learn.microsoft.com/office/vba/language/reference/user-interface-help/sendkeys-statement)
 - [Microsoft Learn - Application.OnTime method](https://learn.microsoft.com/office/vba/api/Excel.Application.OnTime)
 - [Microsoft Learn - Dictionary object](https://learn.microsoft.com/office/vba/language/reference/user-interface-help/dictionary-object)
+- [Microsoft Learn - Visual Basic Add-in Model](https://learn.microsoft.com/en-us/office/vba/language/reference/visual-basic-add-in-model)
 
 ## まとめ
 

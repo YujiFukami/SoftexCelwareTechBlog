@@ -1,4 +1,8 @@
-﻿' === Module: ModClipboard ===
+﻿' 参照設定: Microsoft Scripting Runtime
+' 参照設定: Microsoft Visual Basic for Applications Extensibility 5.3
+' クリップボード処理: Forms.TextBox.1 を使用
+
+' === Module: ModClipboard ===
 
 Private Pri_Arg1          As Variant
 
@@ -17,6 +21,7 @@ Private Pri_Dict_ArgName  As Dictionary
 Private Pri_Dict_ArgType  As Dictionary
 
 Private Pri_RunProcName   As String
+
 Public Sub ICMD1(Arg1 As Variant)
 'イミディエイトウィンドウで実行させて入力した引数をPri_Numに渡す
 '20250114
@@ -34,7 +39,7 @@ Public Sub MCCP(Optional Num As Long = 0)
     Dim Str_ArgCode   As String
     Dim Dict_ArgType  As Dictionary
     Pri_RunProcName = "ReceiveArg_MCCP"
-    
+
     If Num = 0 Then
         '全部初期化
         Pri_Scope = ""
@@ -44,36 +49,36 @@ Public Sub MCCP(Optional Num As Long = 0)
         Lng_ArgNum = 1
         Set Pri_Dict_ArgName = New Dictionary
         Set Pri_Dict_ArgType = New Dictionary
-    
+
         'スコープがPublicかPrivateか入力
         Debug.Print ""
         Debug.Print "PublicならPまたは[空白],PrivateならR"
         Debug.Print "ICMD1 " & """" & """"
         Call Set__InputArg
-        
+
         Pri_Num = 1
-    
+
     ElseIf Num = 1 Then
         'SubかFunctionプロシージャか入力
         Debug.Print ""
         Debug.Print "SubならSまたは[空白],FunctionならF"
         Debug.Print "ICMD1 " & """" & """"
         Call Set__InputArg
-        
+
         Pri_Num = 2
-    
+
     ElseIf Num = 2 Then
         'プロシージャ名入力
         Debug.Print ""
         Debug.Print "プロシージャ名入力"
         Debug.Print "ICMD1 " & """" & """"
         Call Set__InputArg
-        
+
         Pri_Num = 3
-    
+
     ElseIf Num = 3 Then
         'プロシージャの返り値入力(Functionのみ)
-            
+
         If Pri_SubFunction = "Function" Then
             Debug.Print ""
             Debug.Print "返り値の型の一部を入力"
@@ -87,13 +92,13 @@ Public Sub MCCP(Optional Num As Long = 0)
 
     ElseIf Num = 4 Then
         '引数の名前入力
-    
+
         Debug.Print ""
         Debug.Print "引数名" & Lng_ArgNum & "個目"
         Debug.Print "ICMD1 " & """" & """"
         Call Set__InputArg
         Pri_Num = 5
-        
+
     ElseIf Num = 5 Then
         '引数の型入力
         Debug.Print ""
@@ -102,7 +107,7 @@ Public Sub MCCP(Optional Num As Long = 0)
         Call Set__InputArg
         Lng_ArgNum = Lng_ArgNum + 1
         Pri_Num = 6
-    
+
     ElseIf Num = 6 Then
         'コード生成
         Str_ArgCode = Conv__ArgCode(Pri_Dict_ArgName, Pri_Dict_ArgType)
@@ -112,22 +117,22 @@ Public Sub MCCP(Optional Num As Long = 0)
             Else
                 Pri_ProcedureName = "S__" & Pri_ProcedureName
             End If
-            
+
             Code = Pri_Scope & " " & Pri_SubFunction & " " & Pri_ProcedureName & "(" & Str_ArgCode & ")"
-            
+
         Else
             If Pri_Scope = "Public" Then
                 Pri_ProcedureName = "Get_" & Pri_ProcedureName
             Else
                 Pri_ProcedureName = "Get__" & Pri_ProcedureName
             End If
-            
+
             Code = Pri_Scope & " " & Pri_SubFunction & " " & Pri_ProcedureName & "(" & Str_ArgCode & ")" & " As " & Pri_ReturnType
-            
+
         End If
-        
+
         Code = Code & vbLf & "'" & Format(Date, "YYYYMMDD")
-        
+
         If Pri_SubFunction = "Function" Then
             Set Dict_ArgType = Get__DictArgType
             Code = Code & vbLf
@@ -141,24 +146,24 @@ Public Sub MCCP(Optional Num As Long = 0)
                 Code = Code & vbLf & "    " & "Set " & Pri_ProcedureName & " = "
             End If
         End If
-        
+
         Code = Code & vbLf
         Code = Code & vbLf & "End " & Pri_SubFunction
-            
+
         Debug.Print ""
         Debug.Print "コードを生成してクリップボードに格納しました"
         Debug.Print Code
-        
+
         Call ClipText(Code)
         Call ShowCodeWindowDelay
     End If
-        
+
 End Sub
 
 Public Sub ReceiveArg_MCCP(Num As Long)
 'ICMD1で入力されたPri_Arg1を受け取って生成コードの部品を各Private変数に格納する
 '20250114
-    
+
     Dim Str_ArgName As String
     Dim Str_ArgType As String
     If Num = 1 Then
@@ -167,32 +172,32 @@ Public Sub ReceiveArg_MCCP(Num As Long)
         Else
             Pri_Scope = "Public"
         End If
-            
+
         Debug.Print "スコープ：" & Pri_Scope
         Call MCCP(1)
-        
+
     ElseIf Num = 2 Then
         If Pri_Arg1 = "F" Then
             Pri_SubFunction = "Function"
         Else
             Pri_SubFunction = "Sub"
         End If
-        
+
         Debug.Print "種類：" & Pri_SubFunction & "プロシージャ"
         Call MCCP(2)
-    
+
     ElseIf Num = 3 Then
         Pri_ProcedureName = Pri_Arg1
-        
+
         Debug.Print "プロシージャ名：" & Pri_ProcedureName
         Call MCCP(3)
-        
+
     ElseIf Num = 4 Then
         Pri_ReturnType = Conv__ValueType(CStr(Pri_Arg1))
-        
+
         Debug.Print "返り値型：" & Pri_ReturnType
         Call MCCP(4)
-    
+
     ElseIf Num = 5 Then
         Str_ArgName = Pri_Arg1
         If Str_ArgName <> "" Then
@@ -202,28 +207,28 @@ Public Sub ReceiveArg_MCCP(Num As Long)
         Else
             Call MCCP(6)
         End If
-        
+
     ElseIf Num = 6 Then
         Str_ArgType = Pri_Arg1
         Str_ArgType = Conv__ValueType(Str_ArgType)
         Pri_Dict_ArgType.Add CStr(Pri_Dict_ArgType.Count + 1), Str_ArgType
         Debug.Print "引数型：" & Str_ArgType
         Call MCCP(4)
-        
+
     End If
 End Sub
 
 Private Function Conv__ArgCode(ByRef Dict_ArgName As Dictionary, _
                                ByRef Dict_ArgType As Dictionary) _
                                                   As String
-    
+
     If Dict_ArgName.Count = 0 Then
         Exit Function
     End If
-    
+
     Dim List_ArgName As Variant: List_ArgName = Dict_ArgName.Items
     Dim List_ArgType As Variant: List_ArgType = Dict_ArgType.Items
-    
+
     Dim I           As Long
     Dim Str_ArgName As String
     Dim Str_ArgType As String
@@ -237,17 +242,17 @@ Private Function Conv__ArgCode(ByRef Dict_ArgName As Dictionary, _
             Output = Output & ", " & Str_ArgName & " As " & Str_ArgType
         End If
     Next
-    
+
     Conv__ArgCode = Output
-    
+
 End Function
 
 Private Function Conv__ValueType(Str_Input As String) As String
     Dim Dict_Type As Dictionary: Set Dict_Type = Get__DictArgType
-    
+
     Dim List_Type As Variant: List_Type = Dict_Type.Keys
     List_Type = WorksheetFunction.Transpose(WorksheetFunction.Transpose(List_Type))
-    
+
     Dim Output   As String
     Dim I        As Long
     Dim Tmp_Type As String
@@ -258,13 +263,13 @@ Private Function Conv__ValueType(Str_Input As String) As String
             Exit For
         End If
     Next
-    
+
     If Output = "" Then
         Output = Str_Input
     End If
-    
+
     Conv__ValueType = Output
-    
+
 End Function
 
 Private Function Get__DictArgType() As Dictionary
@@ -280,7 +285,7 @@ Private Function Get__DictArgType() As Dictionary
     Dict_Type.Add "Worksheet", "Set"
     Dict_Type.Add "Workbook", "Set"
     Dict_Type.Add "Shape", "Set"
-    
+
     '全て小文字、大文字も追加しておく
     Dim List_Type As Variant: List_Type = Dict_Type.Keys
     List_Type = WorksheetFunction.Transpose(WorksheetFunction.Transpose(List_Type))
@@ -291,7 +296,7 @@ Private Function Get__DictArgType() As Dictionary
         Dict_Type.Add StrConv(Str_Type, vbUpperCase), Dict_Type(Str_Type)
         Dict_Type.Add StrConv(Str_Type, vbLowerCase), Dict_Type(Str_Type)
     Next
-     
+
     Set Get__DictArgType = Dict_Type
 End Function
 
@@ -300,7 +305,7 @@ Private Sub Set__InputArg()
 '    Dim WshShell As New WshShell
     Dim WshShell As Object
     Set WshShell = CreateObject("WScript.Shell")
-    
+
     Call WshShell.SendKeys("^G")
     Call WshShell.SendKeys("{LEFT}")
     Call WshShell.SendKeys("{LEFT}")
@@ -313,7 +318,7 @@ Public Sub ClipText(ByVal Text As String)
 
 '引数
 'Text・・・クリップボードに格納するテキスト
-    
+
     'クリップボードに格納
     With CreateObject("Forms.TextBox.1")
         .MultiLine = True
@@ -322,16 +327,45 @@ Public Sub ClipText(ByVal Text As String)
         .SelLength = .TextLength
         .Copy
     End With
-    
+
 End Sub
 
 ' === Module: ModOther ===
+
+Public Sub ShowCodeWindow()
+'コードウィンドウを表示する
+'20251007
+
+    Dim Time As Double: Time = Timer
+    Do
+        DoEvents
+        If (Timer - Time) > 0.05 Then '0.05秒過ぎたら抜ける
+            Exit Do
+        End If
+    Loop
+
+    'コードウィンドウを探して表示
+    Dim Window As Object
+    For Each Window In Application.VBE.Windows
+        On Error Resume Next
+        If Window.Type = vbext_wt_CodeWindow And Window.WindowState = vbext_ws_Maximize Then
+            'コードウィンドウかつ最大表示のものを条件とする
+            On Error GoTo 0
+'            Debug.Print Window.Caption'開発確認用
+            'コードウィンドウかつ、最大表示状態のもの
+            Window.Visible = True
+            Window.SetFocus '前面に
+            Exit For
+        End If
+        On Error GoTo 0
+    Next
+End Sub
 
 Public Sub ShowCodeWindowDelay()
 '少し送らせてから「ShowCodeWindow」を実行する
 'イミディエイトウィンドウから実行する場合はこの処理を行わないとイミディエイトウィンドウに残ったままになる
 '20251007
-    
+
 '    Dim Time_    As Date: Time_ = Now() + TimeSerial(0, 0, 1) / 100 '少し遅らせる
 '    Dim Time_    As Date: Time_ = Now() '検証したらこれでも上手くいく。理由はわからん。
 '    Dim Time_    As Date: Time_ = Now() + TimeSerial(0, 0, 1) '少し遅らせる(なぜか↑で上手くいかなくなった)'20251030
@@ -339,9 +373,7 @@ Public Sub ShowCodeWindowDelay()
     Dim BookName As String: BookName = ThisWorkbook.Name
     Dim ProcName As String: ProcName = "ShowCodeWindow"
     Dim FullProc As String: FullProc = BookName & "!" & ProcName
-    
+
     Call Application.OnTime(EarliestTime:=Time_, Procedure:=FullProc, Schedule:=True)
-    
+
 End Sub
-
-
