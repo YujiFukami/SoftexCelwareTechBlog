@@ -35,7 +35,7 @@ date: "2026-05-16"
 1. VBEで`MCCP`を実行する
 2. イミディエイトウィンドウに表示された案内に従って、短い文字を入力する
 3. `ICMD1 "R"`や`ICMD1 "Cell"`のような形で入力値を渡す
-4. マクロ側で入力値を受け取り、次の質問へ進む
+4. `ICMD1`が入力値を受け取り、`ReceiveArg_MCCP`へ渡す
 5. 必要な情報がそろったら、プロシージャコードを生成する
 6. 生成コードをクリップボードへ入れ、コードウィンドウに戻って貼り付ける
 
@@ -74,23 +74,23 @@ End Function
 
 ## コピー可能な実装コード
 
-`MCCP.bas`は、質問の表示、入力状態の管理、コード文字列の組み立て、クリップボード格納を担当します。
+下のコードは、`MCCP`、`ICMD1`、`ReceiveArg_MCCP`、コード生成用の補助関数、クリップボード格納処理を1つにまとめた貼り付け用パッケージです。
 
-<CopyCode language="vba" filename="MCCP.bas" src="/articles/vba/immediate-window-cui-procedure-generator-mccp.bas" />
+これを標準モジュールに貼り付ければ、まず`MCCP`を実行し、イミディエイトウィンドウ上で`ICMD1 "..."`に入力値を入れていく流れを試せます。
 
-`ICMD1.bas`は、イミディエイトウィンドウから入力した値を受け取り、現在の入力ステップに応じた処理へ戻すための入口です。
-
-<CopyCode language="vba" filename="ICMD1.bas" src="/articles/vba/immediate-window-cui-procedure-generator-icmd1.bas" />
+<CopyCode language="vba" filename="ImmediateWindowCuiProcedureGenerator.bas" src="/articles/vba/immediate-window-cui-procedure-generator-package.bas" />
 
 ## 仕組みのポイント
 
-`MCCP`は、入力ステップを`Pri_Num`で管理しています。最初はスコープ、次にSubかFunction、次にプロシージャ名、Functionの場合は戻り値型、次に引数名、引数型という順番で進みます。
+`MCCP`は、質問を表示し、入力ステップを`Pri_Num`で管理する本体です。最初はスコープ、次にSubかFunction、次にプロシージャ名、Functionの場合は戻り値型、次に引数名、引数型という順番で進みます。
 
 入力を求めるたびに<Term>Debug.Print</Term>で説明文と`ICMD1 ""`の形を出し、`Set__InputArg`でイミディエイトウィンドウへカーソルを移動しやすくしています。ここで<Term>SendKeys</Term>を使い、`Ctrl + G`でイミディエイトウィンドウへ移動し、カーソル位置を入力しやすい場所へ戻しています。
 
-ユーザーが`ICMD1 "R"`のように入力すると、`ICMD1`が入力値を受け取り、`Application.Run`で次の処理を呼び出します。これにより、イミディエイトウィンドウを「質問に答えていく入力欄」のように使えます。
+ユーザーが`ICMD1 "R"`のように入力すると、`ICMD1`が入力値を`Pri_Arg1`へ一時保存し、`Application.Run`で`ReceiveArg_MCCP`を呼び出します。`ReceiveArg_MCCP`は、現在の`Pri_Num`に応じて、その入力がスコープなのか、プロシージャ種類なのか、プロシージャ名なのか、戻り値型なのか、引数名なのかを判定し、対応するPrivate変数へ格納します。これにより、イミディエイトウィンドウを「質問に答えていく入力欄」のように使えます。
 
-引数名と引数型は<Term>Scripting.Dictionary</Term>に保持しています。複数の引数を受け付けるため、`引数名1`、`引数型1`、`引数名2`、`引数型2`という形で入力を続け、空欄が入ったところでコード生成へ進む設計です。
+引数名と引数型は<Term>Scripting.Dictionary</Term>に保持しています。複数の引数を受け付けるため、`引数名1`、`引数型1`、`引数名2`、`引数型2`という形で入力を続け、空欄が入ったところでコード生成へ進む設計です。記事掲載用の統合版では、同じ型の引数を複数指定しても重複しないように、入力順の番号をキーにして引数名と引数型を保存しています。
+
+`Conv__ValueType`は、`R`のような短い入力から`Range`などの型名を探す補助関数です。`Get__DictArgType`に登録した型名の中から部分一致で探すため、型名を毎回フル入力しなくても、短い文字で戻り値型や引数型を指定できます。
 
 コード生成では、Subなら`S_`または`S__`、Functionなら`Get_`または`Get__`のように接頭辞を付けています。PublicとPrivateで接頭辞を変えることで、あとからコードを読んだときに公開範囲を見分けやすくしています。
 

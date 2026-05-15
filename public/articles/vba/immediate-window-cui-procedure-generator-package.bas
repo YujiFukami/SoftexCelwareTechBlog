@@ -1,5 +1,7 @@
 ﻿' === Module: ModClipboard ===
 
+Private Pri_Arg1          As Variant
+
 Private Pri_Num           As Long
 
 Private Pri_Scope         As String
@@ -15,6 +17,13 @@ Private Pri_Dict_ArgName  As Dictionary
 Private Pri_Dict_ArgType  As Dictionary
 
 Private Pri_RunProcName   As String
+Public Sub ICMD1(Arg1 As Variant)
+'イミディエイトウィンドウで実行させて入力した引数をPri_Numに渡す
+'20250114
+
+    Pri_Arg1 = Arg1
+    Call Application.Run(Pri_RunProcName, Pri_Num)
+End Sub
 
 Public Sub MCCP(Optional Num As Long = 0)
 '20250114
@@ -146,6 +155,64 @@ Public Sub MCCP(Optional Num As Long = 0)
         
 End Sub
 
+Public Sub ReceiveArg_MCCP(Num As Long)
+'ICMD1で入力されたPri_Arg1を受け取って生成コードの部品を各Private変数に格納する
+'20250114
+    
+    Dim Str_ArgName As String
+    Dim Str_ArgType As String
+    If Num = 1 Then
+        If Pri_Arg1 = "R" Or Pri_Arg1 = "r" Then
+            Pri_Scope = "Private"
+        Else
+            Pri_Scope = "Public"
+        End If
+            
+        Debug.Print "スコープ：" & Pri_Scope
+        Call MCCP(1)
+        
+    ElseIf Num = 2 Then
+        If Pri_Arg1 = "F" Then
+            Pri_SubFunction = "Function"
+        Else
+            Pri_SubFunction = "Sub"
+        End If
+        
+        Debug.Print "種類：" & Pri_SubFunction & "プロシージャ"
+        Call MCCP(2)
+    
+    ElseIf Num = 3 Then
+        Pri_ProcedureName = Pri_Arg1
+        
+        Debug.Print "プロシージャ名：" & Pri_ProcedureName
+        Call MCCP(3)
+        
+    ElseIf Num = 4 Then
+        Pri_ReturnType = Conv__ValueType(CStr(Pri_Arg1))
+        
+        Debug.Print "返り値型：" & Pri_ReturnType
+        Call MCCP(4)
+    
+    ElseIf Num = 5 Then
+        Str_ArgName = Pri_Arg1
+        If Str_ArgName <> "" Then
+            Pri_Dict_ArgName.Add CStr(Pri_Dict_ArgName.Count + 1), Str_ArgName
+            Debug.Print "引数名：" & Str_ArgName
+            Call MCCP(5)
+        Else
+            Call MCCP(6)
+        End If
+        
+    ElseIf Num = 6 Then
+        Str_ArgType = Pri_Arg1
+        Str_ArgType = Conv__ValueType(Str_ArgType)
+        Pri_Dict_ArgType.Add CStr(Pri_Dict_ArgType.Count + 1), Str_ArgType
+        Debug.Print "引数型：" & Str_ArgType
+        Call MCCP(4)
+        
+    End If
+End Sub
+
 Private Function Conv__ArgCode(ByRef Dict_ArgName As Dictionary, _
                                ByRef Dict_ArgType As Dictionary) _
                                                   As String
@@ -154,19 +221,17 @@ Private Function Conv__ArgCode(ByRef Dict_ArgName As Dictionary, _
         Exit Function
     End If
     
-    Dim List_ArgName As Variant: List_ArgName = Dict_ArgName.Keys
-    Dim List_ArgType As Variant: List_ArgType = Dict_ArgType.Keys
-    List_ArgName = WorksheetFunction.Transpose(WorksheetFunction.Transpose(List_ArgName))
-    List_ArgType = WorksheetFunction.Transpose(WorksheetFunction.Transpose(List_ArgType))
+    Dim List_ArgName As Variant: List_ArgName = Dict_ArgName.Items
+    Dim List_ArgType As Variant: List_ArgType = Dict_ArgType.Items
     
     Dim I           As Long
     Dim Str_ArgName As String
     Dim Str_ArgType As String
     Dim Output      As String
-    For I = 1 To UBound(List_ArgName, 1)
+    For I = 0 To UBound(List_ArgName)
         Str_ArgName = List_ArgName(I)
         Str_ArgType = List_ArgType(I)
-        If I = 1 Then
+        If I = 0 Then
             Output = Str_ArgName & " As " & Str_ArgType
         Else
             Output = Output & ", " & Str_ArgName & " As " & Str_ArgType
@@ -174,6 +239,31 @@ Private Function Conv__ArgCode(ByRef Dict_ArgName As Dictionary, _
     Next
     
     Conv__ArgCode = Output
+    
+End Function
+
+Private Function Conv__ValueType(Str_Input As String) As String
+    Dim Dict_Type As Dictionary: Set Dict_Type = Get__DictArgType
+    
+    Dim List_Type As Variant: List_Type = Dict_Type.Keys
+    List_Type = WorksheetFunction.Transpose(WorksheetFunction.Transpose(List_Type))
+    
+    Dim Output   As String
+    Dim I        As Long
+    Dim Tmp_Type As String
+    For I = 1 To UBound(List_Type, 1)
+        Tmp_Type = List_Type(I)
+        If InStr(Tmp_Type, Str_Input) > 0 Then
+            Output = Tmp_Type
+            Exit For
+        End If
+    Next
+    
+    If Output = "" Then
+        Output = Str_Input
+    End If
+    
+    Conv__ValueType = Output
     
 End Function
 
