@@ -1,0 +1,117 @@
+---
+title: "Excel VBAのイミディエイトウィンドウをCUIのように使ってプロシージャコードを半自動生成する"
+category: "vba"
+slug: "immediate-window-cui-procedure-generator"
+tags: ["Excel VBA", "イミディエイトウィンドウ", "コード生成", "SendKeys", "クリップボード"]
+description: "VBEのイミディエイトウィンドウを簡易CUIとして使い、短い入力だけでSubやFunctionのプロシージャひな形を生成してクリップボードへ格納するVBA開発支援テクニックです。"
+date: "2026-05-16"
+---
+
+## 概要
+
+このテクニックは、<Term>Excel VBA</Term>の<Term>イミディエイトウィンドウ</Term>を、簡易的な<Term>CUI</Term>として使う発想です。
+
+通常、VBAで新しいプロシージャを書くときは、`Public Sub ...`、`Private Function ... As Range`、引数名、引数の型、戻り値の代入行などを毎回手で入力します。入力候補が効きにくい場面もあり、短い処理を量産するときほど、細かな定型入力が積み重なります。
+
+そこで、専用マクロ`MCCP`を起動し、イミディエイトウィンドウ上で短い文字だけを入力していきます。たとえば、`P`なら`Public`、`R`なら`Private`、`S`なら`Sub`、`F`なら`Function`というように省略入力し、プロシージャ名、戻り値の型、引数名、引数型を順番に指定します。
+
+最後に生成されたプロシージャコードは<Term>クリップボード</Term>へ格納されるため、コードウィンドウに戻って貼り付ければ、ひな形作成をかなり省力化できます。
+
+## 使う場面
+
+- VBAのSubやFunctionを何度も作る
+- `Public`、`Private`、`Function`、`As Range`などの定型入力を短縮したい
+- プロシージャ名の接頭辞や戻り値代入行を、一定ルールでそろえたい
+- 開発中だけ使う補助マクロとして、軽いコード生成ツールを作りたい
+
+## 処理イメージ図
+
+この例では、`MCCP`を実行してから、イミディエイトウィンドウ上でスコープ、種類、名前、戻り値、引数を入力します。生成されたコードはクリップボードに入るため、コードウィンドウへ貼り付けて続きを書けます。
+
+![イミディエイトウィンドウをCUIのように使い、プロシージャコードを半自動生成して貼り付ける流れ](/articles/vba/immediate-window-cui-procedure-generator-flow.jpg)
+
+## 操作の流れ
+
+1. VBEで`MCCP`を実行する
+2. イミディエイトウィンドウに表示された案内に従って、短い文字を入力する
+3. `ICMD1 "R"`や`ICMD1 "Cell"`のような形で入力値を渡す
+4. マクロ側で入力値を受け取り、次の質問へ進む
+5. 必要な情報がそろったら、プロシージャコードを生成する
+6. 生成コードをクリップボードへ入れ、コードウィンドウに戻って貼り付ける
+
+実際の操作イメージは次の動画で確認できます。
+
+<video controls preload="metadata" className="my-6 w-full rounded-lg border border-gray-200 bg-black">
+  <source src="/articles/vba/immediate-window-cui-procedure-generator-demo.mp4" type="video/mp4" />
+</video>
+
+## 使用例
+
+たとえば、`Private Function Get__何かセルを参照(Cell As Range) As Range`のようなプロシージャを作る場合、毎回すべてを手入力せず、イミディエイトウィンドウで次のような情報だけを順番に入れていきます。
+
+```text
+スコープ: R
+種類: F
+プロシージャ名: 何かセルを参照
+戻り値型: R
+引数名1: Cell
+引数型1: R
+引数名2: 空欄
+```
+
+この入力から、次のようなひな形が生成されます。
+
+```vba
+Private Function Get__何かセルを参照(Cell As Range) As Range
+'20260516
+
+    Set Get__何かセルを参照 =
+
+End Function
+```
+
+戻り値が`Range`や`Worksheet`のようなオブジェクト型の場合は、代入行に`Set`を付けるようにしている点も実務向けです。戻り値の型に応じて、`Set`が必要なものと不要なものを分けることで、貼り付け後に直す量を減らしています。
+
+## コピー可能な実装コード
+
+`MCCP.bas`は、質問の表示、入力状態の管理、コード文字列の組み立て、クリップボード格納を担当します。
+
+<CopyCode language="vba" filename="MCCP.bas" src="/articles/vba/immediate-window-cui-procedure-generator-mccp.bas" />
+
+`ICMD1.bas`は、イミディエイトウィンドウから入力した値を受け取り、現在の入力ステップに応じた処理へ戻すための入口です。
+
+<CopyCode language="vba" filename="ICMD1.bas" src="/articles/vba/immediate-window-cui-procedure-generator-icmd1.bas" />
+
+## 仕組みのポイント
+
+`MCCP`は、入力ステップを`Pri_Num`で管理しています。最初はスコープ、次にSubかFunction、次にプロシージャ名、Functionの場合は戻り値型、次に引数名、引数型という順番で進みます。
+
+入力を求めるたびに<Term>Debug.Print</Term>で説明文と`ICMD1 ""`の形を出し、`Set__InputArg`でイミディエイトウィンドウへカーソルを移動しやすくしています。ここで<Term>SendKeys</Term>を使い、`Ctrl + G`でイミディエイトウィンドウへ移動し、カーソル位置を入力しやすい場所へ戻しています。
+
+ユーザーが`ICMD1 "R"`のように入力すると、`ICMD1`が入力値を受け取り、`Application.Run`で次の処理を呼び出します。これにより、イミディエイトウィンドウを「質問に答えていく入力欄」のように使えます。
+
+引数名と引数型は<Term>Scripting.Dictionary</Term>に保持しています。複数の引数を受け付けるため、`引数名1`、`引数型1`、`引数名2`、`引数型2`という形で入力を続け、空欄が入ったところでコード生成へ進む設計です。
+
+コード生成では、Subなら`S_`または`S__`、Functionなら`Get_`または`Get__`のように接頭辞を付けています。PublicとPrivateで接頭辞を変えることで、あとからコードを読んだときに公開範囲を見分けやすくしています。
+
+最後に`ClipText`で生成コードをクリップボードへコピーし、`ShowCodeWindowDelay`でコードウィンドウへ戻す処理を予約しています。ここでは<Term>Application.OnTime</Term>を使い、イミディエイトウィンドウ上の処理が終わった直後に画面復帰処理を走らせる構成にしています。
+
+## 注意点
+
+- `SendKeys`はアクティブウィンドウに依存します。別の画面にフォーカスが移っていると、意図しない場所へキー入力が送られる可能性があります。
+- `Dictionary`を早期バインディングで使う場合は、VBEの参照設定で`Microsoft Scripting Runtime`が必要です。参照設定を避けたい場合は、`CreateObject("Scripting.Dictionary")`を使う設計に変えます。
+- クリップボードを使うため、実行直前にコピーしていた内容は上書きされます。
+- この仕組みは開発者向けの補助マクロです。一般ユーザーへ配布する業務マクロではなく、自分のVBE操作を速くするための道具として扱うのが向いています。
+- `SendKeys`や画面復帰のタイミングは環境差が出やすいため、処理が不安定な場合は、入力補助部分とコード生成部分を分けて検証します。
+
+## 参考
+
+- [Microsoft Learn - SendKeys statement](https://learn.microsoft.com/office/vba/language/reference/user-interface-help/sendkeys-statement)
+- [Microsoft Learn - Application.OnTime method](https://learn.microsoft.com/office/vba/api/Excel.Application.OnTime)
+- [Microsoft Learn - Dictionary object](https://learn.microsoft.com/office/vba/language/reference/user-interface-help/dictionary-object)
+
+## まとめ
+
+イミディエイトウィンドウは、単なるデバッグ出力欄としてだけでなく、短いコマンドを入力して開発補助処理を進めるための簡易CUIとしても使えます。
+
+今回の`MCCP`のように、スコープ、種類、名前、戻り値、引数だけを入力してプロシージャひな形を作れるようにしておくと、VBAの定型入力を減らせます。コード生成の範囲を「完成コード」ではなく「貼り付けてすぐ続きを書けるひな形」に絞っているため、実務開発にも取り入れやすい補助テクニックです。
