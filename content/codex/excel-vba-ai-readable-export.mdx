@@ -1,0 +1,204 @@
+---
+title: "Excel VBA自動化コードをAIに読みやすく分離する流れ"
+category: "codex"
+slug: "excel-vba-ai-readable-export"
+tags: ["Excel VBA", "AIコーディング", "コード解析", "Markdown", "JSON", "開発資産"]
+description: "Excel VBAのマクロブックを、AIが読みやすいsummary、risk_report、article_candidatesへ分離し、技術記事化や再利用判断につなげる流れを解説します。"
+date: "2026-05-16"
+---
+
+## はじめに
+
+<Term>Excel VBA</Term>の開発では、便利なマクロや汎用プロシージャが少しずつ増えていきます。ところが、長く使っているブックほど、標準モジュール、<Term>UserForm</Term>、クラス、シートコード、参照ライブラリが混ざり、あとから「どこに何があるか」を確認しにくくなります。
+
+AIに解析を依頼する場合も、`.xlsm` をそのまま渡すだけでは中身を読み取りにくく、案件固有情報や個人情報が混ざるリスクもあります。
+
+そこで、Excel VBAブックをAIが読みやすい単位へ分離し、次のようなファイルに整理する流れを作りました。
+
+- `summary.md`: 全体構成と技術トピックを確認する
+- `risk_report.md`: 公開前に確認すべき文字列を洗い出す
+- `article_candidates.md`: 記事化・資産化できそうな候補を整理する
+- `workbook_info.json`: ファイル構成を機械的に扱える形で残す
+
+この記事では、この分離フローの考え方を説明します。
+
+## こんな場面で使えます
+
+- 既存のExcel VBA資産を棚卸ししたい
+- VBAコードをAIに読ませて、記事化候補や部品化候補を探したい
+- マクロブック内の標準モジュール、UserForm、クラスを一覧化したい
+- 公開前に、実パス、顧客名、個人情報、トークン類が混ざっていないか確認したい
+- 開発で得たノウハウをテックブログや開発資産フォルダへ整理したい
+
+## 基本の考え方
+
+最初からAIにブック全体を丸ごと渡すのではなく、先に人間にもAIにも読みやすい単位へ分けます。
+
+```text
+SampleVbaWorkbook.xlsm
+  |
+  v
+exported-vba/
+  modules/
+  classes/
+  forms/
+  sheets/
+  references.txt
+  |
+  v
+analysis-output/
+  summary.md
+  risk_report.md
+  article_candidates.md
+  workbook_info.json
+```
+
+重要なのは、解析対象と公開用素材を分けることです。実案件のブックをそのまま記事に使うのではなく、公開用にはサンプルブックへ置き換えます。
+
+## 分離する単位
+
+Excel VBAブックは、最低限次の単位で分けると扱いやすくなります。
+
+| 分類 | 例 | 見たいこと |
+|---|---|---|
+| 標準モジュール | `Mod01_Sample.bas` | 汎用プロシージャ、集計、ファイル操作 |
+| クラス | `clsSample.cls` | 状態を持つ処理、イベント処理 |
+| UserForm | `frmSample.frm` | 入力補助UI、動的ボタン、フォーム制御 |
+| シート情報 | `Sheet1.md` | シート名、見出し、使われ方 |
+| 参照ライブラリ | `references.txt` | Scripting、MSForms、VBIDEなどの依存 |
+
+この単位に分けると、「どの技術が含まれているか」「どこに公開リスクがあるか」「どの記事にできるか」を分けて判断できます。
+
+## `summary.md` に残す内容
+
+`summary.md` は、最初に読む概要ファイルです。
+
+```markdown
+# Excel VBA Export Summary
+
+- ファイル数: 15
+- 公開リスク検出: 0件
+
+## ファイル構成
+
+### standard_module
+- Mod01_Sample.bas
+- Mod99_Common.bas
+
+### user_form
+- frmSampleInput.frm
+
+## 技術トピック候補
+
+### UserForm UI
+- frmSampleInput.frm
+
+### 配列処理
+- Mod99_Common.bas
+```
+
+AIに依頼するときは、まずこのファイルを渡すだけでも、ブックの全体像をつかみやすくなります。
+
+## `risk_report.md` で公開前チェックを分離する
+
+Excel VBAのコードには、意図せず次の情報が入ることがあります。
+
+- `C:\Users\...` のような実パス
+- 顧客名、会社名、案件名
+- メールアドレス、電話番号
+- APIキー、トークン、パスワード
+- 実データ名や業務固有のシート名
+
+そこで、本文や記事候補とは別に `risk_report.md` を出します。
+
+```markdown
+# Risk Report
+
+公開前に確認すべき文字列は検出されませんでした。
+```
+
+検出がある場合は、すぐに記事化せず、サンプル名へ置換します。たとえば `C:\Users\...\案件A\売上集計.xlsm` のような文字列は、記事では `SampleVbaWorkbook.xlsm` に置き換えます。
+
+## `article_candidates.md` で記事化候補を出す
+
+分離したコードを見て、技術トピック候補を抽出します。
+
+今回のサンプルでは、次のような候補が出ました。
+
+- <Term>配列</Term>処理
+- UserForm UI
+- 入力チェック
+- <Term>クリップボード</Term>
+- ドロップダウン
+- Excel自動化
+- ファイル操作
+
+この時点では、まだ記事本文にしません。まず候補台帳に登録し、公開リスク、優先度、既存記事との重複を確認します。
+
+## 実装イメージ
+
+今回の初期プロトタイプでは、分離済みフォルダを読み取り、<Term>Markdown</Term>と<Term>JSON</Term>を出力する形にしました。
+
+```powershell
+python .\Codex\tools\excel_vba_export_analyzer\analyze_vba_export.py `
+  --input ".\exported-vba\SampleVbaWorkbook_分離" `
+  --output ".\analysis-output\sample-workbook"
+```
+
+出力は次のようになります。
+
+```text
+analysis-output/
+  sample-workbook/
+    summary.md
+    risk_report.md
+    article_candidates.md
+    workbook_info.json
+```
+
+ここでは、Excel本体やマクロを起動しません。既に分離済みの `.bas`、`.cls`、`.frm`、`.txt` を読むだけです。
+
+## 記事化までの流れ
+
+この仕組みは、単なる解析ツールではなく、開発資産化の入口として使えます。
+
+```text
+1. Excel VBAブックを分離する
+2. summary.mdで全体を見る
+3. risk_report.mdで公開リスクを見る
+4. article_candidates.mdで候補を出す
+5. 候補台帳へ登録する
+6. サンプル化したうえで記事にする
+```
+
+特に、実案件由来のブックを扱う場合は、3番を飛ばさないことが重要です。技術的に有用な処理でも、顧客名や業務名が見える形では公開できません。
+
+## この流れで得られる効果
+
+1つ目は、AIに渡す情報が整理されることです。大きなコードを丸ごと渡すより、概要、リスク、候補に分けた方が、次の指示が出しやすくなります。
+
+2つ目は、公開前の安全確認を作業フローに組み込めることです。記事を書いた後に慌てて探すのではなく、最初にリスク候補を分離できます。
+
+3つ目は、既存VBA資産をテックブログや社内資産へ変換しやすくなることです。単なるコードの保存ではなく、「どの処理が再利用できるか」「どれを記事にするか」を見つけやすくなります。
+
+## 注意点
+
+- 実案件のブック名、フォルダ名、シート名はそのまま公開しない
+- コード全文を出す場合は、必ずサンプル化する
+- 参照URLはリスクではなく参考情報として扱う
+- `risk_report.md` が0件でも、最終的な目視確認は省略しない
+- `.xlsm` から直接VBAを抽出する処理は、Excel/VBIDEの設定や権限が絡むため別段階で扱う
+
+## 関連する次の確認
+
+この流れで抽出した候補からは、UserForm UIの部品化、配列処理の共通化、入力チェック、クリップボード連携などの記事候補を作れます。
+
+また、開発で得た知見を残す考え方は、[開発で作った処理を再利用資産に育てる部品化ポリシー](/articles/codex/development-asset-policy) と組み合わせると運用しやすくなります。AIに渡す固定ルールを整理したい場合は、[AIコーディングでAGENTS.mdを運用ルールとして使う方法](/articles/codex/agents-operational-rules) も関連します。
+
+## まとめ
+
+Excel VBAの資産は、ブックの中に閉じたままだと再利用しにくくなります。
+
+先に `summary.md`、`risk_report.md`、`article_candidates.md` に分けておくと、AIに読ませる、公開リスクを確認する、記事化候補を出す、という流れを安定させられます。
+
+今回のような分離フローを挟むことで、日々のVBA開発で得たノウハウを、次の開発やテックブログへつなげやすくなります。
