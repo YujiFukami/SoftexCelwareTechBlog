@@ -90,5 +90,6 @@ export const categoryLabels: Record<string, string> = {
   wpf: "WPF デスクトップUI",
   "code-analysis": "コード解析エンジン",
   codex: "Codex・AI開発運用",
+  seo: "SEO改善・集客導線",
   vba: "Excel VBA",
 };
