@@ -1,0 +1,82 @@
+---
+title: "VSTOのClickOnce発行でRuntimeIdentifiers 'win' エラーが出たときの対策"
+category: "vsto"
+slug: "clickonce-runtimeidentifiers-win-error"
+tags: ["VSTO", "ClickOnce", ".NET Framework", "NuGet", "RuntimeIdentifier"]
+description: "VSTOプロジェクトのClickOnce発行時に Your project file doesn't list 'win' as a RuntimeIdentifier と出る場合の原因と、旧形式csprojへRuntimeIdentifiersを追加する対策を整理します。"
+date: "2026-05-18"
+---
+
+## 概要
+
+<Term>VSTO</Term>アドインを<Term>ClickOnce</Term>で発行しようとしたとき、Visual Studioの更新後などに次のようなエラーで止まることがあります。
+
+```text
+Your project file doesn't list 'win' as a "RuntimeIdentifier".
+You should add 'win' to the "RuntimeIdentifiers" property in your project file
+and then re-run NuGet restore.
+```
+
+.NET Framework 4.8の旧形式csprojでは、もともと<Term>RuntimeIdentifier</Term>を強く意識しないことが多いです。
+しかし、参照先にSDK形式のcsprojや<Term>NuGet</Term>の`PackageReference`を使ったプロジェクトがあると、復元時にランタイムIDの検証が入り、VSTO側にも指定を求められることがあります。
+
+## 原因
+
+典型的には、次のような構成で起きます。
+
+- 親プロジェクトは.NET Framework 4.8のVSTOアドイン
+- 親プロジェクトは旧形式csproj
+- 参照先にSDK形式csprojがある
+- 参照先がAvalonDockやAvalonEditなどのNuGetパッケージを使っている
+- Visual StudioやNuGetターゲットの更新でRID検証が厳しくなる
+
+この場合、VSTO側のcsprojは古い形式のままでも、NuGet復元時には`win`、`win-x86`、`win-x64`、`win-arm64`などのランタイムIDを見に行くことがあります。
+
+## 解決策
+
+VSTOプロジェクトの`.csproj`に、`RuntimeIdentifiers`を追加します。
+まずは最初の`PropertyGroup`に入れるのが分かりやすいです。
+
+<CopyCode language="xml" filename="csproj-runtimeidentifiers.xml" src="/articles/vsto/clickonce-runtimeidentifiers-snippet.xml" />
+
+ポイントは、`RuntimeIdentifier`単数形ではなく、`RuntimeIdentifiers`複数形を使うことです。
+また、`win`だけでなく、`win-x86`、`win-x64`、`win-arm64`まで入れておく方が安全です。
+
+## 追加後にやること
+
+設定を追加したら、古い復元結果が残っている可能性があるため、次を行います。
+
+1. 対象プロジェクトの`obj`フォルダを削除する
+2. NuGet復元をやり直す
+3. Visual Studioでビルドする
+4. ClickOnce発行を再実行する
+
+古い`project.assets.json`が残っていると、csprojを直しても同じエラーが出続けることがあります。
+そのため、`obj`フォルダの削除までセットで行うのが確実です。
+
+## 注意点
+
+- この指定はClickOnceの配布物を増やすためのものではなく、NuGet復元時のランタイムID検証を通すための指定です。
+- `win`だけで通る場合もありますが、環境によっては4つのRIDを期待されることがあります。
+- `NuGetAuditMode`などで抑止するより、必要なRuntimeIdentifiersを素直に宣言する方が分かりやすいです。
+- 発行先や`app.publish`がOneDrive配下にある場合は、別途ファイルロックによる削除失敗にも注意が必要です。
+
+## 向いている場面
+
+この対策は、次のような状況で使います。
+
+- ExcelやWord向けのVSTOアドインをClickOnce発行している
+- .NET Framework 4.8の旧形式csprojを使っている
+- WPF画面や共通ライブラリを別プロジェクトとして参照している
+- 参照先でSDK形式csprojやPackageReferenceを使っている
+- Visual Studio更新後に急に発行できなくなった
+
+VSTOアドインでは、WPF画面やコードビューア部品を別プロジェクト化するほど、このようなビルド設定の境界問題が出やすくなります。
+エラー文に`RuntimeIdentifier`や`win`が出てきたら、まずcsprojの`RuntimeIdentifiers`指定を確認すると切り分けが早くなります。
+
+## まとめ
+
+VSTOのClickOnce発行で`RuntimeIdentifier`関連のエラーが出た場合、原因はVSTO本体ではなく、参照先プロジェクトやNuGet復元側の検証にあることがあります。
+
+旧形式csprojでも、必要に応じて`RuntimeIdentifiers`を明示すれば解消できます。
+Visual StudioやNuGetの更新で突然出るタイプのエラーなので、VSTO配布手順のチェックリストに入れておくと再発時に迷いにくくなります。

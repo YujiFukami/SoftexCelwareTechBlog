@@ -1,0 +1,9 @@
+<PropertyGroup>
+  <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+
+  <!--
+    SDK形式プロジェクトやPackageReferenceを参照している場合、
+    NuGetの復元時に win / win-x86 / win-x64 / win-arm64 を要求されることがある。
+  -->
+  <RuntimeIdentifiers>win;win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+</PropertyGroup>
