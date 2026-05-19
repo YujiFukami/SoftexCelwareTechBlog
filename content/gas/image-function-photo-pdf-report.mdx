@@ -1,0 +1,219 @@
+---
+title: "GASでスマホ写真付きレポートをPDF出力する方法"
+category: "gas"
+slug: "image-function-photo-pdf-report"
+tags: ["GAS", "Googleスプレッドシート", "PDF出力", "Drive", "IMAGE関数"]
+description: "GAS Webアプリでスマホ写真を受け取り、Drive保存とスプレッドシートのIMAGE関数を使って写真付き帳票PDFを安定して作る方法を解説します。"
+date: "2026-05-19"
+---
+
+## はじめに
+
+<Term>Google Apps Script</Term>のWebアプリで、スマホから現場写真をアップロードし、写真付きの報告書PDFを作りたい場面があります。
+
+最初に考えやすいのは、受け取った画像の<Term>Blob</Term>をそのまま`Sheet.insertImage(blob, ...)`でスプレッドシートへ貼り付ける方法です。ただ、スマホ写真はファイルサイズやピクセル数が大きくなりやすく、GAS側の画像制限に当たって失敗することがあります。
+
+この記事では、画像を<Term>DriveApp</Term>でDriveへ保存し、スプレッドシート側には<Term>IMAGE関数</Term>を入れて表示させ、その状態でPDF出力する実装パターンを紹介します。
+
+## この記事で解決できること
+
+- スマホ写真付きの工事報告書、点検報告書、現場記録をPDF化する
+- `insertImage(blob)`の画像サイズ制限を避ける
+- Googleスプレッドシートを帳票テンプレートとして使う
+- 写真枠が結合セルでも崩れにくい形で画像を配置する
+- PDF出力前に画像読み込み待ちを入れて、画像抜けを減らす
+
+## なぜinsertImageではなくIMAGE関数を使うのか
+
+スマホ写真をそのままGASへ渡すと、次のようなエラーに当たることがあります。
+
+```text
+Exception: blob のサイズが大きすぎます。blob のサイズ上限は 2 MB、ピクセル数の上限は100万画素です。
+```
+
+`insertImage(blob)`は、画像そのものをスプレッドシート上のオブジェクトとして貼り付けます。軽い画像なら便利ですが、スマホ写真を複数枚扱う帳票では不安定になりやすいです。
+
+そこで、画像ファイルはDriveへ保存し、シート上では次のような数式で表示します。
+
+```javascript
+=IMAGE("画像URL", 4, 高さ, 幅)
+```
+
+この方式なら、帳票シートには画像の実体ではなく画像URLを参照する数式を入れるため、写真付きPDF出力の処理を組み立てやすくなります。
+
+## 全体の流れ
+
+処理の流れは次の形にします。
+
+1. Webアプリから写真と入力値を送信する
+2. GAS側で写真BlobをDriveフォルダへ保存する
+3. 保存した画像を「リンクを知っている全員が閲覧可」にする
+4. 画像URLを作る
+5. 帳票シートの写真セルへ`IMAGE`関数を入れる
+6. 写真下のセルへ説明文や入力値を入れる
+7. <Term>SpreadsheetApp</Term>の`flush()`と短い待機を入れる
+8. 使用範囲だけをPDFとしてエクスポートする
+
+## 実装コード
+
+### 画像をDriveに保存してURLを作る
+
+まず、アップロードされた画像BlobをDriveに保存します。`IMAGE`関数とPDF出力処理が画像を読めるように、共有設定も付けます。
+
+```javascript
+function saveImageFile_(parentFolder, blob, fileName) {
+  const imageFolder = getOrCreateFolder_(parentFolder, '報告書アップロード画像');
+  const file = imageFolder.createFile(blob.setName(fileName));
+
+  // IMAGE関数とPDF出力処理が画像を読めるようにする。
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  return {
+    fileId: file.getId(),
+    url: 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(file.getId()),
+  };
+}
+
+function getOrCreateFolder_(parentFolder, folderName) {
+  const folders = parentFolder.getFoldersByName(folderName);
+  if (folders.hasNext()) return folders.next();
+  return parentFolder.createFolder(folderName);
+}
+```
+
+機密写真を扱う場合は、`ANYONE_WITH_LINK`にしてよいかを必ず運用側で確認してください。リンクを知っている人が閲覧できる設定になるため、公開範囲の判断が必要です。
+
+### セルへIMAGE関数を入れる
+
+次に、帳票テンプレートの写真枠へ`IMAGE`関数を入れます。結合セルがある場合でも、実際の表示範囲を取得して、高さと幅を計算します。
+
+```javascript
+function setImageFormulaIntoCell_(sheet, imageUrl, cellA1) {
+  const cell = sheet.getRange(cellA1);
+  const displayRange = getCellDisplayRange_(cell);
+  const width = getRangeWidth_(sheet, displayRange);
+  const height = getRangeHeight_(sheet, displayRange);
+  const formula = '=IMAGE("' + imageUrl + '", 4, ' + height + ', ' + width + ')';
+
+  displayRange.clearContent();
+  displayRange.getCell(1, 1).setFormula(formula);
+  displayRange.setHorizontalAlignment('center');
+  displayRange.setVerticalAlignment('middle');
+}
+
+function getCellDisplayRange_(cell) {
+  const mergedRanges = cell.getMergedRanges();
+  return mergedRanges.length > 0 ? mergedRanges[0] : cell;
+}
+
+function getRangeWidth_(sheet, range) {
+  let width = 0;
+  for (let col = range.getColumn(); col < range.getColumn() + range.getNumColumns(); col++) {
+    width += sheet.getColumnWidth(col);
+  }
+  return width;
+}
+
+function getRangeHeight_(sheet, range) {
+  let height = 0;
+  for (let row = range.getRow(); row < range.getRow() + range.getNumRows(); row++) {
+    height += sheet.getRowHeight(row);
+  }
+  return height;
+}
+```
+
+ポイントは、結合セルの範囲全体へ数式をばらまかないことです。表示範囲を取得したうえで、左上セルだけに数式を入れます。
+
+## PDF出力前に反映待ちを入れる
+
+`IMAGE`関数は、セルへ数式を入れた直後にPDF化すると、画像の読み込みが間に合わないことがあります。PDF出力の直前に、`flush()`と数秒の待機を入れます。
+
+```javascript
+function waitForImageFormulaRender_() {
+  SpreadsheetApp.flush();
+  Utilities.sleep(3000);
+}
+```
+
+待機時間は、写真枚数や通信状況によって調整します。まずは3秒程度から始め、PDFに画像が出ない場合は少し長くします。
+
+## 使用範囲だけPDF出力する
+
+スプレッドシートのPDFエクスポートURLを作り、<Term>UrlFetchApp</Term>で取得します。認証ヘッダーには`ScriptApp.getOAuthToken()`を付けます。
+
+```javascript
+function exportRangeToPdf_(ss, sheet, folder, fileName, rangeA1) {
+  const url = 'https://docs.google.com/spreadsheets/d/' + ss.getId() + '/export?' + [
+    'format=pdf',
+    'gid=' + sheet.getSheetId(),
+    'range=' + encodeURIComponent(rangeA1),
+    'size=A4',
+    'portrait=true',
+    'fitw=true',
+    'sheetnames=false',
+    'printtitle=false',
+    'pagenumbers=false',
+    'gridlines=false',
+    'fzr=false',
+    'printnotes=false',
+    'horizontal_alignment=CENTER',
+    'vertical_alignment=MIDDLE',
+    'top_margin=0.1',
+    'bottom_margin=0.1',
+    'left_margin=0.1',
+    'right_margin=0.1',
+  ].join('&');
+
+  const response = UrlFetchApp.fetch(url, {
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true,
+  });
+
+  if (response.getResponseCode() !== 200) {
+    throw new Error('PDF出力に失敗しました。HTTP ' + response.getResponseCode());
+  }
+
+  return folder.createFile(response.getBlob().setName(fileName));
+}
+```
+
+PDF出力範囲を広く取りすぎると、空白ページや余白が増えます。写真数に応じて、実際に使う帳票範囲だけを`rangeA1`に渡すのが扱いやすいです。
+
+## 帳票テンプレート側の設計
+
+写真枠は「範囲」ではなく「起点セル」で管理すると、コードが単純になります。
+
+```javascript
+const SLOTS = [
+  { imageCell: 'B2', textCells: ['B3', 'B4', 'B5'] },
+  { imageCell: 'D2', textCells: ['D3', 'D4', 'D5'] },
+  { imageCell: 'B7', textCells: ['B8', 'B9', 'B10'] },
+  { imageCell: 'D7', textCells: ['D8', 'D9', 'D10'] },
+  { imageCell: 'B12', textCells: ['B13', 'B14', 'B15'] },
+  { imageCell: 'D12', textCells: ['D13', 'D14', 'D15'] },
+];
+```
+
+画像セルも説明文セルも、結合セルの場合は左上セルだけへ値を入れます。複数セル範囲に`setValue()`すると、意図せず文字が複数列へばらまかれることがあります。
+
+## 注意点・ハマりポイント
+
+- `IMAGE`関数で表示する画像は、PDF出力処理からアクセスできる必要があります。
+- Drive画像を`ANYONE_WITH_LINK`にすると、リンクを知っている人は閲覧できます。機密写真では運用確認が必要です。
+- `insertImage(blob)`は便利ですが、スマホ写真ではサイズ制限に当たりやすいです。
+- PDF出力前に`SpreadsheetApp.flush()`と待機を入れないと、PDF上で画像が抜けることがあります。
+- PDF出力範囲を広げすぎると、空白ページや大きな余白が出ます。
+- シートのメモや注釈がPDFの別ページに出ることがあるため、`printnotes=false`を付けます。
+
+## 関連記事
+
+- [GASのgoogle.script.runでエラーハンドリングを実装する方法](/articles/gas/script-run-error-handling)
+- [GAS Webアプリのスマホ対応フォント設定](/articles/gas/mobile-font-setting)
+- [GAS WebアプリをSPA風に画面遷移させる方法](/articles/gas/spa-navigation)
+
+## まとめ
+
+スマホ写真付きの帳票PDFをGASで作る場合、画像Blobを直接スプレッドシートへ貼り付けるより、Driveへ保存して`IMAGE`関数で表示するほうが安定しやすいです。
+
+写真の保存、共有設定、セル内表示、反映待ち、PDFエクスポートを一つの流れとして整理しておくと、工事報告書や点検報告書のような写真付きレポート作成に転用しやすくなります。
