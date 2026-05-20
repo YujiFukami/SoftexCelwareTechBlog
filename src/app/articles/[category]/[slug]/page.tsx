@@ -29,6 +29,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { category, slug } = await params;
   const article = getArticle(category, slug);
   if (!article) return {};
+  const image = article.meta.image
+    ? {
+        url: article.meta.image,
+        width: 1731,
+        height: 909,
+        alt: article.meta.title,
+      }
+    : DEFAULT_OG_IMAGE;
 
   return {
     title: article.meta.title,
@@ -39,7 +47,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       type: "article",
       siteName: SITE_NAME,
       url: `/articles/${category}/${slug}`,
-      images: [DEFAULT_OG_IMAGE],
+      images: [image],
       publishedTime: article.meta.date,
       tags: article.meta.tags,
     },
@@ -47,7 +55,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       card: TWITTER_CARD,
       title: article.meta.title,
       description: article.meta.description,
-      images: [DEFAULT_OG_IMAGE.url],
+      images: [image.url],
     },
   };
 }

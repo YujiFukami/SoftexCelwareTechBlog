@@ -11,6 +11,7 @@ export interface ArticleMeta {
   tags: string[];
   description: string;
   date: string;
+  image?: string;
 }
 
 export interface Article {
@@ -41,6 +42,7 @@ export function getAllArticles(): ArticleMeta[] {
         tags: data.tags || [],
         description: data.description,
         date: data.date,
+        image: data.image,
       });
     }
   }
@@ -65,6 +67,7 @@ export function getArticle(category: string, slug: string): Article | null {
       tags: data.tags || [],
       description: data.description,
       date: data.date,
+      image: data.image,
     },
     content,
   };

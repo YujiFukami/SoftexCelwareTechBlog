@@ -16,6 +16,7 @@ export type CaseStudy = {
   projectUrl?: string;
   githubUrl?: string;
   externalArticleUrl?: string;
+  ogImage?: string;
   images?: {
     src: string;
     alt: string;
@@ -46,7 +47,13 @@ export const caseStudies: CaseStudy[] = [
       "送信ごとにDriveフォルダを作成し、画像とPDFをまとめて保存",
       "サーバー契約不要でGoogle Workspace上に構築",
     ],
+    ogImage: "/articles/gas/construction-photo-report-webapp/cover.png",
     images: [
+      {
+        src: "/articles/gas/construction-photo-report-webapp/cover.png",
+        alt: "工事現場向け写真報告書Webアプリのカバー画像",
+        caption: "現場写真の撮影・入力からDrive保存、PDF報告書作成までの流れをまとめたカバー画像です。",
+      },
       {
         src: "/cases/gas-photo-report/09-usage-form.jpg",
         alt: "写真付き報告書作成Webアプリの入力画面",

@@ -22,6 +22,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const caseStudy = getCaseBySlug(slug);
   if (!caseStudy) return {};
+  const image = caseStudy.ogImage
+    ? {
+        url: caseStudy.ogImage,
+        width: 1731,
+        height: 909,
+        alt: caseStudy.title,
+      }
+    : DEFAULT_OG_IMAGE;
 
   return {
     title: `${caseStudy.title} | 開発事例`,
@@ -32,13 +40,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       type: "article",
       siteName: SITE_NAME,
       url: `/cases/${slug}`,
-      images: [DEFAULT_OG_IMAGE],
+      images: [image],
     },
     twitter: {
       card: TWITTER_CARD,
       title: caseStudy.title,
       description: caseStudy.summary,
-      images: [DEFAULT_OG_IMAGE.url],
+      images: [image.url],
     },
   };
 }
