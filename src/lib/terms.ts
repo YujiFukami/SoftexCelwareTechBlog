@@ -692,6 +692,20 @@ export const terms: TermEntry[] = [
     references: [{ title: "Apps Script - UrlFetchApp", url: "https://developers.google.com/apps-script/reference/url-fetch/url-fetch-app" }],
   },
   {
+    slug: "lockservice",
+    title: "LockService",
+    category: "Google Apps Script",
+    summary: "Google Apps Scriptで同じ処理が同時に実行されることを防ぐためのロック機能です。",
+    description: [
+      "LockServiceを使うと、複数ユーザーや複数リクエストから同じスクリプトが同時に動いたときに、共有リソースの競合を防ぎやすくなります。",
+      "スプレッドシートの表示状態を一時的に変える処理、採番処理、一時シートを作成して削除する処理などでは、同時実行対策として使うと安全です。",
+    ],
+    useCases: ["GAS Webアプリの二重実行防止", "一時シート作成処理の競合防止", "採番や共有設定変更の排他制御"],
+    related: ["google-apps-script", "spreadsheetapp"],
+    googleQuery: "GAS LockService とは",
+    references: [{ title: "Apps Script - LockService", url: "https://developers.google.com/apps-script/reference/lock/lock-service" }],
+  },
+  {
     slug: "blob",
     title: "Blob",
     category: "Web / Google Apps Script",

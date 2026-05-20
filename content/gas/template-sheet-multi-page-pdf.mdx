@@ -1,0 +1,278 @@
+---
+title: "GASでテンプレートシートを複製して複数ページPDFを作る方法"
+category: "gas"
+slug: "template-sheet-multi-page-pdf"
+tags: ["GAS", "Googleスプレッドシート", "PDF出力", "帳票", "テンプレート"]
+description: "Googleスプレッドシートの帳票テンプレートをページ数分コピーし、写真付き報告書や点検票を複数ページPDFとして出力するGAS実装パターンを解説します。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+<Term>Google Apps Script</Term>で写真付き報告書、点検票、請求書、見積書、作業指示書のような帳票PDFを作る場合、1ページに入る明細数や写真数が決まっていることがあります。
+
+たとえば「1ページに写真6枚まで」「7枚目から2ページ目」「13枚目から3ページ目」のような帳票です。
+
+このとき、1枚のシートの下方向へ帳票レイアウトを継ぎ足していくより、原本のテンプレートシートをページ数分コピーし、`1シート = 1PDFページ` として出力するほうが扱いやすいです。
+
+## 使う場面
+
+- 写真付き報告書で、1ページに入る写真数が決まっている
+- 点検票や作業指示書で、ページごとの帳票レイアウトが固定されている
+- 罫線、セル幅、行高、結合セルをテンプレートのまま使いたい
+- 複数ページを1つのPDFファイルとして保存したい
+- 縦方向にテンプレートをコピーすると、印刷範囲や余白が崩れやすい
+
+スマホ写真を帳票へ出す基本部分は、[GASでスマホ写真付きレポートをPDF出力する方法](/articles/gas/image-function-photo-pdf-report)で整理しています。本記事では、その帳票を複数ページPDFにするための、テンプレートシート複製部分に絞って解説します。
+
+## 基本方針
+
+処理の流れは次のように分けます。
+
+1. `レポート`などの原本シートをテンプレートとして用意する
+2. データ件数から必要ページ数を計算する
+3. 原本シートを`copyTo()`でページ数分コピーする
+4. コピー先シートへ、1ページ分ずつデータを配置する
+5. PDF出力時だけ、出力対象の一時シート以外を非表示にする
+6. スプレッドシート全体をPDFエクスポートする
+7. シート表示状態を元に戻す
+8. 一時シートを削除する
+
+ポイントは、原本シートを直接書き換えないことです。原本はテンプレートとして残し、出力用の一時シートだけに値を入れます。
+
+## 設定例
+
+まず、帳票の1ページあたりの件数と、各枠のセル位置を定義します。
+
+```javascript
+const REPORT_CONFIG = {
+  templateSheetName: 'レポート',
+  outputSheetPrefix: 'レポート_出力_',
+  itemsPerPage: 6,
+  slots: [
+    { imageCell: 'B2', textCells: ['B3', 'B4', 'B5'] },
+    { imageCell: 'D2', textCells: ['D3', 'D4', 'D5'] },
+    { imageCell: 'B7', textCells: ['B8', 'B9', 'B10'] },
+    { imageCell: 'D7', textCells: ['D8', 'D9', 'D10'] },
+    { imageCell: 'B12', textCells: ['B13', 'B14', 'B15'] },
+    { imageCell: 'D12', textCells: ['D13', 'D14', 'D15'] },
+  ],
+};
+```
+
+`itemsPerPage`を変えれば、1ページに出す件数を変えられます。`slots`は、写真枠や説明文欄のセル位置です。帳票レイアウトを変える場合は、この設定も合わせて変更します。
+
+## ページ数分の一時シートを作る
+
+次に、データ件数から必要ページ数を計算し、テンプレートシートをコピーします。
+
+```javascript
+function buildOutputSheets_(ss, templateSheet, items) {
+  const pageCount = Math.max(1, Math.ceil(items.length / REPORT_CONFIG.itemsPerPage));
+  cleanupExistingOutputSheets_(ss);
+
+  const outputSheets = [];
+  for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+    const sheet = templateSheet.copyTo(ss);
+    sheet.setName(REPORT_CONFIG.outputSheetPrefix + (pageIndex + 1));
+    outputSheets.push(sheet);
+  }
+
+  items.forEach(function(item, index) {
+    const pageIndex = Math.floor(index / REPORT_CONFIG.itemsPerPage);
+    const slotIndex = index % REPORT_CONFIG.itemsPerPage;
+    const sheet = outputSheets[pageIndex];
+    const slot = REPORT_CONFIG.slots[slotIndex];
+
+    sheet.getRange(slot.textCells[0]).setValue(item.label1);
+    sheet.getRange(slot.textCells[1]).setValue(item.label2);
+    sheet.getRange(slot.textCells[2]).setValue(item.label3);
+  });
+
+  SpreadsheetApp.flush();
+  return outputSheets;
+}
+```
+
+`Math.floor(index / itemsPerPage)`で何ページ目かを決め、`index % itemsPerPage`でページ内の何枠目かを決めます。
+
+写真を入れる場合は、`slot.imageCell`へ<Term>IMAGE関数</Term>の数式を設定する、または別記事で紹介したDrive保存済み画像URLを使う形にします。
+
+## 出力対象シートだけをPDF化する
+
+複数シートを1つのPDFとして出すには、PDFに含めたいシートだけを一時的に表示し、それ以外を非表示にします。
+
+```javascript
+function exportOutputSheetsToPdf_(ss, outputSheets, folder, fileName) {
+  const visibilityState = captureSheetVisibility_(ss);
+
+  try {
+    showOnlySheets_(ss, outputSheets);
+    SpreadsheetApp.flush();
+
+    const pdfFile = exportVisibleSheetsToPdf_(ss, folder, fileName);
+    restoreSheetVisibility_(ss, visibilityState);
+    return pdfFile;
+  } catch (error) {
+    restoreSheetVisibility_(ss, visibilityState);
+    throw error;
+  }
+}
+```
+
+表示状態を変えたままエラーで止まると、利用者が見ているスプレッドシートの状態が崩れます。そのため、失敗時にも`restoreSheetVisibility_()`を呼ぶようにします。
+
+PDF出力自体は<Term>UrlFetchApp</Term>でスプレッドシートのPDFエクスポートURLへアクセスします。
+
+```javascript
+function exportVisibleSheetsToPdf_(ss, folder, fileName) {
+  const url = 'https://docs.google.com/spreadsheets/d/' + ss.getId() + '/export?' + [
+    'format=pdf',
+    'size=A4',
+    'portrait=true',
+    'fitw=true',
+    'sheetnames=false',
+    'printtitle=false',
+    'pagenumbers=false',
+    'gridlines=false',
+    'fzr=false',
+    'printnotes=false',
+    'horizontal_alignment=CENTER',
+    'vertical_alignment=MIDDLE',
+    'top_margin=0.1',
+    'bottom_margin=0.1',
+    'left_margin=0.1',
+    'right_margin=0.1',
+  ].join('&');
+
+  const response = UrlFetchApp.fetch(url, {
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true,
+  });
+
+  if (response.getResponseCode() !== 200) {
+    throw new Error('PDF出力に失敗しました。HTTP ' + response.getResponseCode());
+  }
+
+  return folder.createFile(response.getBlob().setName(fileName));
+}
+```
+
+`printnotes=false`を付けると、セルのメモや注釈がPDFの別ページに出る問題を避けやすくなります。
+
+## シート表示状態を退避・復元する
+
+PDF出力前に、既存シートの表示状態を退避します。
+
+```javascript
+function captureSheetVisibility_(ss) {
+  return ss.getSheets().map(function(sheet) {
+    return {
+      sheet: sheet,
+      hidden: sheet.isSheetHidden(),
+    };
+  });
+}
+
+function showOnlySheets_(ss, visibleSheets) {
+  const visibleIds = visibleSheets.map(function(sheet) {
+    return sheet.getSheetId();
+  });
+
+  ss.getSheets().forEach(function(sheet) {
+    if (visibleIds.indexOf(sheet.getSheetId()) >= 0) {
+      sheet.showSheet();
+    } else {
+      sheet.hideSheet();
+    }
+  });
+}
+
+function restoreSheetVisibility_(ss, visibilityState) {
+  visibilityState.forEach(function(state) {
+    const sheet = state.sheet;
+    if (ss.getSheetByName(sheet.getName()) === null) return;
+
+    if (state.hidden) {
+      sheet.hideSheet();
+    } else {
+      sheet.showSheet();
+    }
+  });
+}
+```
+
+`sheet.getSheetId()`で対象シートを判定すると、同名シートの混乱を避けやすくなります。
+
+## 一時シートを削除する
+
+前回の処理失敗で一時シートが残る場合があります。開始時と終了時の両方で掃除できるようにします。
+
+```javascript
+function cleanupExistingOutputSheets_(ss) {
+  ss.getSheets().forEach(function(sheet) {
+    if (sheet.getName().indexOf(REPORT_CONFIG.outputSheetPrefix) === 0) {
+      ss.deleteSheet(sheet);
+    }
+  });
+}
+
+function cleanupOutputSheets_(ss, sheets) {
+  sheets.forEach(function(sheet) {
+    if (ss.getSheetByName(sheet.getName()) !== null) {
+      ss.deleteSheet(sheet);
+    }
+  });
+}
+```
+
+一時シート名には、`レポート_出力_`のような固定プレフィックスを付けておくと、削除対象を判定しやすくなります。
+
+## 呼び出し全体の流れ
+
+シートの表示・非表示を変える処理は、同時実行されると壊れやすいです。そのため、<Term>LockService</Term>で同時実行を防ぎます。
+
+```javascript
+function createPdfReport_(items, folder, fileName) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  let outputSheets = [];
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const templateSheet = ss.getSheetByName(REPORT_CONFIG.templateSheetName);
+
+    outputSheets = buildOutputSheets_(ss, templateSheet, items);
+    const pdfFile = exportOutputSheetsToPdf_(ss, outputSheets, folder, fileName);
+    return pdfFile;
+  } finally {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    cleanupOutputSheets_(ss, outputSheets);
+    lock.releaseLock();
+  }
+}
+```
+
+`finally`で一時シート削除とロック解除を行うことで、途中でPDF出力に失敗しても後始末しやすくなります。
+
+## 注意点
+
+- 原本シートはテンプレートなので直接書き換えない
+- `copyTo()`したシートには、罫線、結合セル、行高、列幅、数式が引き継がれる
+- PDF出力時にシートを非表示にするため、同時実行対策として`LockService`を使う
+- PDF出力に失敗しても表示状態を戻すため、`try/catch/finally`で復元処理を書く
+- 前回失敗時に残った一時シートを処理開始時に削除する
+- 各コピーシートが1ページに収まるよう、原本シート側の印刷見た目を整える
+
+## 関連記事
+
+- [GASでスマホ写真付きレポートをPDF出力する方法](/articles/gas/image-function-photo-pdf-report)
+- [GASで作る工事現場向け写真付き報告書Webアプリ](/articles/gas/construction-photo-report-webapp)
+- [GASのgoogle.script.runでエラーハンドリングを実装する方法](/articles/gas/script-run-error-handling)
+- [GAS Webアプリのスマホ対応フォント設定](/articles/gas/mobile-font-setting)
+
+## まとめ
+
+GASで複数ページの帳票PDFを作る場合は、1枚のシートへ無理に縦長レイアウトを作るより、テンプレートシートをページ数分コピーして出力する方式が安定しやすいです。
+
+写真付き報告書、点検票、作業指示書のようにページ単位のレイアウトが決まっている帳票では、`1シート = 1ページ`として考えると、セル配置、PDF出力、後片付けの処理を整理しやすくなります。
