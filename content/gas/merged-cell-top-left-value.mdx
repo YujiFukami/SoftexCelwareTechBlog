@@ -1,0 +1,119 @@
+---
+title: "GASで結合セルの左上セルに安全に値を入れる方法"
+category: "gas"
+slug: "merged-cell-top-left-value"
+tags: ["GAS", "Googleスプレッドシート", "結合セル", "帳票", "PDF出力"]
+description: "Googleスプレッドシート帳票の結合セルに、GASから値やIMAGE関数を安全に入れるため、結合範囲の左上セルだけへ書き込む実装パターンを解説します。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+Googleスプレッドシートで帳票テンプレートを作ると、見た目を整えるために結合セルを使うことがあります。
+
+ただ、GASから結合セルを含む範囲へ`setValue()`や`setFormula()`を直接実行すると、意図しないセルに値が入ったり、文字が複数列にばらけたりすることがあります。
+
+帳票テンプレートでは、対象セルが結合セルかどうかを調べ、実際の結合範囲を取得した上で、左上セルにだけ値や数式を入れるのが安全です。
+
+## 使う場面
+
+- 帳票テンプレートに結合セルがある
+- 写真枠や入力欄の左上セルだけに値を入れたい
+- `B3:D3`のような範囲に文字を入れたら表示が崩れた
+- <Term>IMAGE関数</Term>や帳票文字を結合セルへ入れたい
+
+## 値を入れる関数
+
+まず、指定セルが結合セルなら結合範囲を取得し、その左上セルへ値を入れます。
+
+```javascript
+function setCellOrMergedValue_(sheet, cellA1, value) {
+  const displayRange = getCellDisplayRange_(sheet.getRange(cellA1));
+  displayRange.clearContent();
+
+  const topLeft = displayRange.getCell(1, 1);
+  topLeft.setValue(value);
+
+  displayRange.setHorizontalAlignment('center');
+  displayRange.setVerticalAlignment('middle');
+  displayRange.setFontWeight('bold');
+}
+
+function getCellDisplayRange_(cell) {
+  const mergedRanges = cell.getMergedRanges();
+  if (mergedRanges.length > 0) {
+    return mergedRanges[0];
+  }
+  return cell;
+}
+```
+
+`displayRange.clearContent()`は、結合範囲内の古い値や数式を消すために使っています。罫線や結合状態は消しません。
+
+## 数式を入れる関数
+
+数式を入れる場合も考え方は同じです。
+
+```javascript
+function setCellOrMergedFormula_(sheet, cellA1, formula) {
+  const displayRange = getCellDisplayRange_(sheet.getRange(cellA1));
+  displayRange.clearContent();
+
+  const topLeft = displayRange.getCell(1, 1);
+  topLeft.setFormula(formula);
+
+  displayRange.setHorizontalAlignment('center');
+  displayRange.setVerticalAlignment('middle');
+}
+```
+
+## IMAGE関数で使う例
+
+写真付き帳票では、Drive上の画像URLを`IMAGE`関数として入れることがあります。
+
+```javascript
+function setImageFormulaIntoCell_(sheet, imageUrl, cellA1) {
+  const displayRange = getCellDisplayRange_(sheet.getRange(cellA1));
+  const formula = '=IMAGE("' + imageUrl + '", 1)';
+
+  displayRange.clearContent();
+  displayRange.getCell(1, 1).setFormula(formula);
+  displayRange.setHorizontalAlignment('center');
+  displayRange.setVerticalAlignment('middle');
+}
+```
+
+この関数を[帳票セル配置をslots配列で管理する方法](/articles/gas/report-slots-cell-map)と組み合わせると、テンプレートの起点セルだけを指定して、結合セルを安全に扱えます。
+
+## 避けたい書き方
+
+帳票テンプレートでは、`breakApart()`で結合を解除してから値を入れる方法は避けたほうがよいです。
+
+```javascript
+// 帳票テンプレートでは避けたい例
+sheet.getRange('B3:D3').breakApart();
+sheet.getRange('B3:D3').setValue('点検結果');
+```
+
+この書き方は、テンプレートの見た目そのものを壊してしまいます。原本シートをテンプレートとして使う場合は、結合状態を維持したまま左上セルだけに書き込むほうが安全です。
+
+## チェックリスト
+
+- 帳票セルは起点セルで管理しているか
+- `getMergedRanges()`で結合範囲を取得しているか
+- 左上セルだけに値や数式を入れているか
+- `breakApart()`でテンプレートを壊していないか
+- 内容だけを`clearContent()`しているか
+
+## 関連記事
+
+- [GASで作る工事現場向け写真付き報告書Webアプリ](/articles/gas/construction-photo-report-webapp)
+- [GAS帳票のセル配置をslots配列で管理する方法](/articles/gas/report-slots-cell-map)
+- [GASでスマホ写真付きレポートをPDF出力する方法](/articles/gas/image-function-photo-pdf-report)
+- [GASでテンプレートシートを複製して複数ページPDFを作る方法](/articles/gas/template-sheet-multi-page-pdf)
+
+## まとめ
+
+結合セルを含む帳票テンプレートでは、範囲全体へ値を入れるのではなく、結合範囲の左上セルだけへ値や数式を入れるのが安全です。
+
+この処理を共通関数にしておくと、写真付き報告書や点検票のような帳票PDF作成で、セル結合に起因する表示崩れを減らせます。

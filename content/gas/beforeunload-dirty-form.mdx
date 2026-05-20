@@ -1,0 +1,111 @@
+---
+title: "GAS Webアプリの入力途中離脱を防ぐ方法"
+category: "gas"
+slug: "beforeunload-dirty-form"
+tags: ["GAS", "Webアプリ", "beforeunload", "フォーム", "スマホ対応"]
+description: "GAS Webアプリのスマートフォン入力フォームで、再読み込みや戻る操作による入力途中の消失を防ぐため、beforeunloadと送信状態フラグを使う方法を解説します。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+GAS Webアプリでスマートフォン向けの入力フォームを作る場合、利用者が誤って再読み込み、戻る、タブを閉じる操作をすると、入力途中の内容が失われることがあります。
+
+写真、選択肢、テキストを複数登録する業務フォームでは、入力途中の消失はかなりストレスになります。
+
+ブラウザ標準の<Term>beforeunload</Term>イベントを使うと、入力途中の状態でページを離れようとしたときに確認ダイアログを出せます。
+
+## 使う場面
+
+- スマホで長めの入力フォームを使う
+- 写真、選択肢、テキストなどを複数登録する
+- 送信前に誤操作で入力内容が消えると困る
+- GAS Webアプリで業務用フォームを作る
+
+[写真付き現場報告書作成Webアプリ](/cases/gas-photo-report-webapp)のように、現場でスマートフォン入力するアプリでは入れておきたい防御策です。
+
+## 基本実装
+
+入力済みかどうかを`isDirty`、送信中かどうかを`isSubmitting`で管理します。
+
+```html
+<script>
+  const state = {
+    isDirty: false,
+    isSubmitting: false,
+  };
+
+  window.addEventListener('beforeunload', confirmBeforeUnload);
+
+  document.addEventListener('input', markDirty);
+  document.addEventListener('change', markDirty);
+
+  function confirmBeforeUnload(event) {
+    if (!state.isDirty || state.isSubmitting) return;
+
+    event.preventDefault();
+    event.returnValue = '';
+  }
+
+  function markDirty() {
+    state.isDirty = true;
+  }
+</script>
+```
+
+`event.returnValue = ''`を設定すると、ブラウザ標準の確認ダイアログが出ます。確認文言はブラウザ側で固定されるため、任意の日本語メッセージにはできません。
+
+## 送信処理との組み合わせ
+
+正常な送信では確認ダイアログを出したくないため、送信中は`isSubmitting = true`にします。
+
+```html
+<script>
+  function submitForm(payload) {
+    state.isSubmitting = true;
+
+    google.script.run
+      .withSuccessHandler(function(result) {
+        state.isDirty = false;
+        state.isSubmitting = false;
+        renderSuccess(result);
+      })
+      .withFailureHandler(function(err) {
+        state.isSubmitting = false;
+        renderError(err);
+      })
+      .serverFunction(payload);
+  }
+</script>
+```
+
+送信成功時は`isDirty = false`に戻します。送信失敗時は、入力内容を再送できるように`isDirty`を残しておくのが自然です。
+
+## localStorageとの使い分け
+
+`beforeunload`は、離脱前に注意を出すための仕組みです。入力内容そのものを復元する機能ではありません。
+
+完全に入力内容を守りたい場合は、<Term>localStorage</Term>などの一時保存と組み合わせます。
+
+ただし、写真ファイルはブラウザのセキュリティ都合で復元しにくいことがあります。写真を再選択してもらう注意書きや、送信前の確認画面を用意する設計も重要です。
+
+## 注意点
+
+- iOSやAndroidのブラウザでは、状況によって確認ダイアログが出ないことがある
+- カメラアプリやファイル選択UIへの遷移は完全には制御できない
+- 確認文言はブラウザ側で固定される
+- 送信中に確認が出ると利用者が混乱するため、`isSubmitting`で抑制する
+- 完全な保護が必要な場合は、下書き保存と組み合わせる
+
+## 関連記事
+
+- [GASで作る工事現場向け写真付き報告書Webアプリ](/articles/gas/construction-photo-report-webapp)
+- [GASのgoogle.script.runでエラーハンドリングを実装する方法](/articles/gas/script-run-error-handling)
+- [GAS Webアプリでスマホ写真を送信前に圧縮する方法](/articles/gas/compress-smartphone-photo-before-submit)
+- [GAS Webアプリのスマホ対応フォント設定](/articles/gas/mobile-font-setting)
+
+## まとめ
+
+GAS Webアプリの入力フォームでは、<Term>beforeunload</Term>で入力途中の離脱確認を入れておくと、誤操作による入力消失を減らせます。
+
+写真付き報告書のように入力に手間がかかるフォームでは、送信状態フラグ、エラーハンドリング、必要に応じた一時保存を組み合わせると、現場で使いやすい画面になります。

@@ -76,6 +76,36 @@ export const caseStudies: CaseStudy[] = [
         category: "GAS",
       },
       {
+        title: "GAS Webアプリでスマホ写真を送信前に圧縮する方法",
+        href: "/articles/gas/compress-smartphone-photo-before-submit",
+        category: "GAS",
+      },
+      {
+        title: "GASで送信ごとにGoogle Drive専用フォルダへ保存する方法",
+        href: "/articles/gas/drive-submission-folder",
+        category: "GAS",
+      },
+      {
+        title: "GAS帳票のセル配置をslots配列で管理する方法",
+        href: "/articles/gas/report-slots-cell-map",
+        category: "GAS",
+      },
+      {
+        title: "GASで結合セルの左上セルに安全に値を入れる方法",
+        href: "/articles/gas/merged-cell-top-left-value",
+        category: "GAS",
+      },
+      {
+        title: "GASでテンプレートシートを複製して複数ページPDFを作る方法",
+        href: "/articles/gas/template-sheet-multi-page-pdf",
+        category: "GAS",
+      },
+      {
+        title: "GAS Webアプリの入力途中離脱を防ぐ方法",
+        href: "/articles/gas/beforeunload-dirty-form",
+        category: "GAS",
+      },
+      {
         title: "GASのgoogle.script.runでエラーハンドリングを実装する方法",
         href: "/articles/gas/script-run-error-handling",
         category: "GAS",

@@ -276,6 +276,20 @@ export const terms: TermEntry[] = [
     references: [{ title: "MDN Web Docs - localStorage", url: "https://developer.mozilla.org/ja/docs/Web/API/Window/localStorage" }],
   },
   {
+    slug: "beforeunload",
+    title: "beforeunload",
+    category: "Web開発",
+    summary: "ページを閉じる、再読み込みする、別ページへ移動する直前に発火するブラウザイベントです。",
+    description: [
+      "beforeunloadは、入力途中のフォームから離脱しようとしたときに確認ダイアログを出す用途で使われます。",
+      "確認文言はブラウザ側で固定されるため自由に変更できませんが、誤操作による入力内容の消失を減らす防御策になります。",
+    ],
+    useCases: ["入力途中フォームの離脱確認", "再読み込み前の警告", "業務Webアプリの誤操作防止"],
+    related: ["localstorage", "google-script-run"],
+    googleQuery: "beforeunload とは",
+    references: [{ title: "MDN Web Docs - beforeunload", url: "https://developer.mozilla.org/ja/docs/Web/API/Window/beforeunload_event" }],
+  },
+  {
     slug: "pyinstaller",
     title: "PyInstaller",
     category: "Python / Windows",

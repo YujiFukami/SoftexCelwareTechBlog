@@ -1,0 +1,158 @@
+---
+title: "GAS Webアプリでスマホ写真を送信前に圧縮する方法"
+category: "gas"
+slug: "compress-smartphone-photo-before-submit"
+tags: ["GAS", "スマホ写真", "Canvas", "Base64", "Webアプリ"]
+description: "GAS Webアプリでスマートフォン写真をBase64送信する前に、ブラウザ側のCanvasでJPEG化・縮小・圧縮して処理を安定させる方法を解説します。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+スマートフォンで撮影した写真は、ファイルサイズやピクセル数が大きくなりやすいです。
+
+GAS Webアプリで写真を<Term>base64</Term>文字列として`google.script.run`へ渡す場合、そのまま送ると通信量が大きくなり、処理時間やApps Script側の制限で失敗しやすくなります。
+
+写真付き報告書や点検記録の用途では、原寸の高解像度写真が不要なことも多いです。その場合は、ブラウザ側の<Term>Canvas</Term>で送信前にJPEG化・縮小・圧縮しておくと安定します。
+
+## 使う場面
+
+- スマホ写真をGAS Webアプリから送信する
+- `google.script.run`でBase64画像を渡す
+- Driveへ保存する前に容量を抑えたい
+- スプレッドシート帳票やPDF用で、元解像度までは不要
+
+[写真付き現場報告書作成Webアプリ](/cases/gas-photo-report-webapp)のように、スマートフォンから複数写真を送る業務アプリでは特に効きます。
+
+## 圧縮処理の実装例
+
+以下は、最大辺とJPEG品質を少しずつ下げながら、指定サイズ以下を目指す例です。
+
+```javascript
+function resizeImageForReport(file) {
+  const maxBytes = 1800 * 1024;
+  const initialMaxSide = 1600;
+  const minMaxSide = 900;
+  const mimeType = 'image/jpeg';
+
+  return readFileAsDataUrl(file)
+    .then(loadImage)
+    .then(function(image) {
+      let maxSide = initialMaxSide;
+      let quality = 0.82;
+      let result = drawImageToDataUrl(image, maxSide, quality, mimeType);
+
+      while (result.byteSize > maxBytes && (quality > 0.55 || maxSide > minMaxSide)) {
+        if (quality > 0.55) {
+          quality -= 0.08;
+        } else {
+          maxSide -= 200;
+          quality = 0.78;
+        }
+        result = drawImageToDataUrl(image, maxSide, quality, mimeType);
+      }
+
+      if (result.byteSize > maxBytes) {
+        throw new Error('画像サイズを2MB未満に圧縮できませんでした。');
+      }
+
+      return result;
+    });
+}
+```
+
+## ファイル読み込みと画像化
+
+ファイルをData URLとして読み込み、`Image`オブジェクトに変換します。
+
+```javascript
+function readFileAsDataUrl(file) {
+  return new Promise(function(resolve, reject) {
+    const reader = new FileReader();
+    reader.onload = function() { resolve(reader.result); };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(dataUrl) {
+  return new Promise(function(resolve, reject) {
+    const image = new Image();
+    image.onload = function() { resolve(image); };
+    image.onerror = reject;
+    image.src = dataUrl;
+  });
+}
+```
+
+## Canvasで縮小してJPEG化する
+
+`canvas.toDataURL()`でJPEG化します。
+
+```javascript
+function drawImageToDataUrl(image, maxSide, quality, mimeType) {
+  const ratio = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * ratio));
+  const height = Math.max(1, Math.round(image.naturalHeight * ratio));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext('2d');
+  context.drawImage(image, 0, 0, width, height);
+
+  const dataUrl = canvas.toDataURL(mimeType, quality);
+  return {
+    dataUrl: dataUrl,
+    mimeType: mimeType,
+    byteSize: estimateDataUrlBytes(dataUrl),
+  };
+}
+
+function estimateDataUrlBytes(dataUrl) {
+  const base64 = dataUrl.split(',')[1] || '';
+  return Math.ceil(base64.length * 3 / 4);
+}
+```
+
+Base64文字列は、元のバイナリより文字列サイズが増えます。送信上限に余裕を持たせるため、圧縮後サイズも少し低めに設定しておくのが現実的です。
+
+## GASへ送るデータの作成例
+
+圧縮後は、Data URLのカンマ以降だけをGASへ送ります。
+
+```javascript
+resizeImageForReport(file).then(function(result) {
+  const payload = {
+    fileName: file.name,
+    mimeType: result.mimeType,
+    base64: result.dataUrl.split(',')[1],
+  };
+
+  google.script.run.uploadImage(payload);
+});
+```
+
+サーバー側では、`Utilities.base64Decode()`と<Term>Blob</Term>を使ってDriveへ保存できます。Drive保存後に<Term>IMAGE関数</Term>で帳票へ表示する流れは、[GASでスマホ写真付きレポートをPDF出力する方法](/articles/gas/image-function-photo-pdf-report)で整理しています。
+
+## 注意点
+
+- HEICなど、ブラウザがCanvasへ読み込めない形式は失敗することがある
+- 失敗時はJPEGまたはPNGで再選択してもらう導線を用意する
+- 原本画質が必要な用途では、圧縮せずDriveへ直接アップロードする別方式を検討する
+- iOS Safariや古いAndroidではメモリ制限に注意する
+- 写真選択後の処理には、ローディング表示やエラーハンドリングを入れる
+
+## 関連記事
+
+- [GASで作る工事現場向け写真付き報告書Webアプリ](/articles/gas/construction-photo-report-webapp)
+- [GASでスマホ写真付きレポートをPDF出力する方法](/articles/gas/image-function-photo-pdf-report)
+- [GASのgoogle.script.runでエラーハンドリングを実装する方法](/articles/gas/script-run-error-handling)
+- [GAS Webアプリの入力途中離脱を防ぐ方法](/articles/gas/beforeunload-dirty-form)
+
+## まとめ
+
+GAS Webアプリでスマホ写真を扱う場合、送信前にCanvasで縮小・JPEG化しておくと、通信量とApps Script側の負荷を下げられます。
+
+写真付き報告書のように「PDFで見やすく出ればよい」用途では、原寸写真を送るより、用途に合ったサイズへ圧縮するほうが運用しやすくなります。

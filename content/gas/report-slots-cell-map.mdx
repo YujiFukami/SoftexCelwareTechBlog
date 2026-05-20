@@ -1,0 +1,122 @@
+---
+title: "GAS帳票のセル配置をslots配列で管理する方法"
+category: "gas"
+slug: "report-slots-cell-map"
+tags: ["GAS", "Googleスプレッドシート", "帳票", "PDF出力", "設計"]
+description: "写真枠や入力欄のセル番地をGAS処理内に散らばらせず、slots配列に集約して帳票テンプレート変更に強くする実装パターンを解説します。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+<Term>Google Apps Script</Term>でGoogleスプレッドシートを帳票テンプレートとして使う場合、写真枠、入力欄、明細欄などのセル番地をコード内に直接書きたくなります。
+
+ただ、`B2`、`D2`、`B7`のようなセル番地が処理本体に散らばると、帳票レイアウトを少し変えただけで修正漏れが起きやすくなります。
+
+このような繰り返し配置は、`slots`配列としてまとめて定義しておくと扱いやすくなります。
+
+## 使う場面
+
+- 1ページに同じ構造の写真枠や明細枠が複数ある
+- 写真1〜6、明細1〜10のような繰り返し配置がある
+- 帳票テンプレートのセル位置を後から調整する可能性がある
+- 複数ページPDFでも同じ配置ルールを使い回したい
+
+[写真付き現場報告書作成Webアプリ](/cases/gas-photo-report-webapp)でも、1ページ6枚の写真枠を`slots`で管理しています。
+
+## 設定例
+
+セル配置は、処理本体ではなく設定オブジェクトに集約します。
+
+```javascript
+const REPORT_CONFIG = {
+  slots: [
+    { imageCell: 'B2', textCells: ['B3', 'B4', 'B5'] },
+    { imageCell: 'D2', textCells: ['D3', 'D4', 'D5'] },
+    { imageCell: 'B7', textCells: ['B8', 'B9', 'B10'] },
+    { imageCell: 'D7', textCells: ['D8', 'D9', 'D10'] },
+    { imageCell: 'B12', textCells: ['B13', 'B14', 'B15'] },
+    { imageCell: 'D12', textCells: ['D13', 'D14', 'D15'] },
+  ],
+};
+```
+
+`imageCell`は写真を表示する起点セル、`textCells`はその写真に紐づく入力項目のセルです。
+
+## 1ページ分を書き込む例
+
+処理側は、`slot.imageCell`と`slot.textCells`だけを見ます。
+
+```javascript
+function writeItemsToSheet_(sheet, items) {
+  items.forEach(function(item, index) {
+    const slot = REPORT_CONFIG.slots[index];
+    if (!slot) return;
+
+    setImageFormulaIntoCell_(sheet, item.imageUrl, slot.imageCell);
+
+    slot.textCells.forEach(function(cellA1, valueIndex) {
+      setCellOrMergedValue_(sheet, cellA1, item.values[valueIndex] || '');
+    });
+  });
+}
+```
+
+写真の表示には<Term>IMAGE関数</Term>、結合セルへの書き込みには[結合セルの左上セルに安全に値を入れる方法](/articles/gas/merged-cell-top-left-value)を組み合わせると安定します。
+
+## 複数ページで使う例
+
+複数ページPDFでも、同じ`slots`を使い回せます。
+
+```javascript
+function writePagedItems_(sheets, items) {
+  const itemsPerPage = REPORT_CONFIG.slots.length;
+
+  items.forEach(function(item, index) {
+    const pageIndex = Math.floor(index / itemsPerPage);
+    const slotIndex = index % itemsPerPage;
+    const sheet = sheets[pageIndex];
+    const slot = REPORT_CONFIG.slots[slotIndex];
+
+    setImageFormulaIntoCell_(sheet, item.imageUrl, slot.imageCell);
+    slot.textCells.forEach(function(cellA1, valueIndex) {
+      setCellOrMergedValue_(sheet, cellA1, item.values[valueIndex] || '');
+    });
+  });
+}
+```
+
+`pageIndex`で何ページ目か、`slotIndex`でページ内の何枠目かを決めます。この考え方は、[テンプレートシートを複製して複数ページPDFを作る方法](/articles/gas/template-sheet-multi-page-pdf)でも使えます。
+
+## NG例
+
+処理本体にセル番地が散らばる形は避けます。
+
+```javascript
+sheet.getRange('B2').setFormula(image1);
+sheet.getRange('B3').setValue(value1);
+sheet.getRange('D2').setFormula(image2);
+sheet.getRange('D3').setValue(value2);
+```
+
+この書き方だと、テンプレート変更時に修正箇所を探しにくくなります。
+
+## チェックリスト
+
+- セル番地を設定オブジェクトに集約しているか
+- 処理本体にセル番地が散らばっていないか
+- 写真枠と入力欄の関係が配列で見えるか
+- 複数ページ時も同じ`slots`を再利用しているか
+- 記事やREADMEにセル配置表を載せているか
+
+## 関連記事
+
+- [GASで作る工事現場向け写真付き報告書Webアプリ](/articles/gas/construction-photo-report-webapp)
+- [GASでテンプレートシートを複製して複数ページPDFを作る方法](/articles/gas/template-sheet-multi-page-pdf)
+- [GASで結合セルの左上セルに安全に値を入れる方法](/articles/gas/merged-cell-top-left-value)
+
+## まとめ
+
+帳票テンプレートのセル配置は、処理本体ではなく`slots`配列へ集約しておくと、レイアウト変更や複数ページ化に強くなります。
+
+写真付き報告書や点検票のように同じ枠が並ぶ帳票では、最初に`slots`を作っておくと、後からの改良がかなり楽になります。

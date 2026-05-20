@@ -1,0 +1,129 @@
+---
+title: "GASで送信ごとにGoogle Drive専用フォルダへ保存する方法"
+category: "gas"
+slug: "drive-submission-folder"
+tags: ["GAS", "Google Drive", "DriveApp", "帳票", "PDF出力"]
+description: "GAS Webアプリで画像やPDFを生成するとき、1回の送信ごとに専用フォルダを作り、関連ファイルをまとめて保存する実装パターンを解説します。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+GAS Webアプリで画像やPDFなど複数ファイルを生成する場合、ファイルを同じフォルダへただ保存していくと、後から対応関係を追いにくくなります。
+
+写真付き報告書、申請添付ファイル、帳票PDFのように、1回の送信で複数ファイルができる処理では、送信ごとに<Term query="Google Drive">Google Drive</Term>の専用フォルダを作ると管理しやすくなります。
+
+## 使う場面
+
+- 1回の送信で画像、PDF、ログなど複数ファイルを作る
+- Google Drive上で送信単位にファイルをまとめたい
+- 同じ報告書名で複数回送信される可能性がある
+- 後から現場別、日時別に成果物を確認したい
+
+[写真付き現場報告書作成Webアプリ](/cases/gas-photo-report-webapp)では、送信ごとにフォルダを作り、その中に元画像とPDF報告書を保存しています。
+
+## フォルダ構成の例
+
+フォルダ名には日時と報告書名を入れます。
+
+```text
+yyyyMMdd_HHmm_レポートタイトル
+```
+
+例:
+
+```text
+20260520_0935_屋上点検
+```
+
+フォルダ内は次のようになります。
+
+```text
+屋上点検_01.jpg
+屋上点検_02.jpg
+20260520_0935 屋上点検.pdf
+```
+
+この構成なら、PDFと元画像の対応関係が分かりやすくなります。
+
+## 送信用フォルダを作る
+
+スプレッドシートと同じ親フォルダに、送信ごとのフォルダを作る例です。
+
+```javascript
+function createSubmissionFolder_(reportTitle) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const parentFolder = getSpreadsheetParentFolder_(ss);
+  const safeTitle = sanitizeFileName_(reportTitle) || '報告書';
+  const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm');
+  const folderName = timestamp + '_' + safeTitle;
+
+  return parentFolder.createFolder(folderName);
+}
+
+function getSpreadsheetParentFolder_(ss) {
+  const file = DriveApp.getFileById(ss.getId());
+  const parents = file.getParents();
+  if (parents.hasNext()) return parents.next();
+  return DriveApp.getRootFolder();
+}
+```
+
+<Term>DriveApp</Term>を使うことで、スプレッドシート本体の親フォルダを取得し、その配下に成果物をまとめられます。
+
+## ファイル名に使えない文字を置換する
+
+ユーザー入力をフォルダ名やファイル名に使う場合は、禁止文字を置換します。
+
+```javascript
+function sanitizeFileName_(name) {
+  return String(name || '')
+    .trim()
+    .replace(/[\\/:*?"<>|#%{}~&]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+```
+
+ファイル名に現場名や報告書名を使うと検索しやすくなりますが、そのまま使うと記号や空白で扱いにくくなることがあります。
+
+## 画像とPDFを保存する例
+
+画像は2桁連番、PDFは日時付きにします。
+
+```javascript
+function saveFiles_(folder, reportTitle, imageBlobs, pdfBlob) {
+  const safeTitle = sanitizeFileName_(reportTitle) || '報告書';
+  const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm');
+
+  imageBlobs.forEach(function(blob, index) {
+    const fileName = safeTitle + '_' + String(index + 1).padStart(2, '0') + '.jpg';
+    folder.createFile(blob.setName(fileName));
+  });
+
+  folder.createFile(pdfBlob.setName(timestamp + ' ' + safeTitle + '.pdf'));
+}
+```
+
+画像とPDFを同じフォルダへ保存しておくと、後で報告書の再確認や差し戻しがあったときに探しやすくなります。
+
+## 注意点
+
+- Driveは同名フォルダを複数作成できる
+- 完全に一意にしたい場合は、秒や送信IDまで入れる
+- ユーザー入力をファイル名に使う場合は、禁止文字を置換する
+- 機密写真を扱う場合は、フォルダやファイルの共有設定も合わせて設計する
+- Webアプリ画面へ保存フォルダURLを返すと、送信後の確認導線を作りやすい
+
+## 関連記事
+
+- [GASで作る工事現場向け写真付き報告書Webアプリ](/articles/gas/construction-photo-report-webapp)
+- [GASでスマホ写真付きレポートをPDF出力する方法](/articles/gas/image-function-photo-pdf-report)
+- [GASでテンプレートシートを複製して複数ページPDFを作る方法](/articles/gas/template-sheet-multi-page-pdf)
+
+## まとめ
+
+GAS Webアプリで画像やPDFを生成する場合は、送信ごとに専用フォルダを作ると、Drive上の成果物を整理しやすくなります。
+
+写真付き報告書のように複数ファイルが1セットになる処理では、フォルダ名、画像名、PDF名のルールを最初に決めておくことが重要です。
