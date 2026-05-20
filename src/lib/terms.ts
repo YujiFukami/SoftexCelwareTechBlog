@@ -634,6 +634,21 @@ export const terms: TermEntry[] = [
     references: [{ title: "Apps Script - SpreadsheetApp", url: "https://developers.google.com/apps-script/reference/spreadsheet/spreadsheet-app" }],
   },
   {
+    slug: "google-drive",
+    title: "Google Drive",
+    category: "Google Workspace",
+    aliases: ["Googleドライブ", "Drive"],
+    summary: "Googleアカウント上でファイルやフォルダを保存、共有、管理できるクラウドストレージです。",
+    description: [
+      "Google Driveは、画像、PDF、スプレッドシートなどのファイルをクラウド上に保存し、権限を設定して共有できるサービスです。",
+      "GASで作る業務アプリでは、アップロードされた写真や生成したPDFの保存先として使うことで、専用サーバーを用意せずに小規模な業務システムを構築できます。",
+    ],
+    useCases: ["写真やPDFの保存先", "GAS Webアプリのファイル置き場", "現場報告書や帳票の共有"],
+    related: ["google-apps-script", "driveapp"],
+    googleQuery: "Google Drive とは",
+    references: [{ title: "Google Drive ヘルプ", url: "https://support.google.com/drive/" }],
+  },
+  {
     slug: "driveapp",
     title: "DriveApp",
     category: "Google Apps Script",

@@ -16,11 +16,77 @@ export type CaseStudy = {
   projectUrl?: string;
   githubUrl?: string;
   externalArticleUrl?: string;
+  images?: {
+    src: string;
+    alt: string;
+    caption: string;
+  }[];
   visibility: "public" | "limited" | "anonymous";
   relatedArticles: RelatedArticle[];
 };
 
 export const caseStudies: CaseStudy[] = [
+  {
+    slug: "gas-photo-report-webapp",
+    title: "写真付き現場報告書作成Webアプリ",
+    subtitle: "GASでスマホ写真からPDF報告書を自動作成",
+    category: "GAS業務Webアプリ",
+    summary:
+      "工事現場や点検現場で、スマートフォンから写真と選択項目を送信し、Googleスプレッドシートの帳票テンプレートから写真付きPDF報告書を自動作成するGAS Webアプリの開発事例です。",
+    description: [
+      "現場写真を報告書へ貼り付ける作業は、写真整理、サイズ調整、帳票への貼り付け、PDF化が手作業になりやすい部分です。この事例では、スマートフォンから写真と3項目の選択値を送信するだけで、Drive上に写真とPDFをまとめて保存できる仕組みにしました。",
+      "サーバー契約や専用DBを用意せず、Googleスプレッドシートを帳票テンプレート、Google Driveを保存先、Google Apps Scriptを処理基盤として使う構成です。小規模な現場DXや、まず試作して運用に合わせて育てる業務アプリに向いています。",
+      "実際の現場に合わせて、選択項目、写真枚数、帳票レイアウト、承認フロー、保存フォルダ構成などを調整できます。",
+    ],
+    stack: ["Google Apps Script", "Googleスプレッドシート", "Google Drive", "HTML", "PDF出力"],
+    highlights: [
+      "スマートフォンから写真を撮影または選択して送信",
+      "写真ごとに3項目のプルダウン入力を付与",
+      "1ページ6枚、7枚以上は複数ページに自動分割",
+      "送信ごとにDriveフォルダを作成し、画像とPDFをまとめて保存",
+      "サーバー契約不要でGoogle Workspace上に構築",
+    ],
+    images: [
+      {
+        src: "/cases/gas-photo-report/09-usage-form.jpg",
+        alt: "写真付き報告書作成Webアプリの入力画面",
+        caption: "スマートフォンから写真と選択項目を登録する入力画面です。",
+      },
+      {
+        src: "/cases/gas-photo-report/11-output-result.jpg",
+        alt: "Driveに保存された画像とPDF報告書の出力結果",
+        caption: "送信ごとに専用フォルダを作り、画像とPDFをまとめて保存します。",
+      },
+      {
+        src: "/cases/gas-photo-report/02-report-template.jpg",
+        alt: "Googleスプレッドシートの写真付き報告書テンプレート",
+        caption: "スプレッドシートを帳票テンプレートとして使い、写真付きPDFへ変換します。",
+      },
+    ],
+    visibility: "public",
+    relatedArticles: [
+      {
+        title: "GASで作る工事現場向け写真付き報告書Webアプリ",
+        href: "/articles/gas/construction-photo-report-webapp",
+        category: "GAS",
+      },
+      {
+        title: "GASでスマホ写真付きレポートをPDF出力する方法",
+        href: "/articles/gas/image-function-photo-pdf-report",
+        category: "GAS",
+      },
+      {
+        title: "GASのgoogle.script.runでエラーハンドリングを実装する方法",
+        href: "/articles/gas/script-run-error-handling",
+        category: "GAS",
+      },
+      {
+        title: "GAS WebアプリをSPA風に画面遷移させる方法",
+        href: "/articles/gas/spa-navigation",
+        category: "GAS",
+      },
+    ],
+  },
   {
     slug: "rakulog-task",
     title: "らくログタスク",

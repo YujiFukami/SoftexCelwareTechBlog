@@ -1,0 +1,258 @@
+---
+title: "GASで作る工事現場向け写真付き報告書Webアプリ"
+category: "gas"
+slug: "construction-photo-report-webapp"
+tags: ["GAS", "現場報告書", "Google Drive", "PDF出力", "業務アプリ"]
+description: "工事現場や点検現場で使える、スマホ写真から写真付きPDF報告書を自動作成するGAS Webアプリの開発事例と構築手順を紹介します。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+工事現場や点検作業では、現場写真を撮り、内容を整理し、報告書へ貼り付けてPDF化する作業がよくあります。
+
+この作業は、写真の取り込み、サイズ調整、Excelやスプレッドシートへの貼り付け、ファイル名整理が手作業になりやすく、件数が増えるほど時間がかかります。
+
+この記事では、<Term>Google Apps Script</Term>で構築した「スマートフォンから写真と選択項目を登録し、Googleスプレッドシートの帳票テンプレートから写真付きPDF報告書を自動作成するWebアプリ」の開発事例を紹介します。
+
+## このアプリでできること
+
+- スマートフォンから写真を撮影または選択する
+- 写真ごとに3つの項目をプルダウンで入力する
+- 1ページ6枚の写真付き報告書を自動作成する
+- 7枚以上は2ページ目、13枚以上は3ページ目に自動分割する
+- 送信ごとに専用フォルダを作り、画像とPDFを<Term query="Google Drive">Google Drive</Term>へまとめて保存する
+
+<figure>
+  <img src="/cases/gas-photo-report/09-usage-form.jpg" alt="写真付き報告書作成Webアプリの入力画面" />
+  <figcaption>レポートタイトル、写真、入力1〜3を登録するWebアプリ画面です。スマートフォンでは撮影または写真選択で入力できます。</figcaption>
+</figure>
+
+## GASで作る利点
+
+このような現場向けアプリは、専用サーバーやデータベースを契約して作ることもできます。ただ、小規模な現場DXや社内利用では、まず早く試せる構成のほうが合うことも多いです。
+
+<Term>Google Apps Script</Term>で構築すると、次のような利点があります。
+
+- サーバー契約やサーバー構築が不要
+- Googleスプレッドシートを帳票テンプレートとして使える
+- Google Driveを画像とPDFの保存先として使える
+- 選択肢の変更をスプレッドシート上で行える
+- GoogleアカウントやDrive運用に乗せやすい
+
+正確には、Google Driveやスプレッドシートをサーバー代わりに使う構成です。大規模な外部公開サービスというより、社内・チーム内で使う業務アプリを短期間で作る用途に向いています。
+
+## 完成イメージ
+
+送信すると、スプレッドシートと同じDriveフォルダ内に、1回の送信ごとの専用フォルダが作られます。
+
+```text
+20260520_0935_屋上点検/
+  屋上点検_01.jpg
+  屋上点検_02.jpg
+  屋上点検_03.jpg
+  20260520_0935 屋上点検.pdf
+```
+
+<figure>
+  <img src="/cases/gas-photo-report/11-output-result.jpg" alt="Driveに保存された画像とPDF報告書の出力結果" />
+  <figcaption>画像とPDFが同じフォルダにまとまるため、後から報告書と元写真を確認しやすくなります。</figcaption>
+</figure>
+
+## スプレッドシートを準備する
+
+まず、Googleスプレッドシートに`設定`シートと`レポート`シートを作ります。
+
+### 設定シート
+
+`設定`シートでは、写真ごとに入力する3項目のプルダウン候補を管理します。
+
+```text
+B列: 入力1の候補
+C列: 入力2の候補
+D列: 入力3の候補
+3行目以降: 実際の選択肢
+```
+
+<figure>
+  <img src="/cases/gas-photo-report/01-settings-sheet.jpg" alt="設定シートの入力候補" />
+  <figcaption>B列、C列、D列に入力候補を用意しておくと、Webアプリ側のプルダウンに反映できます。</figcaption>
+</figure>
+
+### レポートシート
+
+`レポート`シートは、PDF出力用の帳票テンプレートです。コード側でセル位置を指定しているため、最初は画像と同じ配置で作るのが安全です。
+
+<figure>
+  <img src="/cases/gas-photo-report/02-report-template.jpg" alt="写真付き報告書のスプレッドシートテンプレート" />
+  <figcaption>1ページに6枚の写真枠を配置し、各写真の下へ3行分の入力値を表示します。</figcaption>
+</figure>
+
+セル配置は次のようにします。
+
+| 写真番号 | 画像セル | 入力欄 |
+|---|---|---|
+| 1 | B2 | B3, B4, B5 |
+| 2 | D2 | D3, D4, D5 |
+| 3 | B7 | B8, B9, B10 |
+| 4 | D7 | D8, D9, D10 |
+| 5 | B12 | B13, B14, B15 |
+| 6 | D12 | D13, D14, D15 |
+
+この`レポート`シートはテンプレートです。セル位置を大きく変える場合は、`Code.gs`側の設定も合わせて変更します。
+
+## Apps Scriptを開く
+
+スプレッドシートの上部メニューから、`拡張機能` → `Apps Script`を開きます。
+
+<figure>
+  <img src="/cases/gas-photo-report/03-open-apps-script.jpg" alt="GoogleスプレッドシートからApps Scriptを開く" />
+  <figcaption>スプレッドシートに紐づくコンテナバインド型GASとして作成します。</figcaption>
+</figure>
+
+## Code.gsを貼り付ける
+
+Apps Scriptの`Code.gs`へ、サーバー側の処理を貼り付けます。
+
+<figure>
+  <img src="/cases/gas-photo-report/04-code-gs-copy.jpg" alt="Code.gsへGASコードを貼り付ける" />
+  <figcaption>画像保存、設定取得、PDF出力、Driveフォルダ作成などの処理をCode.gsへ入れます。</figcaption>
+</figure>
+
+以下が完成コードです。コピーして`Code.gs`へ貼り付けます。
+
+<CopyCode language="javascript" filename="Code.gs" src="/articles/gas/photo-report-webapp/Code.gs" />
+
+## Index.htmlを追加する
+
+次に、Apps ScriptでHTMLファイルを追加します。ここは間違えやすいところで、`.gs`ファイルではなくHTMLファイルとして追加します。
+
+<figure>
+  <img src="/cases/gas-photo-report/05-index-html-copy.jpg" alt="Index.htmlをHTMLファイルとして追加する" />
+  <figcaption>ファイル名はIndexにします。作成されるファイルはIndex.htmlです。</figcaption>
+</figure>
+
+以下を`Index.html`へ貼り付けます。
+
+<CopyCode language="html" filename="Index.html" src="/articles/gas/photo-report-webapp/Index.html" />
+
+## Webアプリとしてデプロイする
+
+右上の`デプロイ`から新しいデプロイを作成し、種類を`ウェブアプリ`にします。
+
+<figure>
+  <img src="/cases/gas-photo-report/06-deploy.jpg" alt="Apps ScriptをWebアプリとしてデプロイする" />
+  <figcaption>実行ユーザーとアクセスできるユーザーは、実際の運用範囲に合わせて設定します。</figcaption>
+</figure>
+
+現場メンバーにURLだけで使ってもらう場合は、アクセス範囲を広めに設定する必要があります。ただし、URLを知っている人が使える設定にする場合は、URLの共有管理が重要です。
+
+## 初回承認を行う
+
+初回実行時は、Googleの権限承認が表示されます。
+
+<figure>
+  <img src="/cases/gas-photo-report/07-authorization.jpg" alt="GAS Webアプリのアクセス承認画面" />
+  <figcaption>Driveへのファイル作成、スプレッドシート編集、PDF出力URLへのアクセスなどが必要になります。</figcaption>
+</figure>
+
+GASはDriveに画像やPDFを作成するため、Drive関連の権限が必要です。自分で作成したスクリプトであることを確認して承認します。
+
+## WebアプリURLを共有する
+
+デプロイが完了すると、WebアプリURLが発行されます。
+
+<figure>
+  <img src="/cases/gas-photo-report/08-webapp-url.jpg" alt="WebアプリURLを発行してコピーする" />
+  <figcaption>発行されたURLをスマートフォンで開くと、写真付き報告書の入力画面が表示されます。</figcaption>
+</figure>
+
+URLを知っている人が使える設定にした場合、このURLを第三者へ共有されると入力される可能性があります。現場内の共有ルールを決めて運用します。
+
+## Webアプリの使い方
+
+操作は次の流れです。
+
+1. WebアプリURLを開く
+2. レポートタイトルを入力する
+3. 写真を選択する
+4. 入力1、入力2、入力3をプルダウンから選ぶ
+5. 複数写真がある場合は`次の画像を追加`を押す
+6. 必要な写真を登録したら`送信してPDF作成`を押す
+
+<figure>
+  <img src="/cases/gas-photo-report/10-usage-add-photo.jpg" alt="複数写真を追加して報告書を作成する画面" />
+  <figcaption>写真を複数追加し、1回の送信でまとめてPDF化できます。</figcaption>
+</figure>
+
+PC画面ではファイル選択になりますが、スマートフォンでは撮影または写真選択として使えます。
+
+## 技術的なポイント
+
+### 画像はDrive保存 + IMAGE関数で表示する
+
+スマホ写真をそのまま<Term>SpreadsheetApp</Term>の`insertImage(blob)`で貼り付けると、画像サイズ制限に当たりやすくなります。
+
+この実装では、写真を<Term query="Google Drive">Drive</Term>に保存し、その画像URLを<Term>IMAGE関数</Term>でスプレッドシートへ表示します。これにより、スマホ写真でも写真付きPDFへ出しやすくしています。
+
+より詳しい実装上の考え方は、[GASでスマホ写真付きレポートをPDF出力する方法](/articles/gas/image-function-photo-pdf-report)にまとめています。
+
+### 6枚ごとにページ分割する
+
+1ページに6枚まで写真を配置し、写真が7枚以上ある場合は`レポート`シートをコピーして一時出力シートを作ります。
+
+```text
+1〜6枚: レポート_出力_1
+7〜12枚: レポート_出力_2
+13〜18枚: レポート_出力_3
+```
+
+PDF作成時だけ出力用シートを表示し、それ以外を一時的に非表示にすることで、複数ページのPDFとして出力します。PDF作成後、一時シートは削除します。
+
+### 送信ごとに専用フォルダを作る
+
+1回の送信ごとにフォルダを分けると、PDFと元画像の対応関係が分かりやすくなります。
+
+```text
+yyyyMMdd_HHmm_レポートタイトル/
+  レポートタイトル_01.jpg
+  レポートタイトル_02.jpg
+  yyyyMMdd_HHmm レポートタイトル.pdf
+```
+
+この形にしておくと、現場名や点検日ごとに後から探しやすくなります。
+
+## 注意点
+
+- `設定`シートと`レポート`シートの名前はコードと一致させます。
+- `レポート`シートのセル配置は、最初は記事の画像と同じにします。
+- `Index.html`はHTMLファイルとして追加します。
+- WebアプリURLの共有範囲には注意します。
+- Drive画像をリンク共有する場合、機密写真を扱う前に運用ルールを決めます。
+- コードを変更した後は、必要に応じて再デプロイします。
+
+## 開発事例としての見方
+
+この事例は、Google Workspaceを使った小さな現場DXの例です。
+
+専用サーバーや大がかりな業務システムを用意しなくても、Googleスプレッドシート、Google Drive、GASを組み合わせることで、現場入力からPDF保存までの流れを作れます。
+
+現場ごとに必要な項目や帳票レイアウトは異なるため、実運用では次のような調整が必要になります。
+
+- 入力項目を現場の報告内容に合わせる
+- 帳票レイアウトを会社指定フォーマットに合わせる
+- 保存フォルダ名やPDF名のルールを変更する
+- 写真枚数やページ分割ルールを変える
+- 共有範囲や権限承認の運用を整える
+
+同様の現場報告書、点検報告書、作業完了報告、写真台帳のWebアプリ化については、実際の帳票や運用に合わせた開発・改良に対応できます。
+
+関連する開発事例:
+
+- [写真付き現場報告書作成Webアプリ](/cases/gas-photo-report-webapp)
+
+## まとめ
+
+GASで作る写真付き報告書Webアプリは、スマホ入力、Drive保存、スプレッドシート帳票、PDF出力を組み合わせた実用的な業務改善パターンです。
+
+サーバー契約なしで始められるため、現場ごとの小さな改善を素早く形にし、運用しながら項目や帳票を育てていく用途に向いています。

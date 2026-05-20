@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <style>
+    /* GAS iframe余白リセット: 共有テクニック「テンプレート_スマホ対応.html」を継承 */
+    html, body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { -webkit-text-size-adjust: 100%; }
+
+    body {
+      min-height: 100vh;
+      background: #eef2f7;
+      color: #172033;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 10px;
+    }
+
+    .header {
+      background: #ffffff;
+      border-bottom: 1px solid #d7deea;
+      padding: 14px 12px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    label {
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    input[type="text"],
+    input[type="file"],
+    select {
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid #b9c3d3;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #172033;
+      font: inherit;
+      padding: 9px 10px;
+    }
+
+    input[type="file"] {
+      padding: 8px;
+    }
+
+    .photo-card {
+      background: #ffffff;
+      border: 1px solid #d7deea;
+      border-radius: 8px;
+      margin-top: 10px;
+      padding: 12px;
+    }
+
+    .photo-card__head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .photo-card__title {
+      font-weight: 700;
+    }
+
+    .preview {
+      width: 100%;
+      min-height: 170px;
+      border: 1px dashed #9aa8bd;
+      border-radius: 8px;
+      background: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      color: #64748b;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+
+    .preview img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    button {
+      min-height: 46px;
+      border: 0;
+      border-radius: 8px;
+      background: #2563eb;
+      color: #ffffff;
+      font: inherit;
+      font-weight: 700;
+      padding: 10px 12px;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #475569;
+    }
+
+    button.danger {
+      background: #b91c1c;
+      min-height: 38px;
+      padding: 6px 10px;
+      font-size: 14px;
+    }
+
+    button:disabled {
+      background: #93a4bb;
+      cursor: not-allowed;
+    }
+
+    .status {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 8px;
+      background: #ffffff;
+      border: 1px solid #d7deea;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .status.success {
+      border-color: #22c55e;
+      background: #f0fdf4;
+    }
+
+    .status.error {
+      border-color: #ef4444;
+      background: #fef2f2;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    @media (max-width: 480px) {
+      .app { padding: 0; }
+      .header { padding: 12px 10px; }
+      .content { padding: 0 6px 12px; }
+      .photo-card { border-left: 0; border-right: 0; border-radius: 0; }
+      .actions { grid-template-columns: 1fr; padding: 0 6px; }
+      .status { margin-left: 6px; margin-right: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="header">
+      <div class="title">写真付き報告書作成</div>
+      <div class="field">
+        <label for="reportTitle">レポートタイトル</label>
+        <input id="reportTitle" type="text" placeholder="例: 冷却塔点検_20260519" autocomplete="off">
+      </div>
+    </div>
+
+    <main class="content">
+      <div id="photoList"></div>
+
+      <div class="actions">
+        <button type="button" class="secondary" id="addPhotoBtn">次の画像を追加</button>
+        <button type="button" id="submitBtn">送信してPDF作成</button>
+      </div>
+
+      <div id="status" class="status hidden"></div>
+    </main>
+  </div>
+
+  <template id="photoTemplate">
+    <section class="photo-card">
+      <div class="photo-card__head">
+        <div class="photo-card__title"></div>
+        <button type="button" class="danger remove-btn">削除</button>
+      </div>
+
+      <div class="field">
+        <label>写真の選択または撮影</label>
+        <input class="photo-input" type="file" accept="image/*" capture="environment">
+      </div>
+
+      <div class="preview">プレビュー</div>
+
+      <div class="field">
+        <label>入力1</label>
+        <select class="choice choice-1"></select>
+      </div>
+
+      <div class="field">
+        <label>入力2</label>
+        <select class="choice choice-2"></select>
+      </div>
+
+      <div class="field">
+        <label>入力3</label>
+        <select class="choice choice-3"></select>
+      </div>
+    </section>
+  </template>
+
+  <script>
+    // GAS iframe親要素の余白除去: 共有テクニック「テンプレート_スマホ対応.html」を継承
+    (function() {
+      try {
+        var style = document.createElement('style');
+        style.textContent = 'body, div.script-application-sidebar { margin:0!important; padding:0!important; }';
+        (parent.document || document).head.appendChild(style);
+      } catch (e) {
+        // GASの実行環境によって親documentへ触れない場合は無視する。
+      }
+    })();
+
+    const state = {
+      choices: [[], [], []],
+      photos: [],
+      isDirty: false,
+      isSubmitting: false,
+    };
+
+    const DRAFT_STORAGE_KEY = 'photo_report_draft_v1';
+
+    const els = {
+      photoList: document.getElementById('photoList'),
+      addPhotoBtn: document.getElementById('addPhotoBtn'),
+      submitBtn: document.getElementById('submitBtn'),
+      status: document.getElementById('status'),
+      reportTitle: document.getElementById('reportTitle'),
+      template: document.getElementById('photoTemplate'),
+    };
+
+    window.addEventListener('load', initialize);
+    window.addEventListener('beforeunload', confirmBeforeUnload);
+    els.reportTitle.addEventListener('input', () => {
+      markDirty();
+      saveDraft();
+    });
+    els.addPhotoBtn.addEventListener('click', () => addPhotoCard());
+    els.submitBtn.addEventListener('click', submitReport);
+
+    function initialize() {
+      setBusy(true, '設定を読み込んでいます...');
+      google.script.run
+        .withSuccessHandler((data) => {
+          state.choices = data.choices || [[], [], []];
+          setBusy(false);
+          restoreDraft();
+          if (state.photos.length === 0) {
+            addPhotoCard(['', '', ''], { markDirty: false, scroll: false });
+          } else {
+            renderPhotoCards();
+          }
+        })
+        .withFailureHandler((err) => {
+          setBusy(false);
+          showStatus('設定の読み込みに失敗しました。\n' + getErrorMessage(err), 'error');
+        })
+        .getInitialData();
+    }
+
+    function addPhotoCard(values, options) {
+      const settings = Object.assign({ markDirty: true, scroll: true }, options || {});
+      const id = createId();
+      state.photos.push({ id, file: null, dataUrl: '', values: values || ['', '', ''] });
+      if (settings.markDirty) {
+        markDirty();
+        saveDraft();
+      }
+      renderPhotoCards();
+      const card = els.photoList.querySelector(`[data-id="${id}"]`);
+      if (settings.scroll && card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function renderPhotoCards() {
+      els.photoList.innerHTML = '';
+      state.photos.forEach((photo, index) => {
+        const node = els.template.content.firstElementChild.cloneNode(true);
+        node.dataset.id = photo.id;
+        node.querySelector('.photo-card__title').textContent = `画像 ${index + 1}`;
+
+        const removeBtn = node.querySelector('.remove-btn');
+        removeBtn.disabled = state.photos.length === 1;
+        removeBtn.addEventListener('click', () => removePhotoCard(photo.id));
+
+        const input = node.querySelector('.photo-input');
+        input.addEventListener('change', (event) => handleFileChange(photo.id, event));
+
+        renderPreview(node.querySelector('.preview'), photo);
+        fillSelect(node.querySelector('.choice-1'), state.choices[0], photo.values?.[0] || '');
+        fillSelect(node.querySelector('.choice-2'), state.choices[1], photo.values?.[1] || '');
+        fillSelect(node.querySelector('.choice-3'), state.choices[2], photo.values?.[2] || '');
+
+        node.querySelectorAll('.choice').forEach((select, selectIndex) => {
+          select.addEventListener('change', () => {
+            photo.values = photo.values || ['', '', ''];
+            photo.values[selectIndex] = select.value;
+            markDirty();
+            saveDraft();
+          });
+        });
+
+        els.photoList.appendChild(node);
+      });
+    }
+
+    function removePhotoCard(id) {
+      if (state.photos.length <= 1) return;
+      state.photos = state.photos.filter((photo) => photo.id !== id);
+      markDirty();
+      saveDraft();
+      renderPhotoCards();
+    }
+
+    function handleFileChange(id, event) {
+      const file = event.target.files && event.target.files[0];
+      const photo = state.photos.find((item) => item.id === id);
+      if (!photo || !file) return;
+
+      showStatus('画像を帳票用サイズに変換しています...', '');
+      resizeImageForReport(file)
+        .then((result) => {
+          photo.file = file;
+          photo.dataUrl = result.dataUrl;
+          photo.mimeType = result.mimeType;
+          photo.convertedSize = result.byteSize;
+          markDirty();
+          saveDraft();
+          hideStatus();
+          renderPhotoCards();
+        })
+        .catch(() => {
+          photo.file = null;
+          photo.dataUrl = '';
+          photo.mimeType = '';
+          renderPhotoCards();
+          showStatus('画像の変換に失敗しました。JPEGまたはPNG画像で再度お試しください。', 'error');
+        });
+    }
+
+    function renderPreview(container, photo) {
+      if (!photo.dataUrl) {
+        container.textContent = 'プレビュー';
+        return;
+      }
+      const img = document.createElement('img');
+      img.src = photo.dataUrl;
+      img.alt = '選択した写真';
+      container.innerHTML = '';
+      container.appendChild(img);
+    }
+
+    function fillSelect(select, options, selectedValue) {
+      select.innerHTML = '';
+      const blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = '選択してください';
+      select.appendChild(blank);
+
+      options.forEach((value) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = value;
+        option.selected = value === selectedValue;
+        select.appendChild(option);
+      });
+    }
+
+    async function submitReport() {
+      hideStatus();
+      const reportTitle = els.reportTitle.value.trim();
+      if (!reportTitle) {
+        showStatus('レポートタイトルを入力してください。', 'error');
+        return;
+      }
+
+      const missingIndex = state.photos.findIndex((photo) => !photo.file || !photo.dataUrl);
+      if (missingIndex >= 0) {
+        showStatus(`画像 ${missingIndex + 1} の写真を選択してください。`, 'error');
+        return;
+      }
+
+      setBusy(true, '画像を送信してPDFを作成しています...');
+      state.isSubmitting = true;
+
+      try {
+        const items = state.photos.map((photo) => {
+          const base64 = photo.dataUrl.split(',')[1] || '';
+          return {
+            fileName: photo.file.name,
+            mimeType: photo.mimeType || photo.file.type || 'image/jpeg',
+            base64,
+            values: photo.values || ['', '', ''],
+          };
+        });
+
+        google.script.run
+          .withSuccessHandler((result) => {
+            setBusy(false);
+            state.isSubmitting = false;
+            state.isDirty = false;
+            clearDraft();
+            showStatus(
+              `${result.message}\nPDF: ${result.pdfFileName}\n画像枚数: ${result.imageCount}\nPDF: ${result.pdfUrl}\n保存フォルダ: ${result.imageFolderUrl}`,
+              'success'
+            );
+          })
+          .withFailureHandler((err) => {
+            setBusy(false);
+            state.isSubmitting = false;
+            showStatus('PDF作成に失敗しました。\n' + getErrorMessage(err), 'error');
+          })
+          .submitReport({ reportTitle, items });
+      } catch (err) {
+        setBusy(false);
+        state.isSubmitting = false;
+        showStatus('送信データの準備に失敗しました。\n' + getErrorMessage(err), 'error');
+      }
+    }
+
+    function confirmBeforeUnload(event) {
+      if (!state.isDirty || state.isSubmitting) return;
+
+      event.preventDefault();
+      event.returnValue = '';
+    }
+
+    function markDirty() {
+      state.isDirty = true;
+    }
+
+    function saveDraft() {
+      try {
+        const draft = {
+          reportTitle: els.reportTitle.value,
+          photos: state.photos.map((photo) => ({
+            values: photo.values || ['', '', ''],
+            hasImage: Boolean(photo.file || photo.dataUrl),
+          })),
+          savedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+      } catch (e) {
+        // localStorageが使えない環境では、再読み込み確認だけで保護する。
+      }
+    }
+
+    function restoreDraft() {
+      try {
+        const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+        if (!raw) return;
+
+        const draft = JSON.parse(raw);
+        els.reportTitle.value = draft.reportTitle || '';
+        state.photos = Array.isArray(draft.photos)
+          ? draft.photos.map((photo) => ({
+              id: createId(),
+              file: null,
+              dataUrl: '',
+              mimeType: '',
+              values: Array.isArray(photo.values) ? photo.values : ['', '', ''],
+            }))
+          : [];
+
+        if (els.reportTitle.value || state.photos.length > 0) {
+          state.isDirty = true;
+          showStatus('前回の入力途中データを復元しました。写真は再選択してください。', '');
+        }
+      } catch (e) {
+        clearDraft();
+      }
+    }
+
+    function clearDraft() {
+      try {
+        localStorage.removeItem(DRAFT_STORAGE_KEY);
+      } catch (e) {
+        // 何もしない。
+      }
+    }
+
+    function setBusy(isBusy, message) {
+      els.addPhotoBtn.disabled = isBusy;
+      els.submitBtn.disabled = isBusy;
+      if (isBusy && message) {
+        showStatus(message, '');
+      }
+    }
+
+    function showStatus(message, type) {
+      els.status.className = 'status' + (type ? ' ' + type : '');
+      els.status.textContent = message;
+    }
+
+    function hideStatus() {
+      els.status.className = 'status hidden';
+      els.status.textContent = '';
+    }
+
+    function getErrorMessage(err) {
+      return err && err.message ? err.message : String(err);
+    }
+
+    function createId() {
+      return 'p_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2);
+    }
+
+    function resizeImageForReport(file) {
+      const maxBytes = 1800 * 1024;
+      const initialMaxSide = 1600;
+      const minMaxSide = 900;
+      const mimeType = 'image/jpeg';
+
+      return readFileAsDataUrl(file)
+        .then(loadImage)
+        .then((image) => {
+          let maxSide = initialMaxSide;
+          let quality = 0.82;
+          let result = drawImageToDataUrl(image, maxSide, quality, mimeType);
+
+          while (result.byteSize > maxBytes && (quality > 0.55 || maxSide > minMaxSide)) {
+            if (quality > 0.55) {
+              quality -= 0.08;
+            } else {
+              maxSide -= 200;
+              quality = 0.78;
+            }
+            result = drawImageToDataUrl(image, maxSide, quality, mimeType);
+          }
+
+          if (result.byteSize > maxBytes) {
+            throw new Error('画像サイズを2MB未満に圧縮できませんでした。');
+          }
+
+          return result;
+        });
+    }
+
+    function readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function loadImage(dataUrl) {
+      return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = dataUrl;
+      });
+    }
+
+    function drawImageToDataUrl(image, maxSide, quality, mimeType) {
+      const ratio = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+      const width = Math.max(1, Math.round(image.naturalWidth * ratio));
+      const height = Math.max(1, Math.round(image.naturalHeight * ratio));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const context = canvas.getContext('2d');
+      context.drawImage(image, 0, 0, width, height);
+
+      const dataUrl = canvas.toDataURL(mimeType, quality);
+      return {
+        dataUrl,
+        mimeType,
+        byteSize: estimateDataUrlBytes(dataUrl),
+      };
+    }
+
+    function estimateDataUrlBytes(dataUrl) {
+      const base64 = dataUrl.split(',')[1] || '';
+      return Math.ceil(base64.length * 3 / 4);
+    }
+  </script>
+</body>
+</html>

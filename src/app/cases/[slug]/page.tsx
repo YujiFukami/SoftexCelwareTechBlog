@@ -146,6 +146,31 @@ export default async function CaseDetailPage({ params }: Props) {
           </ul>
         </section>
 
+        {caseStudy.images && caseStudy.images.length > 0 && (
+          <section>
+            <h2 className="mb-3 text-xl font-bold text-gray-900">
+              画面・出力イメージ
+            </h2>
+            <div className="grid gap-4 md:grid-cols-2">
+              {caseStudy.images.map((image) => (
+                <figure
+                  key={image.src}
+                  className="overflow-hidden rounded-lg border border-gray-200 bg-white"
+                >
+                  <img
+                    src={image.src}
+                    alt={image.alt}
+                    className="h-auto w-full"
+                  />
+                  <figcaption className="border-t border-gray-100 px-4 py-3 text-sm leading-6 text-gray-600">
+                    {image.caption}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          </section>
+        )}
+
         <section>
           <h2 className="mb-3 text-xl font-bold text-gray-900">
             関連する技術記事
@@ -166,6 +191,24 @@ export default async function CaseDetailPage({ params }: Props) {
               </Link>
             ))}
           </div>
+        </section>
+
+        <section className="rounded-lg border border-blue-100 bg-blue-50 p-5">
+          <h2 className="mb-2 text-xl font-bold text-gray-900">
+            同様の業務アプリ開発について
+          </h2>
+          <p className="mb-4 text-sm leading-7 text-gray-700">
+            現場ごとの入力項目、帳票レイアウト、保存先フォルダ、承認フローに合わせた
+            GAS・Webアプリ・Excel VBAの業務改善ツール開発に対応しています。
+          </p>
+          <a
+            href="https://www.softex-celware.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            相談する
+          </a>
         </section>
       </article>
     </div>
