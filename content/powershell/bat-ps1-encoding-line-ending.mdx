@@ -1,0 +1,175 @@
+---
+title: "PowerShellスクリプトとbatランチャーの文字コード・改行コード対策"
+category: "powershell"
+slug: "bat-ps1-encoding-line-ending"
+tags: ["PowerShell", "bat", "Windows", "文字コード", "改行コード"]
+description: "Windows PowerShell 5.1でps1の日本語が文字化けする問題、batのLF改行で実行が崩れる問題を、UTF-8 BOM・ASCII・CRLFのルールで回避する方法をまとめます。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+<Term>PowerShell</Term>の`.ps1`と<Term>batファイル</Term>を組み合わせて、Windows向けの小さなツールやランチャーを作ることがあります。
+
+ところが、AIコーディングツールやLinux系ツールで生成したファイルをそのままWindowsで実行すると、**文字化け、パースエラー、黒い画面が一瞬で閉じる**といった分かりにくい問題が起きることがあります。
+
+原因になりやすいのは、文字コードと改行コードです。この記事では、`.ps1`は<Term>UTF-8 BOM</Term>付き、`.bat`はASCII + <Term>CRLF</Term>で作る、という実務向けのルールに整理します。
+
+## この記事で解決できること
+
+- 日本語入り`.ps1`がWindows PowerShell 5.1で文字化けする問題を避ける
+- `.bat`がLF改行で壊れ、謎の1文字コマンドエラーになる問題を避ける
+- `powershell.exe`がPATHから見つからない環境でも起動できるようにする
+- ダブルクリック実行で即終了したときに、エラーを確認できるようにする
+- AIで生成したPowerShellツールをWindows利用者へ渡す前に確認する
+
+## 結論
+
+配布用のPowerShell + batランチャーは、次のルールで作るのが安全です。
+
+| 対象 | 文字コード | 改行コード | 日本語 | 方針 |
+|---|---|---|---|---|
+| `.ps1` | UTF-8 BOM付き | LF/CRLFどちらでも可 | OK | Windows PowerShell 5.1対策でBOMを付ける |
+| `.bat` | ASCIIのみ | CRLF必須 | 原則入れない | 日本語メッセージはps1側へ寄せる |
+
+特に`.bat`は、見た目が普通でも<Term>LF</Term>改行のままだと`cmd.exe`側の構文解釈が崩れることがあります。
+
+## ps1の日本語が文字化けして構文エラーになる
+
+Windows PowerShell 5.1、つまり`powershell.exe`は、BOMなしの`.ps1`を<Term>CP932</Term>として読むことがあります。
+
+AIツールがBOMなしUTF-8で`.ps1`を保存すると、日本語の`「」`や`（）`が化けて、次のような構文エラーになることがあります。
+
+```text
+「クリチE�Eボ�Eドを解析」をクリチE��してください"
+...は使用できません。
+```
+
+対策は、`.ps1`の先頭にUTF-8 BOMを付けることです。
+
+```bash
+printf '\xef\xbb\xbf' > tmp.ps1
+cat MyScript.ps1 >> tmp.ps1
+mv tmp.ps1 MyScript.ps1
+
+head -c 6 MyScript.ps1 | xxd
+# 先頭が ef bb bf ならOK
+```
+
+PowerShell 7の`pwsh.exe`はBOMなしUTF-8も扱いやすいですが、利用者環境でWindows PowerShell 5.1を使う可能性があるなら、BOM付きにしておくほうが安全です。
+
+## batはASCII + CRLFで作る
+
+`.bat`で日本語コメントや日本語メッセージを入れたくなりますが、配布用ランチャーでは避けるほうが安定します。
+
+日本語Windowsの`cmd.exe`は、UTF-8の日本語をCP932として読んで文字化けすることがあります。さらに、改行コードがLFだけだと、`if errorlevel 1 (`のようなブロック構造が崩れ、内部の文字列が別コマンドとして解釈されることがあります。
+
+配布用のbatは、次のように英数字だけで書きます。
+
+```bat
+@echo off
+cd /d "%~dp0"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -STA -ExecutionPolicy Bypass -NoProfile -File "MyScript.ps1"
+if errorlevel 1 pause
+```
+
+生成後は、CRLFになっているか確認します。
+
+```bash
+xxd run.bat | head -3
+# 各行末に 0d 0a があればCRLF
+```
+
+もしBashのヒアドキュメントで作る場合は、最後にCRLFへ変換します。
+
+```bash
+cat > run.bat << 'EOF'
+@echo off
+cd /d "%~dp0"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -STA -ExecutionPolicy Bypass -NoProfile -File "MyScript.ps1"
+if errorlevel 1 pause
+EOF
+
+sed -i 's/$/\r/' run.bat
+```
+
+## powershell.exeはフルパスで呼ぶ
+
+ユーザー環境によっては、`powershell.exe`がPATHから見つからないことがあります。PowerShell 7を入れたあとにPATHが整理されている環境などでは、batからの起動で失敗することがあります。
+
+そのため、batランチャーでは次のように`%SystemRoot%`を使ってフルパス指定します。
+
+```bat
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -STA -ExecutionPolicy Bypass -NoProfile -File "MyScript.ps1"
+```
+
+`-STA`は、Windows Formsやクリップボード操作など、STAが必要な処理を含むスクリプトで必要になることがあります。GUI系やクリップボード系のPowerShellツールでは付けておくと安全です。
+
+## PowerShellから実行するときはドットスラッシュを付ける
+
+PowerShell上でカレントフォルダのスクリプトを実行するとき、`run.bat`だけでは実行されないことがあります。
+
+```powershell
+run.bat
+```
+
+PowerShellでは、セキュリティ上の理由でカレントディレクトリのスクリプトを暗黙に実行しません。次のように`.\`を付けます。
+
+```powershell
+.\run.bat
+.\MyScript.ps1
+```
+
+これは`cmd.exe`とは挙動が違うため、利用手順にも書いておくと問い合わせを減らせます。
+
+## 即終了する場合はpauseとログで切り分ける
+
+ダブルクリック実行で黒い画面が一瞬出て消える場合、エラー内容が見えません。まずbatに`if errorlevel 1 pause`を入れて、異常終了時だけ画面を止めます。
+
+```bat
+@echo off
+cd /d "%~dp0"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -STA -ExecutionPolicy Bypass -NoProfile -File "MyScript.ps1"
+if errorlevel 1 pause
+```
+
+さらに原因を追う場合は、標準出力と標準エラーをログに出します。
+
+```bat
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -STA -ExecutionPolicy Bypass -NoProfile -File "MyScript.ps1" 1>stdout.log 2>stderr.log
+if errorlevel 1 (
+  type stderr.log
+  pause
+)
+```
+
+PowerShellスクリプト側でも、どこまで処理が進んだかを書き出しておくと切り分けが速くなります。
+
+```powershell
+$logPath = Join-Path $PSScriptRoot "diag.log"
+"Step 1: Add-Type Forms" | Out-File $logPath -Encoding UTF8
+Add-Type -AssemblyName System.Windows.Forms
+"Step 2: Add-Type Drawing" | Out-File $logPath -Append -Encoding UTF8
+Add-Type -AssemblyName System.Drawing
+```
+
+## AIで生成したファイルを渡す前のチェックリスト
+
+- `.ps1`に日本語がある場合、UTF-8 BOM付きになっているか
+- `.bat`はASCIIのみで書いているか
+- `.bat`の改行コードはCRLFになっているか
+- `powershell.exe`は`%SystemRoot%`からフルパス指定しているか
+- GUIやクリップボード操作がある場合、`-STA`を付けているか
+- エラー時に`pause`またはログで原因を確認できるか
+- 手順書にはPowerShellから実行する場合の`.\run.bat`を書いているか
+
+## 関連記事
+
+- [.NET で Shift-JIS / CP932 を扱う Encoding.RegisterProvider](/articles/vsto/shiftjis-register-provider)
+- [Electronアプリのソースコード納品でGitHubを使うときのbat自動化](/articles/electron/github-source-delivery)
+
+## まとめ
+
+PowerShell + batランチャーのトラブルは、コードのロジックではなく、文字コードと改行コードが原因のことがあります。
+
+`.ps1`はUTF-8 BOM付き、`.bat`はASCII + CRLF、`powershell.exe`はフルパス指定。この3点を固定ルールにしておくと、Windows配布時の文字化け、即終了、謎のbatエラーをかなり減らせます。
