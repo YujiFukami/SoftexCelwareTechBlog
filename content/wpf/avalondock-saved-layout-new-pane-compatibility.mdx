@@ -1,0 +1,149 @@
+---
+title: "AvalonDockで新ペイン追加時に保存済みレイアウトと互換を取る"
+category: "wpf"
+slug: "avalondock-saved-layout-new-pane-compatibility"
+tags: ["WPF", "AvalonDock", "XmlLayoutSerializer", "レイアウト保存", "互換性"]
+description: "AvalonDock の保存済み layout.xml がある環境で、アプリ更新により追加した新ペインが表示されない問題を避けるための補完パターンを解説します。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+<Term>AvalonDock</Term> のレイアウトを `XmlLayoutSerializer` で保存しているアプリでは、ユーザーごとの `layout.xml` が次回起動時に復元されます。これは便利ですが、アプリの更新で XAML に新しい `LayoutDocument` や `LayoutAnchorable` を追加したときに、古い保存済みレイアウトへその `ContentId` が含まれていないため、新ペインが画面に出ないことがあります。
+
+ユーザーに「レイアウトを初期化してください」と案内すれば復旧できますが、せっかく調整した配置が失われます。更新時に追加したペインだけを補完できるようにしておくと、既存ユーザーの作業環境を壊さずに機能追加できます。
+
+## こんな場面で使えます
+
+- <Term>WPF</Term> アプリで <Term>AvalonDock</Term> のレイアウト保存を使っている
+- 既存ユーザーの `layout.xml` を維持したまま新しいペインを追加したい
+- アプリ更新後に「新機能のタブが見えない」という問い合わせを減らしたい
+- レイアウト初期化を最終手段にしたい
+
+## 実装パターン
+
+復元処理の後に、期待する `ContentId` が現在のレイアウト上に存在するか確認します。見つからない場合は、既存の `LayoutDocumentPane` へ新しい `LayoutDocument` を追加します。
+
+```csharp
+using System;
+using System.Linq;
+using System.Windows;
+using AvalonDock.Layout;
+
+public void LoadLayout()
+{
+    try
+    {
+        LayoutPersistence.Load(DockManager);
+    }
+    catch
+    {
+        // 壊れた layout.xml では初期レイアウトで起動する
+    }
+
+    EnsureExpectedPanesVisible();
+}
+
+private void EnsureExpectedPanesVisible()
+{
+    if (DockManager?.Layout == null) return;
+
+    var allDocuments = DockManager.Layout.Descendents()
+        .OfType<LayoutDocument>()
+        .ToList();
+
+    var firstPane = DockManager.Layout.Descendents()
+        .OfType<LayoutDocumentPane>()
+        .FirstOrDefault();
+
+    if (firstPane == null) return;
+
+    EnsureDocument(
+        firstPane,
+        allDocuments,
+        contentId: "relation-map",
+        title: "関係マップ",
+        content: RelationshipMapHost);
+}
+
+private static void EnsureDocument(
+    LayoutDocumentPane targetPane,
+    System.Collections.Generic.IReadOnlyCollection<LayoutDocument> documents,
+    string contentId,
+    string title,
+    UIElement content)
+{
+    bool exists = documents.Any(d =>
+        string.Equals(d.ContentId, contentId, StringComparison.Ordinal));
+
+    if (exists) return;
+
+    targetPane.Children.Add(new LayoutDocument
+    {
+        ContentId = contentId,
+        Title = title,
+        CanClose = false,
+        Content = content,
+    });
+}
+```
+
+XAML 側の `ContentId` と、補完処理で使う `contentId` は必ず一致させます。
+
+```xaml
+<dock:LayoutDocument Title="関係マップ"
+                     CanClose="False"
+                     ContentId="relation-map">
+    <Grid x:Name="RelationshipMapHost" />
+</dock:LayoutDocument>
+```
+
+## Hidden領域も確認する
+
+`LayoutAnchorable` の場合、復元後に `Hidden` 領域へ入っていることがあります。その場合は新規追加ではなく `Show()` で戻します。
+
+```csharp
+var hidden = DockManager.Layout.Hidden?
+    .OfType<LayoutAnchorable>()
+    .FirstOrDefault(a => string.Equals(
+        a.ContentId,
+        "relation-map",
+        StringComparison.Ordinal));
+
+if (hidden != null)
+{
+    hidden.Show();
+    return;
+}
+```
+
+ドキュメント型のペイン、アンカー型のペインで復帰方法が違うため、実際の画面構成に合わせて補完処理を分けます。
+
+## 設計のポイント
+
+補完対象は「XAMLに定義済みだが、保存済みレイアウトに含まれていないペイン」です。アプリ更新で増えたペインの `ContentId` を明示リスト化しておくと、追加漏れを見つけやすくなります。
+
+また、すべてのペインを毎回作り直すのではなく、復元後のレイアウトを尊重し、足りないものだけを追加します。これにより、既存ユーザーが調整したタブ順やフローティング配置を維持できます。
+
+## 注意点・ハマりポイント
+
+- `ContentId` は保存済み XML との互換キーなので、安易に変更しない
+- 新ペインを追加したら、XAML だけでなく補完リストにも追加する
+- `Layout.Descendents()` を使うには `AvalonDock.Layout` の using が必要
+- `LayoutDocument` と `LayoutAnchorable` では復帰方法を分ける
+- 補完処理の失敗でアプリ起動を止めない
+- 「初期レイアウトへ戻す」機能は、補完できない場合の復旧手段として残しておく
+
+## 実際の活用事例
+
+コードビューアや解析ツールで、新しい「関係マップ」「検索結果」「診断ログ」ペインを追加する場面に向いています。古い `layout.xml` を持つユーザーでも、アプリ更新後に追加ペインが自然に見えるため、更新後の問い合わせを減らせます。
+
+## 関連記事
+
+- [AvalonDock のレイアウトを XmlLayoutSerializer で保存・復元する](/articles/wpf/avalondock-layout-serializer)
+- [VSTOでWPF UIを独立ウィンドウ表示するWinForms Form + ElementHostパターン](/articles/vsto/winforms-elementhost-wpf-window)
+- [AvalonDockレイアウト保存が永続化されないバグをOnBeforeHideで防ぐ](/articles/vsto/avalondock-save-layout-on-before-hide)
+
+## まとめ
+
+<Term>AvalonDock</Term> でレイアウト保存を使う場合、新ペイン追加時の互換処理もセットで考える必要があります。復元後に足りない `ContentId` を検出し、必要なペインだけを補完することで、ユーザーの既存レイアウトを守りながら機能追加できます。

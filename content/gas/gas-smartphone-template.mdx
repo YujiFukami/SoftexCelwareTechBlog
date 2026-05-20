@@ -1,0 +1,117 @@
+---
+title: "GAS Webアプリのスマホ余白を抑えるHTMLテンプレート"
+category: "gas"
+slug: "gas-smartphone-template"
+tags: ["GAS", "Webアプリ", "スマホ対応", "HTML", "CSS"]
+description: "Google Apps ScriptのWebアプリで、スマホ表示時の余白やフォント拡大を抑えるためのHTMLテンプレートを紹介します。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+<Term>Google Apps Script</Term>でWebアプリを作ると、PCでは問題なく見えても、スマートフォンでは画面の左右に余白が出たり、iPhoneの回転後に文字サイズが変わったりすることがあります。
+
+特にGASのWebアプリはiframe内で表示されるため、通常のHTMLページよりも余白の出方を意識しておく必要があります。
+
+この記事では、GAS Webアプリの最初のHTMLとして使える、スマホ向けの余白リセット込みテンプレートを紹介します。
+
+## こんな場面で使えます
+
+- GAS Webアプリをスマホで使いやすくしたい
+- フォーム、一覧、カード型UIの土台を毎回作っている
+- 画面左右の余白や横スクロールを減らしたい
+- 外部フレームワークなしで軽い画面を作りたい
+
+写真付き報告や入力フォームのようにスマートフォンで使う画面では、最初にこの土台を入れておくと後から調整しやすくなります。
+
+## 実装コード
+
+GASのHTMLファイルに、次の形で配置します。
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    html,
+    body {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      -webkit-text-size-adjust: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', sans-serif;
+      background: #f0f2f5;
+      color: #333;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 10px;
+    }
+
+    @media (max-width: 480px) {
+      .container {
+        padding: 6px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- ここにコンテンツ -->
+  </div>
+
+  <script>
+    (function() {
+      try {
+        var style = document.createElement('style');
+        style.textContent = 'body, div.script-application-sidebar { margin:0!important; padding:0!important; }';
+        (parent.document || document).head.appendChild(style);
+      } catch (e) {
+        // 親要素へアクセスできない場合は無視します。
+      }
+    })();
+  </script>
+</body>
+</html>
+```
+
+## 設計のポイント
+
+最初のポイントは、`html`と`body`の余白を明示的に消すことです。GAS Webアプリでは、表示枠の外側と内側の余白が重なって見えることがあるため、土台側でリセットしておくと安定します。
+
+2つ目は、すべての要素に`box-sizing: border-box`を指定することです。幅100%の要素にpaddingを足しても横にはみ出しにくくなり、スマホ画面での横スクロールを防ぎやすくなります。
+
+3つ目は、`.container`でPCとスマホの見え方を分けることです。PCでは`max-width: 640px`で読みやすい幅にし、スマホでは画面幅を使いながら最小限のpaddingだけ残します。
+
+## 注意点
+
+- 親要素の余白除去スクリプトは、環境によってはクロスオリジン制約で効かない場合があります
+- `!important`は土台の余白リセットに限定し、個別の部品では乱用しない方が保守しやすくなります
+- 大きな表をそのまま置くと、このテンプレートだけでは横スクロールを防げません
+- 入力途中の保護が必要なフォームでは、`beforeunload`や下書き保存も検討します
+
+## 関連記事
+
+- [GAS Webアプリのスマホ対応フォント設定](/articles/gas/mobile-font-setting)
+- [GASでカード型レスポンシブレイアウトを実装する方法](/articles/gas/card-responsive-layout)
+- [GAS Webアプリの入力途中離脱を防ぐ方法](/articles/gas/beforeunload-dirty-form)
+- [GASのgoogle.script.runでエラーハンドリングを実装する方法](/articles/gas/script-run-error-handling)
+
+## まとめ
+
+GAS Webアプリをスマホで使う場合は、画面の中身を作る前に、余白、box-sizing、フォント、コンテナ幅を整えておくと後の調整が楽になります。
+
+このテンプレートを土台にして、カード型レイアウト、入力フォーム、送信中スピナー、エラーハンドリングを追加していくと、スマートフォン向けの業務Webアプリを作りやすくなります。

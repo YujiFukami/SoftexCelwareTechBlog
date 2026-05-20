@@ -1,0 +1,256 @@
+---
+title: "WPF Canvasでドラッグ可能なカードとBezier矢印を描く"
+category: "wpf"
+slug: "canvas-draggable-card-bezier-arrow"
+tags: ["WPF", "Canvas", "PathGeometry", "Bezier", "ドラッグ"]
+description: "WPF Canvas 上にカード型ノードを配置し、ドラッグ移動と Bezier 矢印の再描画で簡易的な関係図を作る実装パターンを解説します。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+モジュール関係図、依存関係グラフ、状態遷移図のように、カード状のノードを自由に配置し、ノード間を矢印で結びたい場面があります。大規模な自動レイアウトが必要なら専用ライブラリを検討しますが、数十から数百程度のノードを手で調整する用途なら、<Term>WPF</Term> の <Term>Canvas</Term> と `Path` だけでも実用的な画面を作れます。
+
+この記事では、カードをドラッグできるようにし、カード位置に合わせて `BezierSegment` の矢印を再描画する最小パターンをまとめます。
+
+## こんな場面で使えます
+
+- <Term>WPF</Term> で関係図や依存関係ビューを作りたい
+- ノードを手で移動できる簡易グラフを作りたい
+- GraphSharp や MSAGL のような外部ライブラリを増やしたくない
+- カードの位置を後で保存し、次回も同じ配置で表示したい
+
+## 基本構成
+
+`ScrollViewer` の中に大きめの <Term>Canvas</Term> を置きます。カードは `Canvas.Left` と `Canvas.Top` で配置し、矢印は `PathGeometry` で描きます。
+
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Shapes;
+
+public sealed class GraphMapView : UserControl
+{
+    private readonly Canvas _canvas;
+    private readonly Dictionary<NodeModel, UserControl> _nodeCards = new();
+    private readonly List<(NodeModel Source, NodeModel Target)> _edges = new();
+
+    private UserControl _draggingCard;
+    private Point _dragStart;
+    private Point _cardStart;
+    private bool _redrawPending;
+
+    public GraphMapView()
+    {
+        _canvas = new Canvas
+        {
+            Width = 4000,
+            Height = 3000,
+            Background = Brushes.Transparent,
+        };
+
+        Content = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = _canvas,
+        };
+
+        _canvas.MouseMove += OnCanvasMouseMove;
+        _canvas.MouseLeftButtonUp += (_, __) => EndDrag();
+        _canvas.LayoutUpdated += (_, __) => ScheduleRedrawArrows();
+    }
+}
+```
+
+## カードを配置する
+
+カードは `UserControl` として作り、`Canvas.Left` と `Canvas.Top` を設定します。矢印より前面に出すため、`Panel.ZIndex` を高めにします。
+
+```csharp
+public void Load(
+    IEnumerable<NodeModel> nodes,
+    IEnumerable<(NodeModel Source, NodeModel Target)> edges)
+{
+    _canvas.Children.Clear();
+    _nodeCards.Clear();
+    _edges.Clear();
+    _edges.AddRange(edges);
+
+    int index = 0;
+    foreach (var node in nodes)
+    {
+        var card = BuildCard(node);
+        card.MouseLeftButtonDown += (_, e) => StartDrag(card, e);
+
+        Canvas.SetLeft(card, 40 + (index % 4) * 320);
+        Canvas.SetTop(card, 40 + (index / 4) * 220);
+        Panel.SetZIndex(card, 2);
+
+        _canvas.Children.Add(card);
+        _nodeCards[node] = card;
+        index++;
+    }
+
+    ScheduleRedrawArrows();
+}
+```
+
+## ドラッグ移動を実装する
+
+ドラッグ中はマウスをキャプチャし、カード外へカーソルが出ても移動を継続できるようにします。
+
+```csharp
+private void StartDrag(UserControl card, MouseButtonEventArgs e)
+{
+    _draggingCard = card;
+    _dragStart = e.GetPosition(_canvas);
+    _cardStart = new Point(Canvas.GetLeft(card), Canvas.GetTop(card));
+
+    if (double.IsNaN(_cardStart.X)) _cardStart.X = 0;
+    if (double.IsNaN(_cardStart.Y)) _cardStart.Y = 0;
+
+    card.CaptureMouse();
+}
+
+private void OnCanvasMouseMove(object sender, MouseEventArgs e)
+{
+    if (_draggingCard == null) return;
+
+    if (e.LeftButton != MouseButtonState.Pressed)
+    {
+        EndDrag();
+        return;
+    }
+
+    var current = e.GetPosition(_canvas);
+    double x = Math.Max(0, _cardStart.X + current.X - _dragStart.X);
+    double y = Math.Max(0, _cardStart.Y + current.Y - _dragStart.Y);
+
+    Canvas.SetLeft(_draggingCard, x);
+    Canvas.SetTop(_draggingCard, y);
+
+    ScheduleRedrawArrows();
+}
+
+private void EndDrag()
+{
+    _draggingCard?.ReleaseMouseCapture();
+    _draggingCard = null;
+}
+```
+
+## Bezier矢印を描く
+
+カードの左右どちらを接続点にするかを決め、2つの制御点を使ってなめらかな S 字の線を作ります。
+
+```csharp
+private void ScheduleRedrawArrows()
+{
+    if (_redrawPending) return;
+    _redrawPending = true;
+
+    Dispatcher.BeginInvoke(new Action(() =>
+    {
+        _redrawPending = false;
+        RedrawArrows();
+    }), System.Windows.Threading.DispatcherPriority.Background);
+}
+
+private void RedrawArrows()
+{
+    foreach (var path in _canvas.Children.OfType<Path>().ToList())
+    {
+        _canvas.Children.Remove(path);
+    }
+
+    foreach (var edge in _edges)
+    {
+        if (!_nodeCards.TryGetValue(edge.Source, out var source)) continue;
+        if (!_nodeCards.TryGetValue(edge.Target, out var target)) continue;
+
+        DrawArrow(source, target);
+    }
+}
+
+private void DrawArrow(UserControl source, UserControl target)
+{
+    var sourceRect = GetCanvasRect(source);
+    var targetRect = GetCanvasRect(target);
+
+    bool targetIsRight =
+        targetRect.X + targetRect.Width / 2 >= sourceRect.X + sourceRect.Width / 2;
+
+    Point p0 = targetIsRight
+        ? new Point(sourceRect.Right, sourceRect.Y + sourceRect.Height / 2)
+        : new Point(sourceRect.Left, sourceRect.Y + sourceRect.Height / 2);
+
+    Point p1 = targetIsRight
+        ? new Point(targetRect.Left, targetRect.Y + targetRect.Height / 2)
+        : new Point(targetRect.Right, targetRect.Y + targetRect.Height / 2);
+
+    double dx = Math.Abs(p1.X - p0.X);
+    double offset = Math.Max(40, Math.Min(dx * 0.45, 160));
+
+    var c1 = new Point(targetIsRight ? p0.X + offset : p0.X - offset, p0.Y);
+    var c2 = new Point(targetIsRight ? p1.X - offset : p1.X + offset, p1.Y);
+
+    var figure = new PathFigure { StartPoint = p0 };
+    figure.Segments.Add(new BezierSegment(c1, c2, p1, true));
+
+    var geometry = new PathGeometry();
+    geometry.Figures.Add(figure);
+
+    var line = new Path
+    {
+        Data = geometry,
+        Stroke = Brushes.Firebrick,
+        StrokeThickness = 1.4,
+        IsHitTestVisible = false,
+    };
+
+    Panel.SetZIndex(line, 1);
+    _canvas.Children.Add(line);
+}
+
+private static Rect GetCanvasRect(FrameworkElement element)
+{
+    return new Rect(
+        Canvas.GetLeft(element),
+        Canvas.GetTop(element),
+        element.ActualWidth,
+        element.ActualHeight);
+}
+```
+
+矢印の三角形まで描く場合は、終点へ向かうベクトルを正規化し、その垂直方向を使って三角形を作ります。
+
+## 設計のポイント
+
+`ActualWidth` と `ActualHeight` は、初回レイアウトが終わるまで 0 のことがあります。そのため `LayoutUpdated` 後に再描画し、さらに `_redrawPending` で 1 回にまとめます。`LayoutUpdated` は頻繁に発火するため、毎回すぐに全矢印を描き直すと重くなります。
+
+矢印の `IsHitTestVisible` は `false` にしておくと、線の上にあるカードのクリックやドラッグを邪魔しません。
+
+## 注意点・ハマりポイント
+
+- ドラッグ中は `CaptureMouse()` と `ReleaseMouseCapture()` を対で使う
+- `Canvas.GetLeft()` が `NaN` の場合を考慮する
+- 矢印はカードより低い `ZIndex` にする
+- `LayoutUpdated` は多発するため再描画をデバウンスする
+- ノード数が数百を超える場合は、差分再描画や別方式を検討する
+- 位置を永続化する場合は `Canvas.Left` と `Canvas.Top` を保存する
+
+## 関連記事
+
+- [AvalonDockで新ペイン追加時に保存済みレイアウトと互換を取る](/articles/wpf/avalondock-saved-layout-new-pane-compatibility)
+- [AvalonDock のレイアウトを XmlLayoutSerializer で保存・復元する](/articles/wpf/avalondock-layout-serializer)
+- [WPF UIからホスト依存処理をコールバックinterfaceで分離する](/articles/wpf/callback-interface-dependency-inversion)
+
+## まとめ
+
+<Term>WPF</Term> の <Term>Canvas</Term> と `PathGeometry` を使えば、軽量なカード型関係図を作れます。カード位置の管理、マウスキャプチャ、矢印再描画のタイミングを分けておくと、専用グラフライブラリを使わなくても保守しやすいビューになります。

@@ -1,0 +1,168 @@
+---
+title: "AvalonEditでDocumentColorizingTransformerによる意味的着色を行う"
+category: "wpf"
+slug: "avalonedit-semantic-colorizing-transformer"
+tags: ["WPF", "AvalonEdit", "DocumentColorizingTransformer", "Lexer", "シンタックスハイライト"]
+description: "AvalonEdit の xshd だけでは表現しにくい、プロジェクト内シンボルに応じた意味的着色を DocumentColorizingTransformer で重ねる方法を解説します。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+<Term>AvalonEdit</Term> の xshd は、キーワードやコメントなどの構文ベースの色分けに向いています。一方で、「このプロジェクトで宣言されている API 名」「型名」「Enum 名」「定数名」のように、解析結果に応じて変わる語を色分けしたい場合は、xshd だけでは扱いにくくなります。
+
+このような意味的着色には、<Term>DocumentColorizingTransformer</Term> を追加し、既存のシンタックスハイライトの上から必要な範囲だけ色を重ねる方法が使えます。
+
+## こんな場面で使えます
+
+- <Term>WPF</Term> + <Term>AvalonEdit</Term> でコードビューアを作っている
+- <Term>Lexer</Term> や解析結果から得たシンボル一覧をエディタ上で色分けしたい
+- xshd の静的な定義ではなく、プロジェクトごとに変わる語を着色したい
+- コメントや文字列リテラル内の誤着色を避けたい
+
+## 実装コード
+
+行ごとに字句解析し、識別子トークンだけを対象にします。単純な文字列検索ではなく <Term>Lexer</Term> を通すことで、コメント内や文字列内の語を誤って色付けしにくくなります。
+
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Windows.Media;
+using ICSharpCode.AvalonEdit.Document;
+using ICSharpCode.AvalonEdit.Rendering;
+
+public sealed class ProjectSymbolColorizer : DocumentColorizingTransformer
+{
+    private readonly HashSet<string> _apis =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    private readonly HashSet<string> _types =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    private readonly HashSet<string> _enums =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    private readonly HashSet<string> _consts =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    public void UpdateContext(ProjectAnalysisResult project)
+    {
+        _apis.Clear();
+        _types.Clear();
+        _enums.Clear();
+        _consts.Clear();
+
+        if (project?.Declarations == null) return;
+
+        foreach (var declaration in project.Declarations)
+        {
+            if (string.IsNullOrWhiteSpace(declaration.Name)) continue;
+
+            switch (declaration.Kind)
+            {
+                case DeclarationKind.Api:
+                    _apis.Add(declaration.Name);
+                    break;
+                case DeclarationKind.Type:
+                    _types.Add(declaration.Name);
+                    break;
+                case DeclarationKind.Enum:
+                    _enums.Add(declaration.Name);
+                    break;
+                case DeclarationKind.Const:
+                    _consts.Add(declaration.Name);
+                    break;
+            }
+        }
+    }
+
+    protected override void ColorizeLine(DocumentLine line)
+    {
+        if (line == null || line.Length == 0) return;
+        if (_apis.Count + _types.Count + _enums.Count + _consts.Count == 0) return;
+
+        string text = CurrentContext.Document.GetText(line.Offset, line.Length);
+        IReadOnlyList<Token> tokens;
+
+        try
+        {
+            tokens = VbaLexer.Tokenize(text);
+        }
+        catch
+        {
+            return;
+        }
+
+        foreach (var token in tokens)
+        {
+            if (token.Kind != TokenKind.Identifier) continue;
+
+            Brush brush = null;
+            if (_apis.Contains(token.Text)) brush = Brushes.DeepSkyBlue;
+            else if (_types.Contains(token.Text)) brush = Brushes.MediumOrchid;
+            else if (_enums.Contains(token.Text)) brush = Brushes.Goldenrod;
+            else if (_consts.Contains(token.Text)) brush = Brushes.LightGreen;
+
+            if (brush == null) continue;
+
+            int startInLine = token.Column - 1;
+            int endInLine = startInLine + token.Text.Length;
+
+            if (startInLine < 0 || endInLine > text.Length) continue;
+
+            var capturedBrush = brush;
+            ChangeLinePart(
+                line.Offset + startInLine,
+                line.Offset + endInLine,
+                element => element.TextRunProperties.SetForegroundBrush(capturedBrush));
+        }
+    }
+}
+```
+
+エディタには `TextView.LineTransformers` へ追加します。
+
+```csharp
+private readonly ProjectSymbolColorizer _symbolColorizer =
+    new ProjectSymbolColorizer();
+
+private void InitializeEditor()
+{
+    CodeEditor.TextArea.TextView.LineTransformers.Add(_symbolColorizer);
+}
+
+private void OnProjectChanged(ProjectAnalysisResult project)
+{
+    _symbolColorizer.UpdateContext(project);
+    CodeEditor.TextArea.TextView.Redraw();
+}
+```
+
+## 設計のポイント
+
+`ChangeLinePart` に渡す開始位置と終了位置は、ドキュメント全体の絶対オフセットです。トークンの列番号が 1-based の場合は、`token.Column - 1` で行内の 0-based 位置へ直してから `line.Offset` を足します。
+
+また、xshd で基本の構文色を付けた後に transformer を追加すると、後から追加した transformer の描画が上書きされます。構文色は xshd、プロジェクト依存の意味的着色は transformer、という役割分担にすると保守しやすくなります。
+
+## 注意点・ハマりポイント
+
+- コメントや文字列を避けるため、単純な `IndexOf` ではなく <Term>Lexer</Term> の結果を使う
+- プロジェクト切り替え時はシンボル集合を更新し、`TextView.Redraw()` を呼ぶ
+- `ChangeLinePart` の範囲はドキュメント絶対位置で指定する
+- `Brush` はラムダ内で使う前にローカル変数へ退避しておくと意図が明確になる
+- 解析結果が空のときは早めに return し、表示負荷を抑える
+- 大規模ファイルでは、解析結果の更新頻度を絞る
+
+## 実際の活用事例
+
+VBA や C# の解析ビューアでは、予約語の色分けだけでなく、プロジェクト固有の宣言を見分けられると読みやすさが上がります。API、型、Enum、定数を別色にすると、コードの依存関係や役割を視覚的に追いやすくなります。
+
+## 関連記事
+
+- [AvalonEdit の検索ハイライトを DocumentColorizingTransformer で実装する](/articles/wpf/avalonedit-search-highlight)
+- [VBA Lexer / Parser を自作してコード解析の土台を作る](/articles/code-analysis/vba-lexer-parser)
+- [プロジェクト横断の公開シンボルを抽出する](/articles/code-analysis/cross-project-public-symbols)
+
+## まとめ
+
+<Term>AvalonEdit</Term> の意味的着色は、xshd にすべてを詰め込むより、<Term>DocumentColorizingTransformer</Term> で解析結果に応じた色を重ねる方が扱いやすくなります。<Term>Lexer</Term> と組み合わせることで、誤着色を抑えながらプロジェクト固有の情報をエディタ上に反映できます。

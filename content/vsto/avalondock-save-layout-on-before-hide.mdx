@@ -1,0 +1,151 @@
+---
+title: "AvalonDockレイアウト保存が永続化されないバグをOnBeforeHideで防ぐ"
+category: "vsto"
+slug: "avalondock-save-layout-on-before-hide"
+tags: ["VSTO", "WPF", "AvalonDock", "WinForms", "ElementHost"]
+description: "VSTO の WinForms Form + ElementHost + WPF 構成で、Form.Hide() では WPF の Unloaded が発火せず AvalonDock レイアウトが保存されない問題への対策を解説します。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+<Term>VSTO</Term> アドインで <Term>WinForms Form</Term> + <Term>ElementHost</Term> + <Term>WPF UserControl</Term> の構成を使い、内部に <Term>AvalonDock</Term> を置くことがあります。このとき、WPF 側の `Unloaded` イベントでレイアウト保存を書いていると、フォームを閉じたつもりなのに次回起動時にレイアウトが戻らないことがあります。
+
+原因は、Excel と並行して使うために `FormClosing` で `Close()` をキャンセルし、`Form.Hide()` に置き換えているケースです。`Hide()` では WPF の `Unloaded` が発火しないため、`MainView.SaveLayout()` が呼ばれません。
+
+## こんな場面で使えます
+
+- Excel <Term>VSTO</Term> アドインで独立フォーム型の <Term>WPF</Term> UI を出している
+- <Term>AvalonDock</Term> のペイン配置や ListView 列幅を保存したい
+- フォームの閉じるボタンやリボントグルでは `Hide()` している
+- ウィンドウ位置は保存されるのに、内部レイアウトだけ保存されない
+
+## 解決策
+
+フォーム側に `OnBeforeHide` コールバックを用意し、`Hide()` する直前に明示的に保存します。閉じるボタン、Alt+F4、リボントグル、Excel 終了の各経路から同じ保存メソッドを呼べる形にします。
+
+```csharp
+using System;
+using System.Windows.Forms;
+using System.Windows.Forms.Integration;
+
+internal sealed class MainToolForm : Form
+{
+    public MyMainView MainView { get; }
+    public Action OnBeforeHide { get; set; }
+    public bool AllowRealClose { get; set; }
+
+    public MainToolForm(MyMainView mainView)
+    {
+        MainView = mainView ?? throw new ArgumentNullException(nameof(mainView));
+
+        Controls.Add(new ElementHost
+        {
+            Dock = DockStyle.Fill,
+            Child = mainView,
+        });
+
+        FormClosing += OnFormClosing;
+    }
+
+    private void OnFormClosing(object sender, FormClosingEventArgs e)
+    {
+        try
+        {
+            OnBeforeHide?.Invoke();
+        }
+        catch
+        {
+            // 保存失敗で終了処理を止めない
+        }
+
+        if (AllowRealClose)
+        {
+            return;
+        }
+
+        if (e.CloseReason == CloseReason.UserClosing)
+        {
+            e.Cancel = true;
+            Hide();
+        }
+    }
+}
+```
+
+<Term>VSTO</Term> 側では、フォーム位置と <Term>AvalonDock</Term> レイアウトをまとめて保存するメソッドを用意します。
+
+```csharp
+private MainToolForm _mainForm;
+
+private void OpenToolWindow()
+{
+    var mainView = new MyMainView();
+
+    _mainForm = new MainToolForm(mainView)
+    {
+        OnBeforeHide = SaveAllState,
+    };
+
+    _mainForm.Show();
+}
+
+private void SaveAllState()
+{
+    SaveFormGeometry();
+
+    try
+    {
+        _mainForm?.MainView?.SaveLayout();
+    }
+    catch
+    {
+        // レイアウト保存失敗で Excel を巻き込まない
+    }
+}
+
+private void HideFromRibbon()
+{
+    if (_mainForm == null || !_mainForm.Visible) return;
+
+    SaveAllState();
+    _mainForm.Hide();
+}
+```
+
+Excel 終了時に本当にフォームを閉じる場合も、同じ保存経路を通します。
+
+```csharp
+private void ThisAddIn_Shutdown(object sender, EventArgs e)
+{
+    if (_mainForm == null) return;
+
+    _mainForm.AllowRealClose = true;
+    _mainForm.Close();
+}
+```
+
+## 設計のポイント
+
+保存処理は WPF 側の `Unloaded` だけに置かず、ホスト側の表示制御に合わせて呼び出します。<Term>VSTO</Term> では Excel を終了せずにツール画面だけを隠すことが多いため、`Hide()` が通常経路になります。
+
+また、フォーム位置、サイズ、内部レイアウト、列幅などを `SaveAllState()` に集約すると、閉じるボタン、リボン、Excel 終了のどこからでも同じ保存処理を呼べます。
+
+## 注意点・ハマりポイント
+
+- `Form.Hide()` では WPF の `Unloaded` が発火しない
+- ユーザー操作の `Close()` を `Hide()` に変換している場合は、変換前に保存する
+- Excel 終了時は `AllowRealClose = true` で実際に閉じる
+- 保存失敗で Excel やアドインの終了を止めない
+- レイアウト保存とフォーム位置保存を別々の経路にしない
+- <Term>AvalonDock</Term> の新ペイン追加時は、保存済みレイアウト互換も確認する
+
+## 関連記事
+
+- [VSTOでWPF UIを独立ウィンドウ表示するWinForms Form + ElementHostパターン](/articles/vsto/winforms-elementhost-wpf-window)
+- [AvalonDock のレイアウトを XmlLayoutSerializer で保存・復元する](/articles/wpf/avalondock-layout-serializer)
+- [AvalonDockで新ペイン追加時に保存済みレイアウトと互換を取る](/articles/wpf/avalondock-saved-layout-new-pane-compatibility)
+
+## まとめ
+
+<Term>VSTO</Term> の独立フォーム型 <Term>WPF</Term> UI では、`Unloaded` だけに保存を任せると `Hide()` 経路で漏れます。`OnBeforeHide` をフォーム側に用意し、非表示化の直前に `SaveLayout()` を明示的に呼ぶことで、<Term>AvalonDock</Term> のレイアウトを安定して永続化できます。

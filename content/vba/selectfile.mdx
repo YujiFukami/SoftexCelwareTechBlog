@@ -1,0 +1,72 @@
+---
+title: "ファイル選択ダイアログを共通化するExcel VBA汎用プロシージャ"
+category: "vba"
+slug: "selectfile"
+tags: ["Excel VBA", "汎用プロシージャ", "FileDialog", "ファイル選択", "ParamArray"]
+description: "Application.FileDialogでファイル選択ダイアログを表示し、選択されたファイルのフルパスを返すExcel VBA汎用プロシージャを解説します。"
+date: "2026-05-20"
+---
+
+## 概要
+
+`SelectFile`は、<Term>Excel VBA</Term>でファイル選択ダイアログを表示し、ユーザーが選んだファイルのフルパスを文字列で返す汎用関数です。
+
+最初に開くフォルダ、ダイアログのタイトル、選択対象にしたい拡張子を引数で渡せます。ファイルが選択された場合はフルパスを返し、キャンセルされた場合は空文字を返します。
+
+## 使う場面
+
+- Excelブック、CSV、テキストファイルなどをユーザーに選ばせたい
+- ファイル選択ダイアログの初期フォルダやタイトルを処理ごとに変えたい
+- `Application.FileDialog`の設定を毎回書かず、1行の呼び出しにまとめたい
+- 複数の拡張子を対象にしたファイル選択処理を共通化したい
+
+## 処理イメージ図
+
+`SelectFile`の処理は、次の流れです。
+
+1. 引数で受け取った拡張子から、`*.xlsx;*.xlsm`のようなフィルター文字列を作る
+2. ファイル選択ダイアログを作成し、タイトル、初期フォルダ、フィルターを設定する
+3. ユーザーがファイルを選んだら、そのフルパスを返す
+4. キャンセルされたら、空文字を返す
+
+## 使用例
+
+下の例では、ユーザーのドキュメントフォルダを最初に開き、Excelブックだけを選択対象にします。
+
+<CopyCode language="vba" filename="使用例" src="/code-samples/vba/selectfile-usage.bas" />
+
+戻り値が空文字の場合は、ユーザーがキャンセルしたと判断して処理を中断できます。
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="SelectFile.bas" src="/code-samples/vba/selectfile.bas" />
+
+## 初心者向けコード解説
+
+`FolderPath As String`は、ダイアログで最初に開くフォルダです。`Caption As String`は、ダイアログ上部に表示するタイトルです。
+
+`ParamArray Extensions() As Variant`は、拡張子を可変個数で受け取るための<Term>ParamArray</Term>です。`"xlsx", "xlsm"`のように複数指定できます。
+
+`For Each Extension In Extensions`では、渡された拡張子を順番に取り出し、`*.xlsx;*.xlsm`のようなフィルター文字列を組み立てています。空文字が渡された場合は、拡張子フィルターを作らず、すべてのファイルを対象にする設計です。
+
+`Application.FileDialog(msoFileDialogFilePicker)`が、ファイル選択ダイアログを作っている行です。ここで作成したダイアログに対して、`.Filters.Clear`、`.Filters.Add`、`.Title`、`.InitialFileName`を設定しています。
+
+`.InitialFileName = FolderPath & Application.PathSeparator`では、最初に表示するフォルダを指定しています。`Application.PathSeparator`を使うことで、パス区切り文字をExcel側の環境に合わせて付けられます。
+
+`.Show = True`ならファイルが選択された状態です。この場合は`.SelectedItems(1)`で選択されたファイルのフルパスを取り出します。キャンセルされた場合は`Output = ""`として、空文字を返します。
+
+最後の`SelectFile = Output`で、呼び出し元にファイルパスを返しています。<Term>戻り値</Term>で結果を受け取れるため、呼び出し側では`If FilePath = "" Then Exit Sub`のように分岐できます。
+
+## 注意点
+
+- 拡張子はドットなしで`"xlsx"`のように渡します。`".xlsx"`ではなく`"xlsx"`です。
+- 複数ファイル選択には対応していません。戻るのは最初に選ばれた1ファイルのフルパスです。
+- `FolderPath`が存在しない場合、環境によっては意図したフォルダが開かないことがあります。
+- 空文字を拡張子として渡すと、フィルターを設定せず、すべてのファイルを対象にします。
+- 元コード内の古い公式ブログURLは、実装の出典メモとして残しています。記事本文はこのTech Blog内で使い方が分かるように整理しています。
+
+## まとめ
+
+`SelectFile`を使うと、<Term>VBA</Term>でファイル選択ダイアログを表示し、選択されたフルパスを受け取る処理を共通化できます。
+
+ExcelブックやCSVを読み込むマクロの入口として、毎回同じ`FileDialog`設定を書かずに使える汎用プロシージャです。

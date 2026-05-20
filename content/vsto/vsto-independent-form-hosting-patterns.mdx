@@ -1,0 +1,146 @@
+---
+title: "VSTOアドインで独立UIを出す3つのホスティングパターン"
+category: "vsto"
+slug: "vsto-independent-form-hosting-patterns"
+tags: ["VSTO", "WPF", "CustomTaskPane", "WinForms", "ElementHost"]
+description: "VSTO アドインから Excel と並行操作できる独立 UI を出すときの、CustomTaskPane、WPF Window、WinForms Form + ElementHost の違いを整理します。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+<Term>VSTO</Term> アドインで、Excel と並行して操作できる大きめの UI を出したいことがあります。たとえば、コード解析結果、検索結果、ツリー、プレビューを持つ支援ツールでは、通常のリボンや小さなタスクペインでは画面が足りません。
+
+このとき、<Term>WPF</Term> UI のホスティング方法には主に 3 つの選択肢があります。
+
+```text
+A. CustomTaskPane
+   WinForms UserControl
+     ElementHost
+       WPF UserControl
+
+B. WPF Window 直接表示
+   WPF Window
+     WPF UserControl
+
+C. WinForms Form + ElementHost
+   WinForms Form
+     ElementHost
+       WPF UserControl
+```
+
+結論から言うと、ドック型の Office UI なら A、通常の独立ウィンドウが必要なら C を選びます。B の <Term>WPF</Term> Window 直接表示は、<Term>VSTO</Term> 環境ではキーボードフォーカスが不安定になりやすく、避ける判断が無難です。
+
+## こんな場面で使えます
+
+- Excel <Term>VSTO</Term> アドインに <Term>WPF</Term> UI を組み込みたい
+- <Term>CustomTaskPane</Term> と独立フォームのどちらを選ぶべきか迷っている
+- WPF Window を直接 `Show()` したら TextBox や Tab キーが効かない
+- 最大化、リサイズ、位置保存が必要な大きいツール画面を作りたい
+
+## 比較表
+
+| 観点 | CustomTaskPane | WPF Window直接 | WinForms Form + ElementHost |
+|---|---|---|---|
+| キーボード入力 | 安定しやすい | 不安定になりやすい | 安定しやすい |
+| Excelとの並行操作 | 可能 | 可能 | 可能 |
+| Officeらしい見た目 | 高い | 低い | 中程度 |
+| 位置制御 | 制限あり | 可能 | 可能 |
+| サイズ制御 | 制限あり | 可能 | 可能 |
+| 最大化ボタン | 弱い | 可能 | 可能 |
+| 実装の素直さ | 中 | 低 | 中 |
+| 推奨用途 | ドック型パネル | 原則避ける | 独立ウィンドウ |
+
+## A. CustomTaskPane
+
+<Term>CustomTaskPane</Term> は Office 公式の拡張ポイントです。WinForms の `UserControl` を追加し、その中に <Term>ElementHost</Term> で <Term>WPF UserControl</Term> を載せます。
+
+```csharp
+private Microsoft.Office.Tools.CustomTaskPane _taskPane;
+
+private void EnsureTaskPane()
+{
+    if (_taskPane != null) return;
+
+    var host = new ToolPaneHost(); // WinForms UserControl + ElementHost
+    _taskPane = CustomTaskPanes.Add(host, "Tool Pane");
+    _taskPane.DockPosition =
+        Microsoft.Office.Core.MsoCTPDockPosition.msoCTPDockPositionRight;
+}
+```
+
+ドック型の補助パネルとして使うなら、これが最も自然です。Excel の一部として見え、キーボードフォーカスも WPF Window 直接表示より安定します。
+
+ただし Floating 表示を通常の独立ウィンドウのように扱おうとすると、位置やサイズを Excel 側に上書きされることがあります。
+
+## B. WPF Window直接表示
+
+`new Window().Show()` で <Term>WPF</Term> Window を出す方法は、見た目には単純です。
+
+```csharp
+var window = new ToolWindow();
+window.Show();
+```
+
+しかし <Term>VSTO</Term> では、Excel の入力管理や <Term>COM</Term> のメッセージ処理と衝突し、TextBox に文字が入らない、Tab キーが効かない、フォーカスが Excel に戻るといった問題が出ることがあります。
+
+`WindowInteropHelper.Owner`、`SetForegroundWindow`、`AttachThreadInput` などで補正しても、環境差が残りやすいです。実務では、この方式を本命にしない方が安全です。
+
+## C. WinForms Form + ElementHost
+
+独立ウィンドウとして使いたい場合は、<Term>WinForms Form</Term> を作り、その中に <Term>ElementHost</Term> で <Term>WPF UserControl</Term> を載せます。
+
+```csharp
+internal sealed class ToolForm : Form
+{
+    public ToolForm(MyWpfView view)
+    {
+        Text = "Tool Window";
+        ClientSize = new Size(1200, 800);
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MaximizeBox = true;
+        ShowInTaskbar = false;
+
+        Controls.Add(new ElementHost
+        {
+            Dock = DockStyle.Fill,
+            Child = view,
+        });
+    }
+}
+```
+
+Excel を owner にして表示すると、<Term>Z-order</Term> や終了時の扱いが自然になります。
+
+```csharp
+var excelHwnd = GetExcelMainWindowHandle();
+_form.Show(new Win32WindowWrapper(excelHwnd));
+```
+
+この方式は Office 公式のタスクペインではありませんが、通常の <Term>Win32 ウィンドウ</Term> として位置、サイズ、最大化、Alt+F4 を扱いやすいのが利点です。
+
+## 選び方
+
+- Excel の右側や下側に常駐する補助パネルなら <Term>CustomTaskPane</Term>
+- Floating でも位置やサイズにこだわらないなら <Term>CustomTaskPane</Term>
+- 通常アプリのような独立ウィンドウが必要なら <Term>WinForms Form</Term> + <Term>ElementHost</Term>
+- <Term>WPF</Term> Window 直接表示は、フォーカス問題が出た時点で候補から外す
+
+## 注意点・ハマりポイント
+
+- <Term>WPF</Term> UI は `Window` ではなく `UserControl` として作るとホスティングを変えやすい
+- <Term>CustomTaskPane</Term> Floating は通常ウィンドウと同じではない
+- 独立フォームでは Excel の `HWND` を owner にすると <Term>Z-order</Term> が安定する
+- 閉じるボタンを `Hide()` に変えるなら、非表示前に状態保存する
+- <Term>WPF UserControl</Term> から Excel や <Term>COM</Term> へ直接依存させず、ホスト interface で分ける
+
+## 関連記事
+
+- [VSTO + WPF のキーボードフォーカス問題を CustomTaskPane で解決する](/articles/vsto/wpf-custom-task-pane-focus)
+- [CustomTaskPane Floatingの位置制御には限界がある](/articles/vsto/custom-task-pane-floating-position-limit)
+- [VSTOでWPF UIを独立ウィンドウ表示するWinForms Form + ElementHostパターン](/articles/vsto/winforms-elementhost-wpf-window)
+- [AvalonDockレイアウト保存が永続化されないバグをOnBeforeHideで防ぐ](/articles/vsto/avalondock-save-layout-on-before-hide)
+
+## まとめ
+
+<Term>VSTO</Term> で独立 UI を出す場合、見た目だけでなく、キーボード入力、位置制御、Excel との並行操作を含めて選ぶ必要があります。ドック型なら <Term>CustomTaskPane</Term>、通常の独立ウィンドウなら <Term>WinForms Form</Term> + <Term>ElementHost</Term> を基本パターンにすると、実務上のトラブルを減らせます。

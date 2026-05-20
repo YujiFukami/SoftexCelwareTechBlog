@@ -24,6 +24,25 @@ export type LinkedTermTextSegment = {
 
 export const terms: TermEntry[] = [
   {
+    slug: "document-colorizing-transformer",
+    title: "DocumentColorizingTransformer",
+    category: "WPF / AvalonEdit",
+    aliases: ["AvalonEdit DocumentColorizingTransformer"],
+    summary: "AvalonEditの表示行に対して、文字色や背景色などの描画だけを差し替えるための拡張ポイントです。",
+    description: [
+      "DocumentColorizingTransformerは、AvalonEditのテキスト表示を行単位で加工するためのクラスです。",
+      "検索語のハイライト、構文とは別の意味的な色分け、警告行の強調など、本文データそのものを変えずに見た目だけを変えたい場面で使います。",
+    ],
+    useCases: [
+      "AvalonEditで検索結果をハイライトする",
+      "コード解析結果に応じて識別子を色分けする",
+      "テキスト本文を変更せずに表示だけを強調する",
+    ],
+    related: ["avalonedit", "wpf"],
+    googleQuery: "AvalonEdit DocumentColorizingTransformer とは",
+    references: [{ title: "AvalonEdit Rendering", url: "https://github.com/icsharpcode/AvalonEdit" }],
+  },
+  {
     slug: "electron",
     title: "Electron",
     reading: "エレクトロン",

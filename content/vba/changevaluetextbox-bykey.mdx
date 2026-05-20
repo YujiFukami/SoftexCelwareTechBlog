@@ -1,0 +1,78 @@
+---
+title: "上下キーでTextBoxの数値を増減するExcel VBA汎用プロシージャ"
+category: "vba"
+slug: "changevaluetextbox-bykey"
+tags: ["Excel VBA", "汎用プロシージャ", "UserForm", "TextBox", "KeyDown"]
+description: "UserFormのTextBoxで上下キーを押したときに、指定範囲内で数値を増減させるExcel VBA汎用プロシージャを解説します。"
+date: "2026-05-20"
+---
+
+## 概要
+
+`ChangeValueTextBox_byKey`は、<Term>UserForm</Term>上のTextBoxで上キー、下キーを押したときに、表示中の数値を増減させる<Term>Excel VBA</Term>汎用プロシージャです。
+
+対象のTextBox、最小値、最大値を渡すと、上キーで1増やし、下キーで1減らします。上限を超えたら最小値へ、下限を下回ったら最大値へ戻る循環処理も入っています。戻り値はなく、対象TextBoxの表示値を直接変更します。
+
+## 使う場面
+
+- 時、分、秒などの数値入力を上下キーで調整できるようにしたい
+- 複数のTextBoxで同じ増減処理を使い回したい
+- `KeyDown`イベントごとに同じ分岐や範囲チェックを書きたくない
+- 0から23、0から59など、決まった範囲で循環する入力欄を作りたい
+
+## 処理イメージ図
+
+`ChangeValueTextBox_byKey`の処理は、次の流れです。
+
+1. `KeyDown`イベントで受け取った`KeyCode`を確認する
+2. 上キーなら`+1`、下キーなら`-1`を増減量にする
+3. 上下キー以外なら何もせず終了する
+4. 現在のTextBox値を数値化し、範囲内に丸める
+5. 増減後、上限超えなら最小値、下限未満なら最大値に戻す
+6. 必要に応じて2桁ゼロ埋めでTextBoxへ表示する
+
+## 使用例
+
+下の例では、時、分、秒のTextBoxそれぞれの`KeyDown`イベントから、同じ汎用プロシージャを呼び出します。
+
+<CopyCode language="vba" filename="使用例" src="/code-samples/vba/changevaluetextbox-bykey-usage.bas" />
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="ChangeValueTextBox_byKey.bas" src="/code-samples/vba/changevaluetextbox-bykey.bas" />
+
+## 初心者向けコード解説
+
+`KeyCode As MSForms.ReturnInteger`は、どのキーが押されたかを受け取る引数です。`KeyDown`イベントから渡される値をそのまま使います。
+
+`Target As MSForms.TextBox`は、値を増減させたいTextBoxです。`Me.txt_時`のように、フォーム上の対象コントロールを渡します。
+
+`MinValue`と`MaxValue`は、入力として許可する最小値と最大値です。時刻入力なら、時は`0`から`23`、分や秒は`0`から`59`のように指定します。
+
+`Optional ByVal zeroPad2 As Boolean = True`は、2桁ゼロ埋めをするかどうかの指定です。`True`なら`5`を`"05"`として表示し、`False`なら`"5"`として表示します。
+
+`Select Case KeyCode`では、押されたキーを判定しています。`vbKeyUp`なら`delta = 1`、`vbKeyDown`なら`delta = -1`にします。上下キー以外の場合は`Exit Sub`で処理を終えます。
+
+`KeyCode = 0`は、上下キーによる既定の動きを止めるための行です。TextBox内のカーソル移動などを抑え、数値変更の操作として扱いやすくしています。
+
+実際の数値変更は、`S__StepTextBoxValue`に分けています。キー判定と値変更を分離しているため、あとからボタンクリックなど別の入口から同じ増減処理を使いやすくなります。
+
+`Trim$(Target.Text)`でTextBoxの前後の空白を取り除きます。未入力や数値以外の場合は`MinValue`から開始します。
+
+値が範囲外だった場合は、いったん最小値または最大値に丸めます。その後で`delta`を足し、上限を超えた場合は最小値へ、下限を下回った場合は最大値へ循環させます。
+
+最後に`Format$(Value, "00")`または`CStr(Value)`で文字列にして、`Target.Text`へ戻します。`Target.SelStart = Len(Target.Text)`は、カーソル位置を末尾に置いて操作感を安定させるための行です。
+
+## 注意点
+
+- このプロシージャは<Term>MSForms</Term>のTextBox向けです。ワークシート上のセル入力にはそのまま使いません。
+- `KeyDown`イベントから呼び出す前提です。`Change`イベントから呼ぶと、値変更とイベント発火が絡んで扱いにくくなる場合があります。
+- 未入力や数値以外の文字列は`MinValue`扱いで開始します。別の初期値にしたい場合は、補助プロシージャ側の判定を調整します。
+- 上限と下限が循環する設計です。上限で止めたい入力欄には、そのままでは向きません。
+- 元コード内の古い公式ブログURLは、実装の出典メモとして残しています。記事本文では、使い方と処理内容がTech Blog内で完結するように説明しています。
+
+## まとめ
+
+`ChangeValueTextBox_byKey`を使うと、<Term>VBA</Term>の<Term>UserForm</Term>で、上下キーによるTextBoxの数値増減処理を共通化できます。
+
+時刻入力や番号入力など、範囲が決まった小さな数値をキーボードで調整させたいフォームで再利用しやすい汎用プロシージャです。

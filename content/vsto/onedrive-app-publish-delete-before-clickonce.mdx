@@ -1,0 +1,72 @@
+---
+title: "OneDrive配下のVSTO ClickOnce発行でapp.publishを削除してから発行する"
+category: "vsto"
+slug: "onedrive-app-publish-delete-before-clickonce"
+tags: ["VSTO", "ClickOnce", "OneDrive", "PowerShell", "発行"]
+description: "OneDrive 同期フォルダ配下の VSTO プロジェクトで ClickOnce 発行時に app.publish の削除エラーが出る場合の、事前削除手順をまとめます。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+<Term>VSTO</Term> プロジェクトを OneDrive 同期フォルダ配下に置いていると、<Term>ClickOnce</Term> 発行時に `bin\Release\app.publish` を削除できず、発行が止まることがあります。
+
+原因になりやすいのは、前回発行で作られた言語サテライト DLL や `Application Files` 配下のファイルが、OneDrive クライアントに一時的にロックされることです。Visual Studio の発行処理は `app.publish` を丸ごと作り直そうとするため、削除できないファイルがあるとビルド全体が失敗します。
+
+## こんな場面で使えます
+
+- <Term>VSTO</Term> アドインを <Term>ClickOnce</Term> で発行している
+- プロジェクトフォルダが OneDrive やクラウド同期フォルダ配下にある
+- `bin\Release\app.publish` を削除できないというエラーで発行が止まる
+- 発行前の掃除手順をチームで固定したい
+
+## 対策
+
+発行前に `app.publish` フォルダを手動で削除します。Release だけでなく Debug 側にも作られることがあるため、両方削除しておくと安全です。
+
+<Term>PowerShell</Term> では次のようにします。
+
+```powershell
+Remove-Item -Recurse -Force ".\bin\Release\app.publish" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force ".\bin\Debug\app.publish" -ErrorAction SilentlyContinue
+```
+
+繰り返し使う場合は、発行前に実行するバッチファイルとして置いておきます。
+
+```bat
+@echo off
+rd /s /q "bin\Release\app.publish" 2>nul
+rd /s /q "bin\Debug\app.publish" 2>nul
+echo deleted app.publish folders.
+```
+
+この手順を実行してから Visual Studio の発行をやり直します。
+
+## なぜ削除で直るのか
+
+`app.publish` は発行成果物の出力先です。前回の成果物が残っている状態で、一部のファイルだけ OneDrive によってロックされると、発行処理が古いフォルダを消せずに止まります。
+
+発行前にフォルダごと消しておくと、Visual Studio は空の状態から成果物を作り直せます。根本的には、開発用プロジェクトをクラウド同期フォルダの外へ移すのが安定ですが、運用上 OneDrive 配下で作業するなら、事前削除を固定手順にするのが現実的です。
+
+## 注意点・ハマりポイント
+
+- Release だけでなく Debug 側の `app.publish` も削除する
+- Visual Studio を開いたままでも削除できることはあるが、発行中には実行しない
+- それでも削除できない場合は OneDrive の同期を一時停止してから削除する
+- 発行先 `PublishUrl` も OneDrive 配下の場合は、発行先側のロックにも注意する
+- 根本対策はプロジェクトを OneDrive 外のローカルフォルダへ移すこと
+- 削除対象パスを誤ると成果物以外も消えるため、バッチはプロジェクトルートで実行する前提にする
+
+## 実際の活用事例
+
+<Term>ClickOnce</Term> 発行を頻繁に行うアドインでは、発行前チェックリストに `app.publish` の削除を入れておくと、原因調査に時間を取られにくくなります。特に言語別フォルダや satellite assembly が多いプロジェクトでは、OneDrive のロックに当たりやすいため効果があります。
+
+## 関連記事
+
+- [VSTO ClickOnce の ApplicationVersion はワイルドカード不可](/articles/vsto/clickonce-application-version)
+- [VSTO ClickOnce 自動更新の仕組み](/articles/vsto/clickonce-auto-update)
+- [VSTOのClickOnce発行でRuntimeIdentifiers 'win' エラーが出たときの対策](/articles/vsto/clickonce-runtimeidentifiers-win-error)
+
+## まとめ
+
+OneDrive 配下の <Term>VSTO</Term> プロジェクトで <Term>ClickOnce</Term> 発行が `app.publish` の削除エラーで止まる場合は、発行前に `bin\Release\app.publish` と `bin\Debug\app.publish` を削除します。恒久的には同期フォルダ外で開発するのが安定ですが、現場運用では事前削除手順を固定しておくのが有効です。

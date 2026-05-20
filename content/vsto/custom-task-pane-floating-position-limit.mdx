@@ -1,0 +1,126 @@
+---
+title: "CustomTaskPane Floatingの位置制御には限界がある"
+category: "vsto"
+slug: "custom-task-pane-floating-position-limit"
+tags: ["VSTO", "CustomTaskPane", "Excel", "Win32", "WPF"]
+description: "VSTO の CustomTaskPane を Floating 表示したとき、位置やサイズを完全には制御できない理由と、独立ウィンドウが必要な場合の判断基準を解説します。"
+date: "2026-05-20"
+---
+
+## はじめに
+
+<Term>VSTO</Term> の <Term>CustomTaskPane</Term> は、Office に統合されたタスクペインを作るための公式機能です。`DockPosition = msoCTPDockPositionFloating` にすると独立ウィンドウのように見えますが、通常の <Term>Win32 ウィンドウ</Term> や <Term>WinForms Form</Term> と同じように位置やサイズを完全制御できるわけではありません。
+
+Floating 表示でも、内部的には Excel がタスクペインの位置やサイズを管理します。そのため、アドイン側から `SetWindowPos` で動かしても、後から Excel 側の処理で上書きされることがあります。
+
+## こんな場面で使えます
+
+- <Term>CustomTaskPane</Term> を Floating 表示している
+- 起動時に中央へ表示したいが、少し後に右下へ戻る
+- ユーザーがリサイズしたサイズが次回表示で戻ってしまう
+- 最大化ボタンや通常ウィンドウのような操作感が必要になっている
+- <Term>WinForms Form</Term> + <Term>ElementHost</Term> へ移行すべきか判断したい
+
+## 起きる現象
+
+代表的には次のような症状が出ます。
+
+| 操作 | 期待 | 実際に起きること |
+|---|---|---|
+| 初回表示 | 画面中央に表示 | Excel 側の既定位置へ移動する |
+| `SetWindowPos` で移動 | 指定位置に固定 | 数百 ms 後に Excel が上書きする |
+| ユーザーがリサイズ | 次回も同じサイズ | 元の小さいサイズへ戻ることがある |
+| マルチモニタ | Excel と同じ画面へ表示 | Excel の内部判定に引っ張られる |
+
+これはアドイン側の実装漏れというより、<Term>CustomTaskPane</Term> が Office 管理下の UI であることによる制約です。
+
+## 試しがちな対策と限界
+
+### SetWindowPosを1回呼ぶ
+
+```csharp
+SetWindowPos(
+    hwnd,
+    IntPtr.Zero,
+    x,
+    y,
+    0,
+    0,
+    SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE);
+```
+
+一瞬は移動しても、Excel 側の後続処理で戻ることがあります。
+
+### タイマーで複数回補正する
+
+```csharp
+ApplyGeometryWithDelay(500);
+ApplyGeometryWithDelay(1500);
+ApplyGeometryWithDelay(3000);
+```
+
+改善するケースはありますが、完全ではありません。環境、Office の状態、モニタ構成によって Excel 側の上書きタイミングが変わります。
+
+### WndProcで移動をブロックする
+
+`WM_WINDOWPOSCHANGING` を捕まえて、アドイン側以外の移動を止める方法も考えられます。
+
+```csharp
+protected override void WndProc(ref Message m)
+{
+    if (m.Msg == WM_WINDOWPOSCHANGING && !ApplyingOurself)
+    {
+        var pos = Marshal.PtrToStructure<WINDOWPOS>(m.LParam);
+        pos.flags |= SWP_NOMOVE | SWP_NOSIZE;
+        Marshal.StructureToPtr(pos, m.LParam, false);
+    }
+
+    base.WndProc(ref m);
+}
+```
+
+ただし、Excel 側の内部処理と衝突し、サイズ反映やドラッグ操作が不自然になることがあります。安定した解決策として扱うにはリスクがあります。
+
+## 実サイズはWin32 APIで見る
+
+`CustomTaskPane.Width` や `Height` は、Floating 表示で実際のウィンドウサイズと一致しないことがあります。ユーザーが手でリサイズした後の実サイズを取りたい場合は、対象ウィンドウの矩形を <Term>Win32</Term> API で取得します。
+
+```csharp
+GetWindowRect(floatingHwnd, out var rect);
+
+int width = rect.Right - rect.Left;
+int height = rect.Bottom - rect.Top;
+```
+
+ただし、実サイズを取得できても、次回そのサイズへ確実に戻せるとは限りません。ここが <Term>CustomTaskPane</Term> Floating の重要な制約です。
+
+## 判断基準
+
+ドック型の補助パネルとして使うなら、<Term>CustomTaskPane</Term> は適しています。Office の一部として自然に見え、キーボードフォーカスも比較的安定します。
+
+一方で、次の要件があるなら <Term>WinForms Form</Term> + <Term>ElementHost</Term> + <Term>WPF UserControl</Term> へ切り替える方が現実的です。
+
+- 起動位置とサイズを厳密に復元したい
+- 最大化ボタンが必要
+- マルチモニタで表示先を制御したい
+- Alt+F4 や閉じるボタンを通常のウィンドウとして扱いたい
+- Excel とは並行するが、アプリ画面として独立した操作感にしたい
+
+## 注意点・ハマりポイント
+
+- Floating でも <Term>CustomTaskPane</Term> は Office 管理下の UI
+- `SetWindowPos` で一度動いても、Excel が後から上書きすることがある
+- `CustomTaskPane.Width` と実際のウィンドウ幅は一致しないことがある
+- Floating ウィンドウの `HWND` 取得タイミングを誤ると Excel 本体を動かす危険がある
+- 最大化ボタンを後付けすると、Office 側のフレーム管理と衝突しやすい
+- 完全な位置制御が必要なら、早めに独立フォーム方式を検討する
+
+## 関連記事
+
+- [VSTOでWPF UIを独立ウィンドウ表示するWinForms Form + ElementHostパターン](/articles/vsto/winforms-elementhost-wpf-window)
+- [VSTOアドインで独立UIを出す3つのホスティングパターン](/articles/vsto/vsto-independent-form-hosting-patterns)
+- [VSTO + WPF のキーボードフォーカス問題を CustomTaskPane で解決する](/articles/vsto/wpf-custom-task-pane-focus)
+
+## まとめ
+
+<Term>CustomTaskPane</Term> Floating は、独立ウィンドウのように見えても Excel の管理下にあります。位置やサイズを完全に制御したい要件では無理に補正を重ねず、<Term>WinForms Form</Term> + <Term>ElementHost</Term> に切り替える判断が重要です。
