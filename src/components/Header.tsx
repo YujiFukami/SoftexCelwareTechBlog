@@ -6,6 +6,7 @@ import { useState } from "react";
 
 const navItems = [
   { href: "/articles", label: "記事一覧" },
+  { href: "/search", label: "検索" },
   { href: "/cases", label: "開発事例" },
   { href: "/knowledge-flow", label: "知識資産化" },
   { href: "/terms", label: "用語集" },
