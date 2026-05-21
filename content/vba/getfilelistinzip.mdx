@@ -1,0 +1,124 @@
+---
+title: "ZIPファイル内の一覧を取得するExcel VBA汎用プロシージャ"
+category: "vba"
+slug: "getfilelistinzip"
+tags: ["Excel VBA", "汎用プロシージャ", "ZIP", "PowerShell", "ファイル一覧"]
+description: "VBAからPowerShellと.NETのZipArchiveを呼び出し、ZIPファイル内やZIP内ZIPのファイル一覧を二次元配列で取得する汎用プロシージャを解説します。"
+date: "2026-05-21"
+image: "/articles/vba/getfilelistinzip/cover.png"
+---
+
+## 概要
+
+`GetFileListInZip`は、指定したフォルダ内のファイル一覧を取得し、その中に<Term>ZIPファイル</Term>があればZIP内部のファイル一覧まで展開せずに取得する<Term>Excel VBA</Term>向けの汎用プロシージャです。
+
+VBAだけでZIPの中身を安定して読むのは少し面倒です。そこでこの実装では、VBAから一時的に<Term>PowerShell</Term>を呼び出し、<Term>.NET</Term>の`System.IO.Compression.ZipArchive`でZIPの内容を読み取ります。
+
+<figure>
+  <img src="/articles/vba/getfilelistinzip/cover.png" alt="Excel VBAでZIPファイル内のファイル一覧を取得する処理の解説図" />
+  <figcaption>フォルダ内の通常ファイルとZIP内ファイルをまとめて一覧化し、Excelへ戻す流れです。</figcaption>
+</figure>
+
+戻り値は、1始まりの<Term>二次元配列</Term>です。
+
+```text
+arr(1 To 件数, 1 To 2)
+
+arr(i, 1) = フォルダパスまたはZIP内でのパス
+arr(i, 2) = ファイル名
+```
+
+ZIPファイルの中にさらにZIPファイルが入っている場合も、最大10階層まで再帰的に中身を確認します。
+
+## 使う場面
+
+- 顧客や取引先から受け取ったZIP納品物の中身を確認したい
+- ZIP内に必要なファイルが含まれているか自動チェックしたい
+- バックアップZIPの構成を一覧化したい
+- ZIPを実際に展開せず、ファイル名だけ確認したい
+- ZIP内ZIPを含む複雑な圧縮ファイルの構成を調べたい
+
+「ファイルを取り出す」のではなく、「何が入っているかを確認する」用途に向いています。
+
+## 処理イメージ図
+
+処理の大まかな流れは次の通りです。
+
+1. VBA側で対象フォルダを確認する
+2. 一時フォルダを作成する
+3. ZIP読み取り用のPowerShellスクリプトを一時生成する
+4. PowerShellから.NETの`ZipArchive`を使ってZIPを読む
+5. 結果を`result.txt`へUTF-8で出力する
+6. VBA側で結果テキストを読み込む
+7. 1始まりの二次元配列へ変換する
+8. 最後に一時フォルダを削除する
+
+VBA側で標準出力を直接受け取るのではなく、一時ファイルを介すことで、日本語ファイル名やエラー内容を扱いやすくしています。
+
+<figure>
+  <img src="/articles/vba/getfilelistinzip/sample-usage.jpg" alt="GetFileListInZipのサンプルブックの使い方" />
+  <figcaption>サンプルブックでは、対象フォルダを指定してZIP内を含むファイル一覧を出力する動きを確認できます。</figcaption>
+</figure>
+
+## 使用例
+
+下の例では、`C:\Test`配下のファイル一覧を取得し、ZIPの中身も含めてイミディエイトウィンドウへ出力します。
+
+<CopyCode language="vba" filename="使用例" src="/articles/vba/getfilelistinzip/usage.bas" />
+
+戻り値が`Empty`の場合は、対象になるファイルが見つからなかった状態として扱えます。
+
+## サンプルブック
+
+実際の動きを確認できるマクロ有効ブックも用意しています。
+
+<p>
+  <a href="/downloads/vba/getfilelistinzip-sample.xlsm" download style={{ display: "inline-block", padding: "0.75rem 1rem", borderRadius: "8px", background: "#0f766e", color: "#fff", fontWeight: 700, textDecoration: "none" }}>
+    GetFileListInZipサンプルブックをダウンロード
+  </a>
+</p>
+
+サンプルブックを開くときは、次の点に注意してください。
+
+- `.xlsm`形式のため、Excel側でマクロの有効化が必要です。
+- ダウンロード後は、保護ビューやブロック解除の確認が出る場合があります。
+- Windows環境での利用を前提にしています。
+- PowerShellの起動が社内ポリシーで制限されている環境では動かない場合があります。
+- 実ファイルに対して試す前に、テスト用フォルダとテスト用ZIPで動作確認してください。
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="GetFileListInZip.bas" src="/articles/vba/getfilelistinzip/GetFileListInZip.bas" />
+
+## 初心者向けコード解説
+
+`GetFileListInZip(ByVal FolderPath As String) As Variant`は、対象フォルダのパスを受け取り、ファイル一覧を配列で返す関数です。関数なので、呼び出し元では`arr = GetFileListInZip("C:\Test")`のように<Term>戻り値</Term>を受け取れます。
+
+`FileSystemObject`は、対象フォルダの存在確認、一時フォルダ作成、結果ファイルの確認、最後の一時フォルダ削除に使っています。
+
+`WScript.Shell`は、PowerShellを非表示で実行するために使っています。コマンド文字列にはパスが含まれるため、`F__QuoteCommandArg`でダブルクォート囲みにして、空白入りパスでも壊れにくくしています。
+
+PowerShell側では、`System.IO.Compression.ZipArchive`を使ってZIPを読みます。ZIP内に`.zip`拡張子のファイルが見つかった場合は、メモリ上に読み込んでさらに中身を確認します。
+
+結果の区切り文字には`ChrW$(31)`を使っています。通常のファイル名に入りにくい制御文字を区切りにすることで、フォルダパスとファイル名を安全に分割しやすくしています。
+
+PowerShellから出した結果は`result.txt`へUTF-8で保存し、VBA側では`ADODB.Stream`でUTF-8として読み込みます。これにより、日本語ファイル名を含むZIPでも扱いやすくなります。
+
+最後に、取得した行を`ReDim arr(1 To rowCount, 1 To 2)`で二次元配列へ詰め直しています。1列目にパス、2列目にファイル名が入るため、そのままシートへ出力しやすい形です。
+
+## 注意点
+
+- Windows PowerShellと.NETを使うため、基本的にWindows向けです。
+- Mac版Excelではそのまま動きません。
+- パスワード付きZIPや破損ZIPは中身を読めない場合があります。
+- ZIP内ZIPは最大10階層まで読む設計です。
+- ZIP内のファイルを実際に展開する処理ではありません。
+- ファイル数が非常に多いZIPでは、処理時間やメモリ使用量が増えます。
+- PowerShell実行が禁止されているPCでは利用できない場合があります。
+- 公開用コードでは、元素材の戻り値代入と思われる1行を`GetFileListInZip = Empty`へ補正しています。
+
+## 軽いまとめ
+
+`GetFileListInZip`を使うと、VBAからZIPファイルの中身を展開せずに一覧化できます。
+
+ZIP内ZIPまで再帰的に確認できるため、納品ファイル、バックアップ、添付ファイル一式の検査に使いやすい汎用プロシージャです。VBAだけで無理にZIP処理を抱え込まず、PowerShellと.NETの得意な部分を呼び出すことで、実務向けの安定したファイル確認処理にできます。
