@@ -1,0 +1,21 @@
+<!-- before: 専用タブを追加する形 -->
+<tab id="kaisoTab" label="階層化">
+  <group id="kaisoGroup" label="階層化フォーム">
+    <button id="btnOpenKaiso"
+            label="フォームを開く"
+            size="large"
+            imageMso="WindowSwitchWindowsMenuExcel"
+            onAction="OnOpenKaiso" />
+  </group>
+</tab>
+
+<!-- after: Excelの開発タブへ差し込む形 -->
+<tab idMso="TabDeveloper">
+  <group id="kaisoGroup" label="階層化フォーム">
+    <button id="btnOpenKaiso"
+            label="フォームを開く"
+            size="large"
+            imageMso="WindowSwitchWindowsMenuExcel"
+            onAction="OnOpenKaiso" />
+  </group>
+</tab>

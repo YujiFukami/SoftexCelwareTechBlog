@@ -1,0 +1,71 @@
+---
+title: "WPFでマウス中ボタンのブラウザ風オートスクロールを実装する"
+category: "wpf"
+slug: "middle-button-auto-scroll"
+tags: ["WPF", "ScrollViewer", "DispatcherTimer", "UI改善", "C#"]
+description: "WPFアプリでマウス中ボタンを押すと、カーソル位置に応じてScrollViewerを連続スクロールするヘルパー実装を紹介します。"
+date: "2026-05-21"
+---
+
+## はじめに
+
+ブラウザでは、マウス中ボタンを押すとアンカーが置かれ、カーソルを離した方向へ自動スクロールできます。
+
+<Term>WPF</Term>アプリでも、コード一覧、ログビュー、長いフォームなどでは同じ操作があると便利です。この記事では、`AutoScrollHelper.AttachToWindow(this)`の1行で、近くの<Term>ScrollViewer</Term>にブラウザ風オートスクロールを追加する実装を紹介します。
+
+## 使う場面
+
+- コードビューアやログビューを長くスクロールしたい
+- ホイールだけでは移動が遅い
+- 複数ペインのうち、マウスを置いたペインだけをスクロールさせたい
+- 既存画面のXAMLを大きく変えずに操作性を上げたい
+- AvalonEditなど内部にScrollViewerを持つコントロールにも効かせたい
+
+## 実装コード
+
+<CopyCode language="csharp" filename="AutoScrollHelper.cs" src="/articles/wpf/auto-scroll-helper.cs" />
+
+ルート要素やWindowのLoadedなどで、次のように呼び出します。
+
+```csharp
+AutoScrollHelper.AttachToWindow(this);
+```
+
+## 仕組み
+
+処理の流れは次の通りです。
+
+1. `PreviewMouseDown`でマウス中ボタンを検知する
+2. クリックされた要素から<Term>ビジュアルツリー</Term>をたどり、最寄りの`ScrollViewer`を探す
+3. 中ボタン押下位置をアンカーとして保存する
+4. <Term>DispatcherTimer</Term>で20msごとにカーソル位置との差分を計算する
+5. 差分がデッドゾーンを超えたら、縦横のスクロール位置を更新する
+6. 任意のクリックまたはEscキーで停止する
+
+## 調整ポイント
+
+`deadZone`は、アンカー付近でスクロールが暴れないようにするための幅です。今回の例では10pxにしています。
+
+`speedFactor`は、カーソルがアンカーから離れた距離をスクロール量へ変換する係数です。大きくすると速く、小さくするとゆっくりになります。
+
+`FindAncestorScrollViewer`で最寄りのScrollViewerを探しているため、複数ペインがある画面でも、中ボタンを押したペインだけを対象にできます。
+
+## このテクニックを使っているアプリ
+
+このノウハウは、配布アプリ「階層化フォーム (IKI-Kaiso VSTO版)」で実装・確認しています。
+
+- [配布・インストールページ](https://yujifukami.github.io/IKI-Kaiso-VSTO/)
+- [ソースリポジトリ](https://github.com/YujiFukami/IKI-Kaiso-VSTO)
+
+## 注意点
+
+- 静的ヘルパーなので、複数ウィンドウで同時に使う場合は状態管理を見直す余地があります。
+- `Mouse.OverrideCursor`を使うため、停止時に必ず`null`へ戻します。
+- ScrollViewerが破棄された直後にTimerが動くことがあるため、Tick内は例外を握りつぶしています。
+- タッチ操作やトラックパッド操作とは別のマウス操作向けの改善です。
+
+## まとめ
+
+WPFでブラウザ風の中ボタンオートスクロールを実装すると、長い一覧やコードビューアの操作性が上がります。
+
+中ボタン検知、最寄りScrollViewer探索、DispatcherTimerによる連続更新を小さなヘルパーに閉じ込めると、既存画面にも1行で追加しやすいUI改善になります。

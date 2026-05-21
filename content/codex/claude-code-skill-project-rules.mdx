@@ -1,0 +1,64 @@
+---
+title: "Claude Codeの定型作業をSkill化し、CLAUDE.mdと二段構成で運用する"
+category: "codex"
+slug: "claude-code-skill-project-rules"
+tags: ["Claude Code", "Skill", "CLAUDE.md", "AIエージェント", "開発運用"]
+description: "リリースや検証などの繰り返し作業を、CLAUDE.mdを正本、SKILL.mdを実行形として管理する運用パターンを紹介します。"
+date: "2026-05-21"
+---
+
+## はじめに
+
+リリース、検証、公開、納品準備のような定型作業は、毎回チャットで手順を説明し直すと無駄が大きくなります。
+
+<Term>Claude Code</Term>では、プロジェクトに置いた`CLAUDE.md`で規約を共有し、さらに`.claude/skills/<name>/SKILL.md`に実行手順を落とし込むことで、自然言語の依頼から定型作業を呼び出しやすくできます。
+
+この記事では、<Term>CLAUDE.md</Term>を「正本」、<Term>Skill</Term>を「実行形」として分ける運用パターンを整理します。
+
+## 使う場面
+
+- リリース手順を毎回説明し直している
+- ビルド、検証、公開、完了報告の流れを固定したい
+- チームや別PCでも同じAIエージェント運用を再現したい
+- プロジェクト規約を長くしすぎず、必要なときだけ詳細手順を読ませたい
+- CodexやClaude Codeに「公開して」「リリースして」で動ける入口を作りたい
+
+## CLAUDE.mdとSkillの役割分担
+
+ポイントは、同じ手順を二重管理しないことです。
+
+| ファイル | 役割 |
+|---|---|
+| `CLAUDE.md` | 人間も読む正本。プロジェクト規約、禁止事項、リリース方針を書く |
+| `.claude/skills/<name>/SKILL.md` | Claudeが実行しやすい形にした手順。必要時だけ読む |
+
+`SKILL.md`の冒頭に「正本は`CLAUDE.md`のリリース手順」と書いておくと、手順が変わったときの修正元を一本化できます。
+
+## Skill定義の例
+
+<CopyCode language="markdown" filename="SKILL.md" src="/articles/codex/claude-code-skill-release.md" />
+
+`description`は単なる説明ではなく、起動トリガーとして重要です。「リリース」「発行」「公開」のように、ユーザーが実際に言いそうな語を入れておくと、明示的にスキル名を指定しなくても呼び出しやすくなります。
+
+## 運用のコツ
+
+- 1回しか使わない作業はSkill化しない
+- 2回以上繰り返す作業を候補にする
+- GUI操作などAIが直接できない作業は「ユーザー操作」として明記する
+- 環境依存のパスやビルドコマンドは、迷わないように具体化する
+- 完了報告に、実行コマンド、生成物、変更ファイル、次の確認を含める
+
+Codex側で似た考え方を使う場合は、[AIコーディングでAGENTS.mdを運用ルールとして使う方法](/articles/codex/agents-operational-rules) や [Codexノウハウが育ち、開発が加速する循環を作る](/articles/codex/codex-knowhow-cycle) と組み合わせると運用しやすくなります。
+
+## 実例リンク
+
+この考え方は、配布アプリ「階層化フォーム (IKI-Kaiso VSTO版)」のリリース運用のように、ビルド、配布物確認、公開、報告が繰り返される作業で特に効果があります。
+
+- [配布・インストールページ](https://yujifukami.github.io/IKI-Kaiso-VSTO/)
+- [ソースリポジトリ](https://github.com/YujiFukami/IKI-Kaiso-VSTO)
+
+## まとめ
+
+<Term>CLAUDE.md</Term>に正本を置き、<Term>Skill</Term>に実行手順を置くと、定型作業を毎回説明し直さずに済みます。
+
+AIエージェントに任せる作業ほど、手順そのものを開発資産として残す価値があります。まずはリリース、検証、公開前チェックのような繰り返し作業からSkill化すると効果が見えやすいです。

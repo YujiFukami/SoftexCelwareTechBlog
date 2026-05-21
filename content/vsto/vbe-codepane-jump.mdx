@@ -1,0 +1,68 @@
+---
+title: "VBEの特定モジュール・行へCodePaneでジャンプする方法"
+category: "vsto"
+slug: "vbe-codepane-jump"
+tags: ["VSTO", "VBIDE", "VBE", "CodePane", "Excel VBA"]
+description: "VSTOアドインやExcelマクロからVBEを開き、特定モジュールの特定行を確実に表示するSetSelectionとTopLineの使い方を紹介します。"
+date: "2026-05-21"
+---
+
+## はじめに
+
+VBA解析ツールやコード一覧UIを作ると、「このプロシージャを<Term>VBE</Term>で開く」機能が欲しくなります。
+
+ただし、<Term>CodePane</Term>の`SetSelection`でプロシージャ全体を範囲選択すると、VBEが選択範囲の末尾を基準にスクロールし、プロシージャ先頭が画面外になることがあります。
+
+この記事では、VBEを前面化し、開始行へカーソルを置き、`TopLine`で表示位置を固定する実装パターンを紹介します。
+
+## 使う場面
+
+- VSTOアドインからVBAモジュールを開きたい
+- コード一覧のダブルクリックで該当プロシージャへ移動したい
+- `SetSelection`したのに先頭行が見えない問題を避けたい
+- VBA解析ツールからVBEへ自然にジャンプさせたい
+
+## 解決コード
+
+<CopyCode language="csharp" filename="vbe-codepane-jump.cs" src="/articles/vsto/vbe-codepane-jump.cs" />
+
+重要なのは、範囲選択ではなくゼロ幅選択にすることです。
+
+```csharp
+pane.SetSelection(startLine, 1, startLine, 1);
+```
+
+そのうえで、`pane.TopLine = startLine`を指定すると、目的行を画面上部に寄せやすくなります。
+
+## 呼び出し順序
+
+順序は次のようにします。
+
+1. VBE本体を表示する
+2. `CodePane.Show()`で対象ペインを表示する
+3. `SetSelection(startLine, 1, startLine, 1)`でカーソルを置く
+4. `TopLine = startLine`でスクロール位置を固定する
+
+`Show()`より前に`SetSelection`しても、ウィンドウが未表示の状態ではスクロール位置が期待通りにならないことがあります。
+
+## 注意点
+
+- <Term>VBIDE</Term>を扱うため、「VBAプロジェクトオブジェクトモデルへのアクセスを信頼する」が必要です。
+- 保護されたVBProjectはスキップします。
+- `TopLine`は状態によって例外になる場合があるため、try/catchで囲みます。
+- 行番号は1始まりです。
+- <Term>COM</Term>越しのプロパティアクセスは例外が出やすいため、個別に安全化すると安定します。
+- 開始行の特定は、`ProcStartLine`だけに頼らず、自前のLexerやParserで求めるとズレを減らせます。
+
+## このテクニックを使っているアプリ
+
+このノウハウは、配布アプリ「階層化フォーム (IKI-Kaiso VSTO版)」で実装・確認しています。
+
+- [配布・インストールページ](https://yujifukami.github.io/IKI-Kaiso-VSTO/)
+- [ソースリポジトリ](https://github.com/YujiFukami/IKI-Kaiso-VSTO)
+
+## まとめ
+
+VBEジャンプでは、範囲選択でプロシージャ全体を選ぶより、開始行へカーソルを置いて`TopLine`で表示位置を決める方が安定します。
+
+コード一覧UIやVBA解析ツールからVBEへ飛ばす場合は、`Visible`、`Show`、`SetSelection`、`TopLine`の順序を固定しておくと、利用者が「どこに飛んだか分からない」状態を避けやすくなります。

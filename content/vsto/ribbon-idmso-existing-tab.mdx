@@ -1,0 +1,66 @@
+---
+title: "VSTO Ribbon XMLで既存のOfficeタブへボタンを追加する"
+category: "vsto"
+slug: "ribbon-idmso-existing-tab"
+tags: ["VSTO", "Ribbon XML", "idMso", "Excelアドイン", "Office開発"]
+description: "VSTOアドインのリボンボタンを新規タブではなく、開発タブや数式タブなど既存Officeタブへ追加するidMsoの使い方を紹介します。"
+date: "2026-05-21"
+---
+
+## はじめに
+
+<Term>VSTO</Term>アドインでボタンを追加するとき、毎回専用タブを作るとExcelのリボンがすぐに混雑します。
+
+機能が1つか2つだけなら、新しいタブを増やすより、既存の「開発」「数式」「データ」などのタブへ自分のグループを追加した方が自然です。
+
+この記事では、<Term>Ribbon XML</Term>で`id`を使った専用タブから、<Term>idMso</Term>を使った既存タブ追加へ切り替える方法を紹介します。
+
+## 使う場面
+
+- Excelアドインのボタンが1つだけ
+- 専用タブを増やすほどの機能数ではない
+- 既存の「開発」タブや「数式」タブの中へ自然に置きたい
+- リボンUIを整理して、利用者が迷わないようにしたい
+
+## before / after
+
+変更の中心は、`<tab id="...">`を`<tab idMso="...">`へ変えることです。
+
+<CopyCode language="xml" filename="Ribbon XML before / after" src="/articles/vsto/ribbon-idmso-existing-tab.xml" />
+
+グループやボタン、`onAction`のコールバックはそのまま使えます。
+
+## 主なidMso
+
+| idMso | タブ |
+|---|---|
+| `TabHome` | ホーム |
+| `TabInsert` | 挿入 |
+| `TabFormulas` | 数式 |
+| `TabData` | データ |
+| `TabReview` | 校閲 |
+| `TabView` | 表示 |
+| `TabDeveloper` | 開発 |
+
+開発タブは環境によって非表示の場合があります。常に見せたい機能なら、`TabFormulas`や`TabData`などの常設タブを選ぶ方が安全です。
+
+## 実装時の注意点
+
+- Ribbon XMLは`.csproj`に`EmbeddedResource`として登録します。
+- <Term>IRibbonExtensibility</Term>の`GetCustomUI`でXML文字列を返します。
+- `onAction`のメソッドは`void Method(Office.IRibbonControl control)`の形にします。
+- リボンXMLを変更しただけでは、インストール済みアドインにすぐ反映されない場合があります。再発行・再インストールを確認します。
+- 既存タブ内での位置を指定したい場合は、`insertAfterMso`なども検討します。
+
+## このテクニックを使っているアプリ
+
+このノウハウは、配布アプリ「階層化フォーム (IKI-Kaiso VSTO版)」で実装・確認しています。
+
+- [配布・インストールページ](https://yujifukami.github.io/IKI-Kaiso-VSTO/)
+- [ソースリポジトリ](https://github.com/YujiFukami/IKI-Kaiso-VSTO)
+
+## まとめ
+
+VSTOのリボンボタンは、必ず専用タブを作る必要はありません。
+
+<Term>idMso</Term>を使うと、Office標準の既存タブへ自分のグループを追加できます。機能数が少ないアドインでは、利用者にとっても自然で見つけやすい配置になります。
