@@ -24,6 +24,49 @@ export type LinkedTermTextSegment = {
 
 export const terms: TermEntry[] = [
   {
+    slug: "dx",
+    title: "DX",
+    reading: "ディーエックス",
+    category: "業務改善",
+    aliases: ["デジタルトランスフォーメーション"],
+    summary: "デジタル技術を使って、業務の進め方や価値提供の形を改善・変革する考え方です。",
+    description: [
+      "DXは、単に紙やExcelをデジタル化することではなく、業務の流れや意思決定の仕方まで見直す取り組みです。",
+      "現場業務では、スマホ入力化やWebアプリ化がDXの入口になることがありますが、実際に使う人の負担が減るかを確認することが重要です。",
+    ],
+    useCases: ["現場報告の効率化", "Excel業務のWeb化", "業務フローの見直し"],
+    related: ["web-app"],
+    googleQuery: "DX デジタルトランスフォーメーション とは",
+  },
+  {
+    slug: "field-dx",
+    title: "現場DX",
+    category: "業務改善",
+    aliases: ["現場のDX", "現場業務DX"],
+    summary: "現場作業、報告、点検、写真管理などをデジタル化し、現場と管理側の業務を改善する取り組みです。",
+    description: [
+      "現場DXでは、スマートフォン入力、写真アップロード、報告書作成、管理画面などを組み合わせることがあります。",
+      "ただし、現場での安全性、入力時間、画面の見やすさを考えないと、管理側だけが便利になり現場負担が増えることがあります。",
+    ],
+    useCases: ["現場報告Webアプリ", "点検記録のスマホ入力", "写真付き報告書の作成"],
+    related: ["dx", "web-app"],
+    googleQuery: "現場DX とは",
+  },
+  {
+    slug: "web-app",
+    title: "Webアプリ",
+    category: "Web開発",
+    aliases: ["Webアプリケーション"],
+    summary: "ブラウザから利用できるアプリケーションです。PCやスマートフォンから同じURLで使える構成にしやすいのが特徴です。",
+    description: [
+      "Webアプリは、ブラウザ上で入力、検索、一覧表示、帳票出力などを行うアプリケーションです。",
+      "業務改善では、既存のExcelやスプレッドシートと連携し、現場入力や管理画面を作る用途で使われます。",
+    ],
+    useCases: ["スマホ入力フォーム", "管理画面", "業務データの検索と登録"],
+    related: ["dx"],
+    googleQuery: "Webアプリ とは",
+  },
+  {
     slug: "document-colorizing-transformer",
     title: "DocumentColorizingTransformer",
     category: "WPF / AvalonEdit",

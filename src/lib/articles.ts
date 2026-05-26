@@ -95,6 +95,7 @@ export const categoryLabels: Record<string, string> = {
   codex: "Codex・AI開発運用",
   seo: "SEO改善・集客導線",
   "client-work": "開発対応事例",
+  "design-philosophy": "設計思想",
   vba: "Excel VBA",
   powershell: "PowerShell / bat運用",
 };
