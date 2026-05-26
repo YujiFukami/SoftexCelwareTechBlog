@@ -4,7 +4,16 @@ const pages = [
   { href: "/tools/kaiso", label: "概要" },
   { href: "/tools/kaiso/install", label: "インストール" },
   { href: "/tools/kaiso/quickstart", label: "クイックスタート" },
+  { href: "/tools/kaiso/features/overview", label: "画面構成" },
+  { href: "/tools/kaiso/features/analysis", label: "解析" },
+  { href: "/tools/kaiso/features/hierarchy", label: "階層ビュー" },
+  { href: "/tools/kaiso/features/search", label: "検索" },
+  { href: "/tools/kaiso/features/external-ref", label: "外部参照" },
+  { href: "/tools/kaiso/features/analytics", label: "分析" },
+  { href: "/tools/kaiso/features/module-graph", label: "関係図" },
+  { href: "/tools/kaiso/customize", label: "設定" },
   { href: "/tools/kaiso/vba-api", label: "VBA連携" },
+  { href: "/tools/kaiso/troubleshoot", label: "FAQ" },
 ];
 
 export function KaisoToolNav() {
@@ -53,4 +62,3 @@ export function KaisoImage({
     </figure>
   );
 }
-

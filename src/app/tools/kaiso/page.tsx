@@ -92,9 +92,23 @@ export default function KaisoTopPage() {
           <Link href="/tools/kaiso/vba-api" className="rounded bg-white p-4 text-sm font-medium text-blue-700 ring-1 ring-blue-100 hover:bg-blue-50">
             VBAから呼び出す
           </Link>
+          <Link href="/tools/kaiso/features/overview" className="rounded bg-white p-4 text-sm font-medium text-blue-700 ring-1 ring-blue-100 hover:bg-blue-50">
+            画面構成と各機能
+          </Link>
+          <Link href="/tools/kaiso/features/analytics" className="rounded bg-white p-4 text-sm font-medium text-blue-700 ring-1 ring-blue-100 hover:bg-blue-50">
+            分析機能
+          </Link>
+          <Link href="/tools/kaiso/features/module-graph" className="rounded bg-white p-4 text-sm font-medium text-blue-700 ring-1 ring-blue-100 hover:bg-blue-50">
+            モジュール関係図
+          </Link>
+          <Link href="/tools/kaiso/customize" className="rounded bg-white p-4 text-sm font-medium text-blue-700 ring-1 ring-blue-100 hover:bg-blue-50">
+            表示設定
+          </Link>
+          <Link href="/tools/kaiso/troubleshoot" className="rounded bg-white p-4 text-sm font-medium text-blue-700 ring-1 ring-blue-100 hover:bg-blue-50">
+            FAQ
+          </Link>
         </div>
       </section>
     </div>
   );
 }
-
