@@ -60,7 +60,7 @@ export default function KaisoQuickstartPage() {
           <p className="mb-4 text-sm leading-7 text-gray-700">
             Excelの開発タブから「フォームを開く」を押します。初回起動時は、まだ解析結果が読み込まれていない状態です。
           </p>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-6">
             <KaisoImage src="/tools/kaiso/images/03-02.jpg" alt="フォームを開くボタン" caption="開発タブの階層化フォームグループから起動します。" />
             <KaisoImage src="/tools/kaiso/images/03-03.jpg" alt="階層化フォーム初回起動直後" caption="初回表示では、読み込み前の空のペインが表示されます。" />
           </div>
@@ -71,7 +71,7 @@ export default function KaisoQuickstartPage() {
           <p className="mb-4 text-sm leading-7 text-gray-700">
             「読み込み / 更新」を押すと、開いているVBAプロジェクトを解析します。解析後は各ペインにデータが表示されます。
           </p>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-6">
             <KaisoImage src="/tools/kaiso/images/03-04.jpg" alt="読み込み更新ボタン" caption="読み込み / 更新ボタンを押して解析を実行します。" />
             <KaisoImage src="/tools/kaiso/images/03-05.jpg" alt="解析完了後の画面" caption="解析が完了すると、各ペインにプロジェクト情報やコードが表示されます。" />
           </div>
@@ -97,4 +97,3 @@ export default function KaisoQuickstartPage() {
     </div>
   );
 }
-

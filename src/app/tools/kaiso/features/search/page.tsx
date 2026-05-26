@@ -23,7 +23,7 @@ export default function KaisoSearchPage() {
         </p>
       </header>
       <KaisoToolNav />
-      <section className="mb-10 grid gap-4 md:grid-cols-2">
+      <section className="mb-10 grid gap-6">
         <KaisoImage src="/tools/kaiso/images/04-11.jpg" alt="検索バーと検索結果" caption="検索バー、コードも検索、件数表示を見ながら候補を絞り込みます。" />
         <KaisoImage src="/tools/kaiso/images/04-13.jpg" alt="VBEへのジャンプ" caption="検索結果や一覧項目から、該当するVBE上のコードへ移動できます。" />
       </section>
@@ -39,4 +39,3 @@ export default function KaisoSearchPage() {
     </div>
   );
 }
-

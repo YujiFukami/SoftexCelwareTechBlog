@@ -23,7 +23,7 @@ export default function KaisoAnalysisPage() {
         </p>
       </header>
       <KaisoToolNav />
-      <section className="mb-10 grid gap-4 md:grid-cols-2">
+      <section className="mb-10 grid gap-6">
         <KaisoImage src="/tools/kaiso/images/03-04.jpg" alt="読み込み更新ボタン" caption="読み込み / 更新ボタンで、現在開いているVBAプロジェクトを解析します。" />
         <KaisoImage src="/tools/kaiso/images/03-05.jpg" alt="解析完了後の画面" caption="解析後はプロジェクト、モジュール、宣言、プロシージャが各ペインに表示されます。" />
       </section>
@@ -46,4 +46,3 @@ export default function KaisoAnalysisPage() {
     </div>
   );
 }
-

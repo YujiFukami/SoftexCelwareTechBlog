@@ -55,7 +55,7 @@ export default function KaisoInstallPage() {
             配布ページから `install_cert.cmd` をダウンロードして実行します。
             自己署名証明書を信頼済みに登録してからsetup.exeを実行すると、インストール時の警告を減らせます。
           </p>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-6">
             <KaisoImage src="/tools/kaiso/images/02-01.jpg" alt="証明書登録ファイルのダウンロード" caption="配布ページの証明書登録用ボタンから install_cert.cmd を取得します。" />
             <KaisoImage src="/tools/kaiso/images/02-02.jpg" alt="install_cert.cmd実行時の警告" caption="Windowsの確認画面が出たら、内容を確認して実行します。" />
             <KaisoImage src="/tools/kaiso/images/02-03.jpg" alt="証明書ストア登録の確認" caption="証明書ストアへの登録確認が出たら、信頼して登録します。" />
@@ -91,7 +91,7 @@ export default function KaisoInstallPage() {
           <p className="mb-4 text-sm leading-7 text-gray-700">
             配布ページからsetup.exeをダウンロードし、SmartScreenの警告が表示された場合は詳細情報から実行します。
           </p>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-6">
             <KaisoImage src="/tools/kaiso/images/02-05.jpg" alt="setup.exeダウンロード" caption="配布ページからsetup.exeをダウンロードします。" />
             <KaisoImage src="/tools/kaiso/images/02-06.jpg" alt="SmartScreen警告への対応" caption="SmartScreen警告が出た場合は、詳細情報を開いて実行します。" />
             <KaisoImage src="/tools/kaiso/images/02-08.jpg" alt="VSTOインストーラー進行中" caption="Officeカスタマイズインストーラーが表示されたら、完了まで待ちます。" />
@@ -115,7 +115,7 @@ export default function KaisoInstallPage() {
           <p className="mb-4 text-sm leading-7 text-gray-700">
             本体はWindowsのアプリ一覧から削除できます。証明書を削除したい場合は `uninstall_cert.cmd` を実行します。
           </p>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-6">
             <KaisoImage src="/tools/kaiso/images/02-13.jpg" alt="階層化フォーム本体のアンインストール" caption="Windowsのインストール済みアプリからKaisoを削除します。" />
             <KaisoImage src="/tools/kaiso/images/02-14.jpg" alt="証明書削除コマンドの実行結果" caption="uninstall_cert.cmdで登録済み証明書を削除できます。" />
           </div>
@@ -124,4 +124,3 @@ export default function KaisoInstallPage() {
     </div>
   );
 }
-

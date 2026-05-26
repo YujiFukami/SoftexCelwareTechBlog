@@ -26,7 +26,7 @@ export default function KaisoHierarchyPage() {
       <section className="mb-10">
         <KaisoImage src="/tools/kaiso/images/03-06.jpg" alt="プロシージャ選択と階層ビュー" caption="プロシージャを選択すると、関連するコードと階層ビューが連動して表示されます。" />
       </section>
-      <section className="mb-10 grid gap-4 md:grid-cols-2">
+      <section className="mb-10 grid gap-6">
         <KaisoImage src="/tools/kaiso/images/04-08.jpg" alt="階層深さの切替" caption="階層深さを切り替えることで、浅い範囲だけ見るか、深く追うかを調整できます。" />
         <KaisoImage src="/tools/kaiso/images/04-09.jpg" alt="上向き下向き切替" caption="下向きは呼び出し先、上向きは呼び出し元を追うイメージです。" />
       </section>
@@ -41,4 +41,3 @@ export default function KaisoHierarchyPage() {
     </div>
   );
 }
-

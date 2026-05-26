@@ -26,7 +26,7 @@ export default function KaisoAnalyticsPage() {
       </header>
       <KaisoToolNav />
 
-      <section className="mb-10 grid gap-4 md:grid-cols-3">
+      <section className="mb-10 grid gap-6">
         <KaisoImage
           src="/tools/kaiso/images/04-22.jpg"
           alt="ブックとプロジェクトの分析画面"

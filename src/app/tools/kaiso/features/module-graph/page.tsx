@@ -26,7 +26,7 @@ export default function KaisoModuleGraphPage() {
       </header>
       <KaisoToolNav />
 
-      <section className="mb-10 grid gap-4 md:grid-cols-2">
+      <section className="mb-10 grid gap-6">
         <KaisoImage
           src="/tools/kaiso/images/04-26-1.jpg"
           alt="モジュール関係図の全体画面"
