@@ -9,6 +9,14 @@ export const metadata: Metadata = {
 
 const tools = [
   {
+    href: "/tools/rakulog-task",
+    title: "らくログタスク",
+    category: "作業時間管理Webアプリ",
+    description:
+      "出勤、作業切替、退勤の記録から、日別・月別・作業別の集計まで行える作業時間管理Webアプリです。スマートフォンからの記録にも対応しています。",
+    tags: ["Next.js", "Supabase", "Vercel", "作業時間管理"],
+  },
+  {
     href: "/tools/kaiso",
     title: "階層化フォーム (Kaiso)",
     category: "Excel VSTOアドイン",
@@ -64,4 +72,3 @@ export default function ToolsPage() {
     </div>
   );
 }
-
