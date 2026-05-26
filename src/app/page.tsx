@@ -122,6 +122,36 @@ export default function HomePage() {
         </div>
       </section>
 
+      <section className="mb-12 rounded-lg border border-gray-200 p-5">
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-blue-600 mb-2">Tools</p>
+            <h2 className="text-2xl font-bold text-gray-900">公開ツール</h2>
+          </div>
+          <Link
+            href="/tools"
+            className="text-sm font-medium text-blue-600 hover:text-blue-700"
+          >
+            一覧を見る &rarr;
+          </Link>
+        </div>
+        <Link
+          href="/tools/kaiso"
+          className="block rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50/40"
+        >
+          <div className="mb-2 text-xs font-medium text-blue-600">
+            Excel VSTOアドイン
+          </div>
+          <h3 className="font-semibold text-gray-900">
+            階層化フォーム (Kaiso)
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-gray-600">
+            Excel VBAプロジェクトのプロシージャ階層、検索、外部参照整理を支援する公開ツールです。
+            インストール手順と使い方をまとめています。
+          </p>
+        </Link>
+      </section>
+
       <section>
         <h2 className="text-xl font-bold text-gray-800 mb-4">最新の記事</h2>
         {articles.length === 0 ? (

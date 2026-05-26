@@ -8,6 +8,7 @@ const navItems = [
   { href: "/articles", label: "記事一覧" },
   { href: "/search", label: "検索" },
   { href: "/cases", label: "開発事例" },
+  { href: "/tools", label: "公開ツール" },
   { href: "/knowledge-flow", label: "知識資産化" },
   { href: "/terms", label: "用語集" },
   { href: "/about", label: "About" },
