@@ -95,6 +95,9 @@ export default function RakulogTaskToolPage() {
           <Link href="/cases/rakulog-task" className="rounded border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
             開発事例を見る
           </Link>
+          <Link href="/tools/rakulog-task/releases/beta-0-5-6" className="rounded border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            β0.5.6 更新内容
+          </Link>
         </div>
       </header>
 
@@ -125,6 +128,16 @@ export default function RakulogTaskToolPage() {
           <li>作業履歴の確認と修正。</li>
           <li>スマートフォンからの作業ログ入力。</li>
         </ul>
+      </section>
+
+      <section className="mb-10 rounded-lg border border-blue-100 bg-blue-50 p-5">
+        <h2 className="mb-3 text-xl font-bold text-gray-900">最新更新情報</h2>
+        <p className="mb-4 text-sm leading-7 text-gray-700">
+          β0.5.6では、使い方ガイドへのリンク追加、前回作業日の退勤忘れ表示、退勤忘れ一覧での最終作業開始表示、Googleログインの安定化を行いました。
+        </p>
+        <Link href="/tools/rakulog-task/releases/beta-0-5-6" className="inline-flex rounded bg-white px-4 py-2 text-sm font-medium text-blue-700 ring-1 ring-blue-100 hover:bg-blue-50">
+          β0.5.6 の詳しい更新内容を見る
+        </Link>
       </section>
 
       <section className="mb-10 rounded-lg border border-blue-100 bg-blue-50 p-5">
