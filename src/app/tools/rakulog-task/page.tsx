@@ -60,6 +60,12 @@ const relatedArticles = [
 
 const releaseNotes = [
   {
+    version: "β0.5.8",
+    date: "2026年5月27日",
+    href: "/tools/rakulog-task/releases/beta-0-5-8",
+    summary: "作業名候補キャッシュを追加。入力画面と特定作業集計の作業名候補取得を軽量化し、長期利用時の読み込み負荷を抑制。",
+  },
+  {
     version: "β0.5.7",
     date: "2026年5月27日",
     href: "/tools/rakulog-task/releases/beta-0-5-7",
