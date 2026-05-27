@@ -1,0 +1,236 @@
+---
+title: "Googleスプレッドシートを簡易DBとして使うMVP構成のアイデア"
+category: "design-philosophy"
+slug: "google-sheets-simple-db-mvp"
+tags: ["アイデア", "Googleスプレッドシート", "Google Apps Script", "MVP", "業務改善"]
+description: "Googleスプレッドシートを簡易データベースとして使い、低コストで業務改善Webアプリを試作する構成案と注意点を整理します。"
+date: "2026-05-27"
+image: "/articles/design-philosophy/google-sheets-simple-db-mvp/cover.png"
+---
+
+業務改善系のWebアプリでは、最初から本格的なデータベースを用意するよりも、<Term>Googleスプレッドシート</Term>を簡易DBとして使った方が早い場面があります。
+
+この記事は、まだ実装済み事例ではなく、**MVP段階のアイデア整理**です。小規模な業務アプリや試作で、どこまでGoogleスプレッドシートをデータ保存先として使えるか、どこから本格DBへ移行すべきかを整理します。
+
+<figure>
+  <img src="/articles/design-philosophy/google-sheets-simple-db-mvp/cover.png" alt="Googleスプレッドシートを簡易DBとして使うMVP構成の解説図" />
+  <figcaption>スマホやPCのWeb画面から入力し、GASまたはAPI経由でGoogleスプレッドシートへ保存する構成です。</figcaption>
+</figure>
+
+## この構成で考えていること
+
+狙いは、最初の一歩をできるだけ軽くすることです。
+
+たとえば、日報、予約、問い合わせ、在庫、現場記録のような業務では、いきなり管理画面、認証、データベース、バックアップ、権限管理まで作り込むと、試す前から開発コストが大きくなります。
+
+一方でGoogleスプレッドシートを簡易DBにすると、次のような形で始められます。
+
+- 利用者はスマホやPCのWeb画面から入力する
+- 保存先はGoogleスプレッドシートにする
+- 管理者はスプレッドシートを直接開いて確認・修正する
+- 必要に応じてGoogle Drive、PDF出力、通知処理とつなげる
+- 利用者数やデータ量が増えたら、本格DBへ移行する
+
+つまり、最初から完成形を作るのではなく、**業務に合うかを小さく試すための構成**として有力です。
+
+## 使える構成は主に2つ
+
+Googleスプレッドシートを簡易DBとして使う場合、実装方法は大きく2つあります。
+
+### 1. Next.jsなどのWebアプリからGoogle Sheets APIを使う
+
+<Term>Next.js</Term>やNode.jsでWebアプリを作り、サーバー側の処理からGoogle Sheets APIでスプレッドシートを読み書きする方法です。
+
+```text
+ユーザー画面
+  ↓
+Next.js / Webアプリ
+  ↓
+API Route / サーバー側処理
+  ↓
+Google Sheets API
+  ↓
+Googleスプレッドシート
+```
+
+この構成では、Google APIの認証情報をブラウザ側へ出さないことが重要です。<Term>Vercel</Term>などで公開する場合も、サービスアカウントや認証情報は必ずサーバー側に置きます。
+
+Webアプリとしての見た目や画面遷移を作り込みたい場合、将来的に<Term>Supabase</Term>やPostgreSQLへ移行する可能性が高い場合は、この構成が整理しやすいです。
+
+### 2. GAS WebアプリをAPIサーバーのように使う
+
+もう一つは、<Term>Google Apps Script</Term>をWebアプリとして公開し、`doGet`や`doPost`でデータを受け取る方法です。
+
+```text
+ユーザー画面
+  ↓
+fetch()
+  ↓
+GAS Webアプリ doGet / doPost
+  ↓
+SpreadsheetApp
+  ↓
+Googleスプレッドシート
+```
+
+GASに慣れている場合はこちらの方が始めやすいです。Googleスプレッドシート、Google Drive、PDF出力、メール通知などを同じGoogle Workspace内で扱えるため、小規模な業務改善とは相性が良いです。
+
+たとえば、登録処理だけなら次のような形で考えられます。
+
+```javascript
+function doPost(e) {
+  const json = JSON.parse(e.postData.contents);
+
+  const ss = SpreadsheetApp.openById("スプレッドシートID");
+  const sheet = ss.getSheetByName("データ");
+
+  sheet.appendRow([
+    new Date(),
+    json.name,
+    json.email,
+    json.memo
+  ]);
+
+  return ContentService
+    .createTextOutput(JSON.stringify({ success: true }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+```
+
+Webアプリ側では、フォーム送信時にGASのWebアプリURLへPOSTします。
+
+```javascript
+await fetch("GASのWebアプリURL", {
+  method: "POST",
+  body: JSON.stringify({
+    name: "山田太郎",
+    email: "test@example.com",
+    memo: "問い合わせ内容"
+  })
+});
+```
+
+実務では、この処理に入力チェック、エラーハンドリング、権限制御、同時実行対策を足していくことになります。
+
+## 向いている用途
+
+Googleスプレッドシートを簡易DBとして使う構成は、次のような業務に向いています。
+
+- 日報入力Webアプリ
+- 予約管理
+- 問い合わせ管理
+- 簡易在庫管理
+- 作業履歴管理
+- 顧客別メモ管理
+- 現場写真や報告データの管理台帳
+- 管理者がスプレッドシートで直接確認したい業務
+
+特に、[写真付き現場報告書作成Webアプリ](/articles/gas/construction-photo-report-webapp)のように、現場ではスマホから入力し、管理側ではスプレッドシートやDrive上で確認する構成とは相性が良いです。
+
+また、[古物商の現場入力をスマホ化したGAS Webアプリ開発対応事例](/articles/client-work/used-goods-smartphone-input-gas)のような、現場入力と管理台帳をつなぐ用途でも考え方は近いです。
+
+## 向いていない用途
+
+一方で、Googleスプレッドシートを本格DBの代わりとして考えすぎるのは危険です。
+
+次のような用途では、最初から<Term>Supabase</Term>、PostgreSQL、MySQLなどの専用DBを検討した方がよいです。
+
+- 大量アクセスがある一般公開サービス
+- 同時書き込みが多い予約・在庫・決済系システム
+- 複雑な検索条件やリレーションが必要なシステム
+- 数万行以上のデータを頻繁に検索・更新するシステム
+- 厳密なトランザクション管理が必要な業務
+- 金融、医療、個人情報管理など、厳格な設計が必要な領域
+
+スプレッドシートは便利ですが、役割としては「小規模業務アプリ向けの簡易DB」です。本格DBと同じ性能や安全性を期待する構成ではありません。
+
+## 設計時の注意点
+
+### 同時書き込みには注意する
+
+単純な追加処理であれば、`appendRow`やGoogle Sheets APIのappend処理で対応しやすいです。
+
+ただし、次のような処理は注意が必要です。
+
+- 特定行を検索して更新する
+- 在庫数を読み取って減算する
+- 予約枠を同時に取り合う
+- ステータスを見て次の処理を判断する
+
+このような処理では、読み取りと書き込みの間に別ユーザーの操作が入る可能性があります。GASで作る場合は<Term>LockService</Term>を使う、更新対象にIDを持たせる、追記中心の設計にするなど、同時実行を前提にした設計が必要です。
+
+### API制限を前提にする
+
+Google Sheets APIやGoogle Apps Scriptには、リクエスト数、実行時間、日次利用量などの制限があります。
+
+資料上は目安値が整理されていますが、これらの制限は変わる可能性があります。実案件で使う場合は、必ず公式ドキュメントで最新のクォータを確認し、アクセスが増えたときに止まらない設計にします。
+
+小規模な社内利用であれば問題になりにくい一方、一般公開サービスのように誰でも大量にアクセスできる構成には向きません。
+
+### 全件取得を前提にしない
+
+スプレッドシートをDB代わりにすると、ついシート全体を取得してJavaScript側で検索したくなります。
+
+数百行程度なら問題になりにくいですが、数千行、数万行と増えると重くなります。
+
+対策としては、次のような設計が必要です。
+
+- ID列を必ず持たせる
+- 更新対象を特定しやすい列構成にする
+- 読み込み範囲を絞る
+- 頻繁に参照するマスタはキャッシュする
+- 必要なら別シートに検索用のインデックス表を作る
+- 集計用シートと入力用シートを分ける
+
+「とりあえず全部読む」から始めてもよいですが、成長させる前提なら最初からIDと列設計は決めておいた方が後で楽になります。
+
+## 段階移行の考え方
+
+この構成は、永遠にGoogleスプレッドシートで運用する前提ではなく、段階移行を考えておくと使いやすいです。
+
+```text
+MVP:
+Googleスプレッドシートで小さく開始
+
+運用確認:
+実際の入力件数、利用者数、検索条件、管理方法を確認
+
+拡張:
+必要に応じてSupabase / PostgreSQLなどへ移行
+```
+
+最初から本格DBで作ると、データ構造や管理画面を先に固める必要があります。Googleスプレッドシートで始めると、管理者が直接データを見ながら運用を試せるため、業務フローの検証が早くなります。
+
+ただし、移行を考えるなら、列名、ID、作成日時、更新日時、ステータスなどは最初から整理しておくべきです。あとからDBへ移すときに、データの意味が揃っているほど移行しやすくなります。
+
+## Softex Celwareで考える使いどころ
+
+Softex Celwareで扱うような業務改善では、Excel VBA、<Term>Google Apps Script</Term>、Webアプリ、Google Drive、PDF出力を組み合わせることが多くあります。
+
+その中でGoogleスプレッドシートを簡易DBにする構成は、次のような相談に向いています。
+
+- まず小さく試したい
+- 管理者はスプレッドシートで確認したい
+- スマホ入力画面だけ用意したい
+- Google Driveへ写真やPDFを保存したい
+- 本格的な管理画面を作る前に運用を検証したい
+
+特に「スマホ入力 × シート管理」の形は、導入コストと運用しやすさのバランスがよいです。
+
+## 関連記事
+
+- [現場DXの理想と現実: スマホ入力化が必ずしも効率化になるとは限らない](/articles/design-philosophy/field-dx-reality)
+- [GASで作る工事現場向け写真付き報告書Webアプリ](/articles/gas/construction-photo-report-webapp)
+- [古物商の現場入力をスマホ化したGAS Webアプリ開発対応事例](/articles/client-work/used-goods-smartphone-input-gas)
+- [GASでスマホ写真付きレポートをPDF出力する方法](/articles/gas/image-function-photo-pdf-report)
+- [SupabaseのページネーションをRange指定で実装する方法](/articles/nextjs/supabase-pagination)
+
+## まとめ
+
+Googleスプレッドシートを簡易DBとして使う構成は、MVPや小規模な業務改善Webアプリではかなり現実的です。
+
+特に、管理者がスプレッドシートを直接確認したい業務、スマホから入力してGoogle DriveやPDF出力へつなげたい業務では、初期コストを抑えながら試せます。
+
+ただし、本格DBではないため、同時書き込み、API制限、検索性能、データ量には注意が必要です。
+
+最初はGoogleスプレッドシートで小さく始め、利用者数やデータ量が増えたらSupabaseやPostgreSQLへ移行する。この段階設計を前提にすると、業務改善の最初の一歩として使いやすい構成になります。
