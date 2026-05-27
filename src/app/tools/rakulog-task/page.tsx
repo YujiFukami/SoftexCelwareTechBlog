@@ -58,6 +58,21 @@ const relatedArticles = [
   { title: "トースト通知をライブラリなしで実装する", href: "/articles/nextjs/toast-notification" },
 ];
 
+const releaseNotes = [
+  {
+    version: "β0.5.7",
+    date: "2026年5月27日",
+    href: "/tools/rakulog-task/releases/beta-0-5-7",
+    summary: "複数端末・別ウィンドウ利用時の同期改善。操作直前の最新状態確認で二重登録や履歴順のズレを抑制。",
+  },
+  {
+    version: "β0.5.6",
+    date: "2026年5月27日",
+    href: "/tools/rakulog-task/releases/beta-0-5-6",
+    summary: "退勤忘れ補正、最後の作業開始情報の表示、Googleログイン安定化、使い方ガイド導線追加。",
+  },
+];
+
 function ToolImage({ src, alt, caption }: { src: string; alt: string; caption: string }) {
   return (
     <figure className="overflow-hidden rounded-lg border border-gray-200 bg-white">
@@ -99,11 +114,26 @@ export default function RakulogTaskToolPage() {
           <Link href="/cases/rakulog-task" className="rounded border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
             開発事例を見る
           </Link>
-          <Link href="/tools/rakulog-task/releases/beta-0-5-7" className="rounded border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
-            β0.5.7 更新内容
+          <Link href="#release-notes" className="rounded border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            更新履歴を見る
           </Link>
         </div>
       </header>
+
+      <section id="release-notes" className="mb-8 rounded-lg border border-blue-100 bg-blue-50 p-5">
+        <h2 className="mb-3 text-xl font-bold text-gray-900">更新履歴</h2>
+        <div className="divide-y divide-blue-100 rounded bg-white ring-1 ring-blue-100">
+          {releaseNotes.map((release) => (
+            <div key={release.version} className="grid gap-2 px-4 py-3 text-sm md:grid-cols-[7rem_9rem_1fr] md:items-start">
+              <Link href={release.href} className="font-bold text-blue-700 hover:underline">
+                {release.version}
+              </Link>
+              <p className="text-gray-500">{release.date}</p>
+              <p className="leading-6 text-gray-700">{release.summary}</p>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <section className="mb-10 grid gap-4 md:grid-cols-3">
         {featureCards.map((feature) => (
@@ -132,22 +162,6 @@ export default function RakulogTaskToolPage() {
           <li>作業履歴の確認と修正。</li>
           <li>スマートフォンからの作業ログ入力。</li>
         </ul>
-      </section>
-
-      <section className="mb-10 rounded-lg border border-blue-100 bg-blue-50 p-5">
-        <h2 className="mb-3 text-xl font-bold text-gray-900">最新更新情報</h2>
-        <p className="mb-4 text-sm leading-7 text-gray-700">
-          β0.5.7では、別ウィンドウ・別端末で同じ入力画面を開いたときの同期処理を改善しました。
-          他の画面で行われた作業登録や退勤操作を反映しやすくし、操作直前にも最新状態を確認することで、二重登録や履歴順のズレを抑えます。
-        </p>
-        <div className="flex flex-wrap gap-3">
-          <Link href="/tools/rakulog-task/releases/beta-0-5-7" className="inline-flex rounded bg-white px-4 py-2 text-sm font-medium text-blue-700 ring-1 ring-blue-100 hover:bg-blue-50">
-            β0.5.7 の詳しい更新内容を見る
-          </Link>
-          <Link href="/tools/rakulog-task/releases/beta-0-5-6" className="inline-flex rounded bg-white px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50">
-            β0.5.6 の更新内容を見る
-          </Link>
-        </div>
       </section>
 
       <section className="mb-10 rounded-lg border border-blue-100 bg-blue-50 p-5">
