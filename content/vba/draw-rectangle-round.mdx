@@ -1,0 +1,59 @@
+---
+title: "角丸四角形を作図するExcel VBA汎用関数 DrawRectangleRound"
+category: "vba"
+slug: "draw-rectangle-round"
+tags: ["Excel VBA", "汎用プロシージャ", "Shape", "図形描画", "UI"]
+description: "指定座標とサイズから角丸四角形のShapeを作成し、負の幅や高さにも対応するExcel VBA汎用関数を解説します。"
+date: "2026-05-27"
+---
+
+## 概要
+
+`DrawRectangleRound`は、指定した位置とサイズで角丸四角形の<Term>Shape</Term>を作成する汎用関数です。戻り値として作成した図形を返すため、呼び出し側で文字、色、`OnAction`などを続けて設定できます。
+
+[選択セルに追従する増減ボタン](/articles/vba/event-show-move-spin-button)では、増加・減少ボタン用の角丸図形を作成するために使っています。
+
+## 使う場面
+
+- シート上に図形ボタンをVBAで作りたい
+- 角丸のラベルやボタンを作成したい
+- 図形作成後に文字や色を設定したい
+- 左上以外の方向へドラッグするような座標指定にも対応したい
+
+## 使用例
+
+```vba
+Dim btn As Shape
+Set btn = DrawRectangleRound(100, 50, 80, 30, ActiveSheet)
+
+btn.TextFrame2.TextRange.Text = "実行"
+btn.OnAction = "RunMacro"
+```
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="DrawRectangleRound.bas" src="/articles/vba/draw-rectangle-round.bas" />
+
+## 初心者向けコード解説
+
+この関数では、`Left`、`Top`、`Width`、`Height`を受け取り、`Shapes.AddShape`で`msoShapeRoundedRectangle`を作成します。
+
+特徴は、`Width`や`Height`が負の値でも処理できるようにしている点です。幅や高さが負の場合は、基準点が右上、左下、右下のどこにあるかを判定し、実際に描画する`DrawLeft`、`DrawTop`、`DrawWidth`、`DrawHeight`へ変換しています。
+
+`Sheet`を省略した場合は`ActiveSheet`に描画します。明示的に対象シートを渡せるため、別シートへ図形を作る処理にも使えます。
+
+## 関連記事
+
+- [選択セルに追従する増減ボタンを表示するEventShowMoveSpinButton](/articles/vba/event-show-move-spin-button)
+- [指定名の図形を取得するGetShapeByName](/articles/vba/get-shape-by-name)
+
+## 注意点
+
+- `Sheet`を省略すると`ActiveSheet`に作図されます。
+- 負の幅や高さには対応していますが、幅または高さが0の図形は実用上扱いづらくなります。
+- 作成後の文字、色、`OnAction`、図形名は呼び出し側で設定します。
+- 大量に図形を作る場合は、名前付けと削除条件を決めておくと管理しやすくなります。
+
+## 軽いまとめ
+
+`DrawRectangleRound`は、VBAで図形UIを作るときの小さな作図部品です。作成した図形を戻り値で受け取れるため、ボタン、ラベル、ガイド表示などへ応用しやすくなります。

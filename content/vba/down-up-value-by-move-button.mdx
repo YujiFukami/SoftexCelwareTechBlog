@@ -1,0 +1,66 @@
+---
+title: "図形ボタンで選択セルの値を増減するExcel VBA汎用プロシージャ"
+category: "vba"
+slug: "down-up-value-by-move-button"
+tags: ["Excel VBA", "汎用プロシージャ", "Shape", "セル入力", "入力補助"]
+description: "図形ボタンのクリックから選択セルを取得し、値を1ずつ増減させるDownValue_ByMoveButton / UpValue_ByMoveButtonを解説します。"
+date: "2026-05-27"
+---
+
+## 概要
+
+`DownValue_ByMoveButton`と`UpValue_ByMoveButton`は、図形ボタンをクリックしたときに、現在選択されているセルの値を減少・増加させるプロシージャです。
+
+[EventShowMoveSpinButton](/articles/vba/event-show-move-spin-button)で作成した左右ボタンの`OnAction`に設定して使います。
+
+## 使う場面
+
+- 選択セルの数値をクリックで増減したい
+- 図形ボタンをフォームコントロール代わりに使いたい
+- ボタン押下時に視覚的なフィードバックを出したい
+- 値変更処理を`ChangeValueCell`へ分離して再利用したい
+
+## 処理の流れ
+
+1. `ChangePushedButtonColor`でクリックされたボタンの色を一時変更する
+2. `GetSelectionCell`で現在選択中のセルを取得する
+3. セルが取得できなければ処理を終了する
+4. `ChangeValueCell`で値を1増やす、または1減らす
+
+## 使用例
+
+`EventShowMoveSpinButton`で作成した図形に、`OnAction`として増減処理を割り当てます。
+
+```vba
+ShapeDown.OnAction = "DownValue_ByMoveButton"
+ShapeUp.OnAction = "UpValue_ByMoveButton"
+```
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="DownValue_ByMoveButton,UpValue_ByMoveButton.bas" src="/articles/vba/down-up-value-by-move-button.bas" />
+
+## 初心者向けコード解説
+
+`UpValue_ByMoveButton`では、`ChangeValueCell(SelectCell, 1, True)`を呼び出します。第3引数が`True`なので、値を増加させる意味になります。
+
+`DownValue_ByMoveButton`では、`ChangeValueCell(SelectCell, 1, False)`を呼び出します。第3引数が`False`なので、値を減少させます。
+
+どちらも、値を直接変更せず、`ChangeValueCell`へ任せている点が重要です。クリック処理、選択セル取得、値変更を分けることで、後から最小値・最大値の制御を足しやすくなります。
+
+## 関連記事
+
+- [セル値を増減させるChangeValueCell](/articles/vba/change-value-cell)
+- [クリックされた図形の色を一時変更するChangePushedButtonColor](/articles/vba/change-pushed-button-color)
+- [選択中セルを安全に取得するGetSelectionCell](/articles/vba/get-selection-cell)
+- [選択セルに追従する増減ボタンを表示するEventShowMoveSpinButton](/articles/vba/event-show-move-spin-button)
+
+## 注意点
+
+- 現在選択中のセルを対象にするため、クリック前の選択状態が重要です。
+- 対象セルが数値でない場合は、値変更処理でエラーになる可能性があります。
+- 実務では、対象範囲や数値判定を追加するとより安全です。
+
+## 軽いまとめ
+
+この2つのプロシージャは、図形ボタンからセル値を変更するための橋渡し役です。値変更の本体を`ChangeValueCell`へ切り出しているため、ボタンUI以外の処理にも応用しやすい構成になっています。

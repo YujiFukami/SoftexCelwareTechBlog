@@ -1,0 +1,60 @@
+---
+title: "指定名の図形を取得するExcel VBA汎用関数 GetShapeByName"
+category: "vba"
+slug: "get-shape-by-name"
+tags: ["Excel VBA", "汎用プロシージャ", "Shape", "図形", "エラー回避"]
+description: "指定したワークシート上から名前一致のShapeを取得し、見つからない場合はNothingを返すExcel VBA汎用関数を解説します。"
+date: "2026-05-27"
+---
+
+## 概要
+
+`GetShapeByName`は、指定したワークシートから、指定名の<Term>Shape</Term>を取得する汎用関数です。図形が見つからない場合はエラーで止めず、`Nothing`を返します。
+
+[選択セルに追従する増減ボタン](/articles/vba/event-show-move-spin-button)では、「減少ボタン」「増加ボタン」が既に存在するかを確認するために使っています。
+
+## 使う場面
+
+- 図形ボタンを名前で取得したい
+- 図形が存在しない場合でもマクロを止めたくない
+- 図形の作成済み判定をしたい
+- `Application.Caller`で取得した図形名から<Term>Shape</Term>を取りたい
+
+## 使用例
+
+```vba
+Dim shp As Shape
+Set shp = GetShapeByName(ActiveSheet, "増加ボタン")
+
+If shp Is Nothing Then
+    MsgBox "対象の図形が見つかりません"
+Else
+    shp.Visible = msoTrue
+End If
+```
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="GetShapeByName.bas" src="/articles/vba/get-shape-by-name.bas" />
+
+## 初心者向けコード解説
+
+`Sheet.Shapes(ShapeName)`は、指定名の図形が存在しない場合にエラーになります。そこで`On Error Resume Next`で一時的にエラーを無視し、取得できなければ`Output`は`Nothing`のままにしています。
+
+取得後は`On Error GoTo 0`で通常のエラー処理に戻します。この戻し忘れをすると、後続処理のエラーまで無視してしまうため注意が必要です。
+
+## 関連記事
+
+- [クリックされた図形を取得するGetShapePushed](/articles/vba/get-shape-pushed)
+- [選択セルに追従する増減ボタンを表示するEventShowMoveSpinButton](/articles/vba/event-show-move-spin-button)
+
+## 注意点
+
+- `Sheet`には、対象図形が存在するワークシートを渡します。
+- 図形名が重複しない前提で使います。
+- 見つからない場合は`Nothing`が返るため、呼び出し側で必ず確認します。
+- `On Error Resume Next`は関数内ですぐ解除し、後続処理のエラーを隠さないようにします。
+
+## 軽いまとめ
+
+`GetShapeByName`を用意しておくと、図形名での取得と存在チェックを1行で扱えます。図形ボタンを使うExcelツールでは、かなり再利用しやすい小さな部品です。

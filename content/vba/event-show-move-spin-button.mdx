@@ -1,0 +1,124 @@
+---
+title: "選択セルに追従する増減ボタンを表示するExcel VBA汎用プロシージャ"
+category: "vba"
+slug: "event-show-move-spin-button"
+tags: ["Excel VBA", "汎用プロシージャ", "SelectionChange", "Shape", "入力補助"]
+description: "Worksheet_SelectionChangeから呼び出し、選択セルの近くに増減ボタンを表示して値を上下できるExcel VBA汎用プロシージャを解説します。"
+date: "2026-05-27"
+---
+
+## 概要
+
+`EventShowMoveSpinButton`は、<Term>Excel VBA</Term>で指定範囲内のセルを選択したときだけ、選択セルの近くへ増加・減少ボタンを表示する汎用プロシージャです。
+
+Excelシート上に大量のスピンボタンを配置するのではなく、2つの<Term>Shape</Term>を使い回し、選択セルに追従して移動させます。表形式の入力画面で、数値を1ずつ増減させたい場合に使いやすい部品です。
+
+## 使う場面
+
+- 数量、人数、点数、評価値などを表形式で入力したい
+- 各セルにフォームコントロールを大量配置したくない
+- 選択中のセルだけに操作ボタンを表示したい
+- Excelツールにスマホアプリ風の操作感を持たせたい
+- 入力対象範囲外ではボタンを消したい
+
+セルに直接入力させるよりも、クリック操作で増減できるため、誤入力を減らしやすくなります。
+
+## デモ
+
+このサンプルでは、対象範囲内のセルを選択すると、セルの下に左右の増減ボタンが表示されます。
+
+<video controls preload="metadata" className="my-6 w-full rounded-lg border border-gray-200 bg-black">
+  <source src="/articles/vba/event-show-move-spin-button/demo.mp4" type="video/mp4" />
+</video>
+
+## プロシージャの階層構造
+
+この部品は、1つの大きな処理ではなく、複数の小さな汎用プロシージャを組み合わせて動かしています。
+
+```text
+EventShowMoveSpinButton
+├─ GetShapeByName
+├─ DrawRectangleRound
+├─ Set__FontColor
+├─ Move__UpDownButton
+├─ DownValue_ByMoveButton
+│  ├─ ChangePushedButtonColor
+│  │  ├─ GetShapePushed
+│  │  │  └─ GetShapeByName
+│  │  └─ WaitByDoEvents
+│  ├─ GetSelectionCell
+│  └─ ChangeValueCell
+└─ UpValue_ByMoveButton
+   ├─ ChangePushedButtonColor
+   │  ├─ GetShapePushed
+   │  │  └─ GetShapeByName
+   │  └─ WaitByDoEvents
+   ├─ GetSelectionCell
+   └─ ChangeValueCell
+```
+
+中心になるのは`EventShowMoveSpinButton`です。選択セルの位置を見てボタンを作成・移動・削除し、クリック時の処理は`DownValue_ByMoveButton`と`UpValue_ByMoveButton`へ渡します。
+
+関連する個別記事:
+
+- [指定名の図形を取得するGetShapeByName](/articles/vba/get-shape-by-name)
+- [角丸四角形を作るDrawRectangleRound](/articles/vba/draw-rectangle-round)
+- [増減ボタンのクリック処理DownValue_ByMoveButton / UpValue_ByMoveButton](/articles/vba/down-up-value-by-move-button)
+- [クリックされた図形の色を一時変更するChangePushedButtonColor](/articles/vba/change-pushed-button-color)
+- [クリックされた図形を取得するGetShapePushed](/articles/vba/get-shape-pushed)
+- [選択中セルを安全に取得するGetSelectionCell](/articles/vba/get-selection-cell)
+- [セル値を増減させるChangeValueCell](/articles/vba/change-value-cell)
+- [DoEventsで短時間待機するWaitByDoEvents](/articles/vba/wait-by-doevents)
+
+## 使用例
+
+シートモジュールの`Worksheet_SelectionChange`イベントから呼び出します。下の例では、名前付き範囲`入力範囲`の中を選択したときだけ、増減ボタンを表示します。
+
+<CopyCode language="vba" filename="使用例" src="/articles/vba/event-show-move-spin-button/usage.bas" />
+
+`CellArea`には、ボタンを表示したい<Term>Range</Term>を渡します。対象範囲外を選択すると、表示済みのボタンは削除されます。
+
+## サンプルブック
+
+動作確認用のマクロ有効ブックも用意しています。
+
+<p>
+  <a href="/downloads/vba/event-show-move-spin-button-sample.xlsm" download style={{ display: "inline-block", padding: "0.75rem 1rem", borderRadius: "8px", background: "#0f766e", color: "#fff", fontWeight: 700, textDecoration: "none" }}>
+    EventShowMoveSpinButtonサンプルブックをダウンロード
+  </a>
+</p>
+
+サンプルを開くときは、Excel側でマクロを有効化してください。会社PCなどでマクロ実行が制限されている場合は、ローカルのテスト環境で確認するのが安全です。
+
+## コピー可能な実装コード
+
+このコードには、中心処理と関連する子プロシージャをまとめて含めています。まず動きを確認したい場合は、この一式を標準モジュールへ入れて試すのが分かりやすいです。
+
+<CopyCode language="vba" filename="EventShowMoveSpinButton.bas" src="/articles/vba/event-show-move-spin-button/EventShowMoveSpinButton.bas" />
+
+## 初心者向けコード解説
+
+`EventShowMoveSpinButton(ByRef Target As Range, ByRef CellArea As Range)`では、現在選択されたセル`Target`と、ボタンを表示したい範囲`CellArea`を受け取ります。
+
+最初に、選択セルの位置からボタンの`Left`、`Top`、`Width`、`Height`を計算します。ボタンは選択セルの下側に、減少ボタンと増加ボタンを横並びで表示します。
+
+次に、`GetShapeByName`で既存の「減少ボタン」「増加ボタン」があるかを確認します。どちらか片方でも存在しなければ一度作り直し、両方そろっていれば`Move__UpDownButton`で選択セルの位置へ移動させます。
+
+ボタンには`OnAction`で`DownValue_ByMoveButton`と`UpValue_ByMoveButton`を割り当てています。これにより、図形をクリックしたときにVBAマクロが実行されます。
+
+クリックされた後は、`ChangePushedButtonColor`で一瞬だけ色を変え、`GetSelectionCell`で現在の選択セルを取得し、`ChangeValueCell`で値を増減します。
+
+## 注意点
+
+- `Worksheet_SelectionChange`イベントから呼び出す前提です。
+- 増減対象は現在選択されているセルです。
+- 数値以外のセルを対象にすると、`ChangeValueCell`側で型エラーになる可能性があります。
+- ボタン名として「減少ボタン」「増加ボタン」を使います。同名の図形を別用途で置かないようにしてください。
+- `OnAction`で呼び出すため、`DownValue_ByMoveButton`と`UpValue_ByMoveButton`は同じブック内に必要です。
+- クリック時の色変更には`DoEvents`を使った短時間待機を使っています。
+
+## 軽いまとめ
+
+`EventShowMoveSpinButton`は、Excelシートの入力補助UIを軽量に作るための汎用プロシージャです。
+
+入力セルごとにボタンを配置するのではなく、2つの図形を選択セルへ追従させるため、管理しやすく、見た目もすっきりします。小さな汎用プロシージャを組み合わせて作ることで、ボタン描画、図形取得、色変更、値変更をそれぞれ再利用しやすい形に分けられます。

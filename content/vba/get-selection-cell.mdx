@@ -1,0 +1,58 @@
+---
+title: "選択中セルを安全に取得するExcel VBA汎用関数 GetSelectionCell"
+category: "vba"
+slug: "get-selection-cell"
+tags: ["Excel VBA", "汎用プロシージャ", "Range", "Selection", "入力補助"]
+description: "現在のSelectionがRangeの場合だけセル範囲として返し、図形などを選択している場合はNothingを返すExcel VBA汎用関数を解説します。"
+date: "2026-05-27"
+---
+
+## 概要
+
+`GetSelectionCell`は、現在の`Selection`が<Term>Range</Term>かどうかを確認し、セル範囲であれば返す汎用関数です。セル以外、たとえば図形やグラフを選択している場合は`Nothing`を返します。
+
+[選択セルに追従する増減ボタン](/articles/vba/event-show-move-spin-button)では、増減ボタンを押したときに現在の対象セルを取得するために使っています。
+
+## 使う場面
+
+- 現在選択中のセルを安全に取得したい
+- 図形選択中にセル前提の処理が落ちるのを防ぎたい
+- 汎用マクロで`Selection`を扱う前に型チェックしたい
+- ボタン操作時に直前の選択セルを利用したい
+
+## 使用例
+
+セルが選択されているときだけ処理を続ける形で使います。
+
+```vba
+Dim targetCell As Range
+Set targetCell = GetSelectionCell()
+
+If targetCell Is Nothing Then Exit Sub
+MsgBox targetCell(1).Address
+```
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="GetSelectionCell.bas" src="/articles/vba/get-selection-cell.bas" />
+
+## 初心者向けコード解説
+
+`Selection`は、セルだけでなく図形、グラフ、オブジェクトなどを返すことがあります。そのまま`Range`として扱うとエラーになるため、いったん`Object`型の`Dummy`へ受けています。
+
+`TypeName(Dummy) = "Range"`でセル範囲かどうかを確認し、Rangeなら`Output`へセットします。Rangeでなければ`Output`は`Nothing`のままです。
+
+## 関連記事
+
+- [図形ボタンで選択セルの値を増減するDownValue_ByMoveButton / UpValue_ByMoveButton](/articles/vba/down-up-value-by-move-button)
+- [セル値を増減させるChangeValueCell](/articles/vba/change-value-cell)
+
+## 注意点
+
+- 複数セル選択の場合も<Term>Range</Term>として返ります。
+- 呼び出し側で`If SelectCell Is Nothing Then Exit Sub`のように確認してから使います。
+- 選択範囲の先頭セルだけを使いたい場合は、呼び出し側で`SelectCell(1)`のように扱います。
+
+## 軽いまとめ
+
+`GetSelectionCell`を挟むだけで、`Selection`を使うマクロの安全性が上がります。セル前提の処理を汎用化するときに、先に入れておきたい小さな保険です。

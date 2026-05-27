@@ -1,0 +1,58 @@
+---
+title: "DoEventsで短時間待機するExcel VBA汎用プロシージャ WaitByDoEvents"
+category: "vba"
+slug: "wait-by-doevents"
+tags: ["Excel VBA", "汎用プロシージャ", "DoEvents", "待機処理", "UI"]
+description: "TimerとDoEventsを使い、指定ミリ秒だけExcelの応答を残しながら待機するExcel VBA汎用プロシージャを解説します。"
+date: "2026-05-27"
+---
+
+## 概要
+
+`WaitByDoEvents`は、`Timer`と`DoEvents`を使って、指定したミリ秒だけ待機する汎用プロシージャです。
+
+[ChangePushedButtonColor](/articles/vba/change-pushed-button-color)では、図形ボタンの色を一瞬だけ変えてから元に戻すための短時間待機に使っています。
+
+## 使う場面
+
+- UI表示を一瞬だけ変えてから戻したい
+- 図形の簡単なアニメーションやフィードバックを入れたい
+- `Application.Wait`より短い待機をしたい
+- 待機中もExcelの画面更新やイベント処理を少し通したい
+
+## 使用例
+
+図形の色を一瞬だけ変えてから戻すような、短い待機に使います。
+
+```vba
+ActiveSheet.Shapes("Button1").Fill.ForeColor.RGB = rgbRed
+Call WaitByDoEvents(100)
+ActiveSheet.Shapes("Button1").Fill.ForeColor.RGB = rgbLightGray
+```
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="WaitByDoEvents.bas" src="/articles/vba/wait-by-doevents.bas" />
+
+## 初心者向けコード解説
+
+`Timer`は、午前0時からの経過秒数を返します。最初に開始時刻を`StartTime`へ保存し、ループ内で現在時刻との差分を見ています。
+
+`MillSecond / 1000`でミリ秒を秒に変換し、指定時間を超えたら`Exit Do`でループを抜けます。
+
+ループ内で`DoEvents`を呼ぶことで、Excelが完全に固まったように見えにくくなります。
+
+## 関連記事
+
+- [クリックされた図形の色を一時変更するChangePushedButtonColor](/articles/vba/change-pushed-button-color)
+- [選択セルに追従する増減ボタンを表示するEventShowMoveSpinButton](/articles/vba/event-show-move-spin-button)
+
+## 注意点
+
+- 長時間待機には向きません。
+- `DoEvents`中に別のイベントが動く可能性があるため、重要な排他制御には使いません。
+- 日付をまたぐほど長く待つ用途では、`Timer`の扱いに注意が必要です。
+
+## 軽いまとめ
+
+`WaitByDoEvents`は、VBAのUI演出で短く待ちたいときに便利な部品です。ボタンの押下表現や簡単なアニメーションのように、数十から数百ミリ秒の待機を入れたい場面で使いやすくなります。

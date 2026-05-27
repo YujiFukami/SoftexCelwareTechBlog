@@ -1,0 +1,60 @@
+---
+title: "クリックされた図形を取得するExcel VBA汎用関数 GetShapePushed"
+category: "vba"
+slug: "get-shape-pushed"
+tags: ["Excel VBA", "汎用プロシージャ", "Application.Caller", "Shape", "図形ボタン"]
+description: "図形のOnActionから呼ばれたマクロ内で、クリック元のShapeを取得するExcel VBA汎用関数を解説します。"
+date: "2026-05-27"
+---
+
+## 概要
+
+`GetShapePushed`は、図形ボタンの`OnAction`で呼ばれたマクロ内から、クリックされた図形を取得する関数です。
+
+`Application.Caller`でクリック元の図形名を取得し、`GetShapeByName`で<Term>Shape</Term>オブジェクトへ変換します。
+
+## 使う場面
+
+- 複数の図形ボタンで同じマクロを使いたい
+- どの図形が押されたかを判定したい
+- クリックされた図形の色や文字を変更したい
+- 図形名をキーにして処理を分岐したい
+
+## 使用例
+
+図形に割り当てたマクロ内で呼ぶと、クリックされた図形を取得できます。
+
+```vba
+Public Sub SampleShapeClick()
+    Dim shp As Shape
+    Set shp = GetShapePushed()
+
+    If shp Is Nothing Then Exit Sub
+    MsgBox shp.Name
+End Sub
+```
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="GetShapePushed.bas" src="/articles/vba/get-shape-pushed.bas" />
+
+## 初心者向けコード解説
+
+`Application.Caller`は、`OnAction`で呼ばれたマクロに対して、呼び出し元の名前を返します。図形から呼ばれた場合は、その図形名を取得できます。
+
+ただし、`Application.Caller`だけでは文字列です。実際に図形の色や位置を操作するには、`GetShapeByName`で<Term>Shape</Term>として取得します。
+
+## 関連記事
+
+- [指定名の図形を取得するGetShapeByName](/articles/vba/get-shape-by-name)
+- [クリックされた図形の色を一時変更するChangePushedButtonColor](/articles/vba/change-pushed-button-color)
+
+## 注意点
+
+- `OnAction`経由で呼ばれる処理を前提にしています。
+- アクティブシート上の図形を対象にします。
+- 図形名が変更されている場合は取得できません。
+
+## 軽いまとめ
+
+`GetShapePushed`は、図形ボタンを使ったExcel UIでよく使う小さな部品です。クリック元の図形を取得できると、1つのマクロを複数ボタンで共通化しやすくなります。

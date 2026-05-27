@@ -1,0 +1,63 @@
+---
+title: "セルの値を増減させるExcel VBA汎用プロシージャ ChangeValueCell"
+category: "vba"
+slug: "change-value-cell"
+tags: ["Excel VBA", "汎用プロシージャ", "Range", "数値入力", "入力補助"]
+description: "指定セルの値を任意ステップで増減し、任意で最大値・最小値も指定できるExcel VBA汎用プロシージャを解説します。"
+date: "2026-05-27"
+---
+
+## 概要
+
+`ChangeValueCell`は、指定したセルの値を増加または減少させる汎用プロシージャです。増減幅`Step`、増加か減少かを表す`Up_True`、任意の最大値・最小値を指定できます。
+
+[図形ボタンで選択セルの値を増減する処理](/articles/vba/down-up-value-by-move-button)では、選択セルの値を1ずつ上下させるために使っています。
+
+## 使う場面
+
+- セルの数値をボタン操作で増減したい
+- 数量や人数などを1ずつ変更したい
+- 上限・下限つきの数値変更を共通化したい
+- 増加処理と減少処理を1つのプロシージャで扱いたい
+
+## 使用例
+
+```vba
+' A1を1増やす
+Call ChangeValueCell(Range("A1"), 1, True)
+
+' A1を1減らす
+Call ChangeValueCell(Range("A1"), 1, False)
+
+' 0から10の範囲で1増やす
+Call ChangeValueCell(Range("A1"), 1, True, 10, 0)
+```
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="ChangeValueCell.bas" src="/articles/vba/change-value-cell.bas" />
+
+## 初心者向けコード解説
+
+`Target`は値を変更したいセルです。`Step`は増減幅で、`Up_True`が`True`なら増加、`False`なら減少します。
+
+`MaxValue`と`MinValue`は省略可能です。元コードでは`-9999`を「指定なし」の目印として使っています。最大値が指定されている場合は、それを超えないときだけ値を変更します。最小値が指定されている場合も同様です。
+
+`Target(1).Value`で対象範囲の先頭セルの値を読み取っています。単一セルを渡す想定です。複数セルを渡すと、先頭セルの値を基準に計算した結果が対象範囲全体へ代入されるため、通常は単一セルを渡します。
+
+## 関連記事
+
+- [図形ボタンで選択セルの値を増減するDownValue_ByMoveButton / UpValue_ByMoveButton](/articles/vba/down-up-value-by-move-button)
+- [選択中セルを安全に取得するGetSelectionCell](/articles/vba/get-selection-cell)
+- [選択セルに追従する増減ボタンを表示するEventShowMoveSpinButton](/articles/vba/event-show-move-spin-button)
+
+## 注意点
+
+- 対象セルには数値が入っている前提です。
+- 複数セル範囲を渡すと、範囲全体が同じ値に更新されます。
+- `-9999`を実際の上限・下限として使いたい場合は、未指定判定の値を変える必要があります。
+- 空欄や文字列を扱う場合は、`IsNumeric`などの判定を追加すると安全です。
+
+## 軽いまとめ
+
+`ChangeValueCell`は、セルの数値変更を共通化する小さな部品です。ボタンUI、キーボード操作、入力補助マクロなどから呼び出せるため、Excelツールの操作性改善に使いやすいプロシージャです。

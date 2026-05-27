@@ -1,0 +1,59 @@
+---
+title: "クリックされた図形の色を一時変更するExcel VBA汎用プロシージャ"
+category: "vba"
+slug: "change-pushed-button-color"
+tags: ["Excel VBA", "汎用プロシージャ", "Shape", "UI", "DoEvents"]
+description: "Application.Callerでクリックされた図形を取得し、短時間だけ背景色と文字色を変更して元に戻すExcel VBA汎用プロシージャを解説します。"
+date: "2026-05-27"
+---
+
+## 概要
+
+`ChangePushedButtonColor`は、クリックされた<Term>Shape</Term>の背景色と文字色を一時的に変更し、短時間後に元へ戻すプロシージャです。
+
+図形ボタンは標準ボタンのような押下表現が弱いため、クリック時に色を変えることで、操作したことを利用者に伝えやすくします。
+
+## 使う場面
+
+- シート上の図形ボタンにクリック感を出したい
+- 押したボタンを一瞬だけ強調表示したい
+- `OnAction`で呼ばれるマクロ内から、クリック元の図形を操作したい
+- Excelシート上で軽いUI表現を作りたい
+
+## 使用例
+
+図形に割り当てたマクロの先頭で呼び出すと、押した図形だけを一瞬強調できます。
+
+```vba
+Public Sub SampleButtonClick()
+    Call ChangePushedButtonColor(rgbLightCoral, rgbLightGrey)
+End Sub
+```
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="ChangePushedButtonColor.bas" src="/articles/vba/change-pushed-button-color.bas" />
+
+## 初心者向けコード解説
+
+最初に`GetShapePushed`を呼び、クリックされた図形を取得します。取得できなければ処理を終了します。
+
+次に、変更前の背景色と文字色を変数に保存します。これを保存しておくことで、クリック時の色変更後に元の見た目へ戻せます。
+
+色を変更した後、`WaitByDoEvents(100)`で約100ミリ秒待機します。最後に、保存しておいた背景色と文字色を戻します。
+
+## 関連記事
+
+- [クリックされた図形を取得するGetShapePushed](/articles/vba/get-shape-pushed)
+- [DoEventsで短時間待機するWaitByDoEvents](/articles/vba/wait-by-doevents)
+- [図形ボタンで選択セルの値を増減するDownValue_ByMoveButton / UpValue_ByMoveButton](/articles/vba/down-up-value-by-move-button)
+
+## 注意点
+
+- `Application.Caller`で呼ばれる前提のため、通常のSubから直接呼ぶ場合はクリック元図形を取得できません。
+- 図形に文字がない場合や、TextFrame2を持たない図形では調整が必要です。
+- 待機中に`DoEvents`を使うため、長時間待機には向きません。
+
+## 軽いまとめ
+
+`ChangePushedButtonColor`を使うと、Excelシート上の図形ボタンに簡単なクリックフィードバックを追加できます。業務ツールの操作感を少し良くしたい場合に使いやすい部品です。
