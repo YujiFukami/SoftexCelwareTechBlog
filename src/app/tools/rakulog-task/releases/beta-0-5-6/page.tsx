@@ -46,6 +46,25 @@ const updates = [
   },
 ];
 
+const relatedTechArticles = [
+  {
+    title: "前回作業日の未完了データを入口画面で補正するUI",
+    href: "/articles/nextjs/previous-workday-incomplete-data-ui",
+  },
+  {
+    title: "修正フォームの近くに参考情報を表示するUI",
+    href: "/articles/nextjs/edit-form-reference-info",
+  },
+  {
+    title: "Supabase OAuth後にcallback routeを挟む",
+    href: "/articles/nextjs/supabase-oauth-callback-route",
+  },
+  {
+    title: "公開アプリ更新時にREADME・仕様書・画面導線を揃える",
+    href: "/articles/codex/public-app-docs-links-sync",
+  },
+];
+
 function ReleaseImage({
   src,
   alt,
@@ -144,6 +163,24 @@ export default function RakulogTaskBeta056Page() {
             <p className="text-sm leading-7 text-gray-700">{update.body}</p>
           </article>
         ))}
+      </section>
+
+      <section className="mb-10 rounded-lg border border-blue-100 bg-blue-50 p-5">
+        <h2 className="mb-3 text-xl font-bold text-gray-900">関連する実装ノウハウ</h2>
+        <p className="mb-4 text-sm leading-7 text-gray-700">
+          今回の更新で扱った入口UI、修正フォーム、OAuth callback、公開ページ導線の考え方は、個別の技術記事としても整理しています。
+        </p>
+        <div className="grid gap-3 md:grid-cols-2">
+          {relatedTechArticles.map((article) => (
+            <Link
+              key={article.href}
+              href={article.href}
+              className="rounded bg-white p-4 text-sm font-medium text-blue-700 ring-1 ring-blue-100 hover:bg-blue-50"
+            >
+              {article.title}
+            </Link>
+          ))}
+        </div>
       </section>
 
       <section className="rounded-lg border border-gray-200 p-5">

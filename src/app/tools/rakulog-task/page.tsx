@@ -48,6 +48,10 @@ const images = [
 ];
 
 const relatedArticles = [
+  { title: "前回作業日の未完了データを入口画面で補正するUI", href: "/articles/nextjs/previous-workday-incomplete-data-ui" },
+  { title: "修正フォームの近くに参考情報を表示するUI", href: "/articles/nextjs/edit-form-reference-info" },
+  { title: "Supabase OAuth後にcallback routeを挟む", href: "/articles/nextjs/supabase-oauth-callback-route" },
+  { title: "公開アプリ更新時にREADME・仕様書・画面導線を揃える", href: "/articles/codex/public-app-docs-links-sync" },
   { title: "Supabase Authでミドルウェア認証を実装する", href: "/articles/nextjs/supabase-auth-middleware" },
   { title: "HEXカラーをRGBAへ変換して動的カラーを適用する", href: "/articles/nextjs/hex-rgba-dynamic-color" },
   { title: "ドロップダウンを外クリックで閉じる", href: "/articles/nextjs/dropdown-outside-click" },

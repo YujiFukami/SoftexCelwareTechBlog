@@ -1,0 +1,143 @@
+---
+title: "Next.js + SupabaseでOAuthログイン後にcallback routeを挟む実装パターン"
+category: "nextjs"
+slug: "supabase-oauth-callback-route"
+tags: ["Next.js", "Supabase", "OAuth", "Middleware", "認証"]
+description: "Google OAuthログイン後に1回目だけ保護ページへ入れない問題を、Next.js App Routerのcallback routeで解決する実装パターンを解説します。"
+date: "2026-05-27"
+---
+
+## はじめに
+
+<Term>Next.js</Term> App Router と <Term>Supabase</Term> で Google ログインを実装するとき、認証後の戻り先をどこにするかは重要です。
+
+戻り先を `/input` のような認証必須ページに直接指定すると、Google から戻った直後にセッションCookieがまだ確定しておらず、<Term>Middleware</Term> が未ログイン扱いにして `/login` へ戻してしまうことがあります。
+
+この記事では、<Term>OAuth</Term> の戻り先に専用の callback route を挟み、`exchangeCodeForSession` のあとで保護ページへ移動させる実装パターンを紹介します。
+
+## こんな場面で使えます
+
+- <Term>Next.js</Term> App Router で Googleログインを使う
+- `@supabase/ssr` でサーバー側の認証状態を扱っている
+- ログイン後に `/input` や `/dashboard` などの保護ページへ遷移させたい
+- 1回目のGoogleログインだけ失敗し、2回目は入れる症状がある
+- <Term>Middleware</Term> で未ログインユーザーを `/login` へ戻している
+
+この症状は、アプリの画面実装ではなく、<Term>OAuth</Term> の戻り先とセッション確定の順序が原因になることがあります。
+
+## 解決する問題
+
+Googleログイン後、Supabaseからアプリへ戻るときには `code` が付いたURLへ遷移します。
+
+この `code` をセッションへ交換する前に認証必須ページへ入ろうとすると、<Term>Middleware</Term> はまだログイン済みと判断できません。その結果、ユーザーはログインしたはずなのに `/login` へ戻されます。
+
+解決策は、次の流れにすることです。
+
+1. ログイン開始時の戻り先を `/auth/callback` にする
+2. callback route で `code` をセッションへ交換する
+3. 交換に成功したら、`next` で指定した保護ページへリダイレクトする
+4. `/auth/callback` は <Term>Middleware</Term> の認証ガードから除外する
+
+## 実装例
+
+### ログイン開始側
+
+ログインボタン側では、`redirectTo` に保護ページを直接指定しません。callback route を挟み、遷移先は `next` パラメータで渡します。
+
+```tsx
+const { error } = await supabase.auth.signInWithOAuth({
+  provider: "google",
+  options: {
+    redirectTo: `${location.origin}/auth/callback?next=/input`,
+  },
+})
+```
+
+この形にすると、Googleログイン後はまず `/auth/callback` に戻ります。
+
+### callback routeを作る
+
+`app/auth/callback/route.ts` で `code` を受け取り、Supabaseのセッションへ交換します。
+
+```ts
+import { NextResponse, type NextRequest } from "next/server"
+import { createClient } from "@/lib/supabase/server"
+
+export async function GET(request: NextRequest) {
+  const requestUrl = new URL(request.url)
+  const code = requestUrl.searchParams.get("code")
+  const next = requestUrl.searchParams.get("next") || "/input"
+  const redirectPath = next.startsWith("/") ? next : "/input"
+
+  if (code) {
+    const supabase = await createClient()
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+
+    if (!error) {
+      return NextResponse.redirect(new URL(redirectPath, requestUrl.origin))
+    }
+  }
+
+  return NextResponse.redirect(new URL("/login", requestUrl.origin))
+}
+```
+
+`next.startsWith("/")` の確認は、外部サイトへ勝手に飛ばされるオープンリダイレクトを防ぐための最低限の対策です。
+
+### middlewareでcallback routeを公開ページにする
+
+callback route を認証ガードの対象にすると、`code` を交換する前にログインページへ戻されます。`/auth/callback` は公開ページとして扱います。
+
+```ts
+const isPublicPage =
+  url.pathname.startsWith("/privacy") ||
+  url.pathname.startsWith("/terms") ||
+  url.pathname.startsWith("/auth/callback")
+```
+
+公開ページに含めるのは、認証不要で到達する必要があるページだけにします。
+
+## SupabaseとGoogle側の設定
+
+アプリ側のコードが正しくても、認証プロバイダー側のRedirect URLが未登録だとログインは成功しません。
+
+本番環境では、次のようなcallback URLを登録します。
+
+```text
+https://example.com/auth/callback
+```
+
+ローカル開発で確認する場合は、必要に応じてこちらも登録します。
+
+```text
+http://localhost:3000/auth/callback
+```
+
+URLのパスは、アプリ側の `app/auth/callback/route.ts` と一致させます。
+
+## 注意点
+
+- 認証必須ページを `redirectTo` に直接指定しない
+- `/auth/callback` を <Term>Middleware</Term> の認証ガード対象にしない
+- `next` パラメータは `/` 始まりだけ許可する
+- SupabaseとGoogle Cloud側のRedirect URLを本番URLで登録する
+- ローカル確認用のRedirect URLも必要に応じて登録する
+
+特に「1回目だけログインできない」という症状は、フロントエンドの状態管理よりも、callback route と <Term>Middleware</Term> の順序を疑うと早く解決できることがあります。
+
+## らくログタスクでの実績
+
+らくログタスクでは、Googleログイン時に1回目だけ保護ページへ入れず、2回目はログインできる症状がありました。
+
+戻り先を `/auth/callback?next=/input` に変更し、callback route で `exchangeCodeForSession(code)` を実行してから `/input` へ送ることで、初回ログインから正しく保護ページへ入れるようにしました。
+
+## 関連リンク
+
+- [らくログタスク](/tools/rakulog-task)
+- [らくログタスク beta 0.5.6 リリース](/tools/rakulog-task/releases/beta-0-5-6)
+
+## まとめ
+
+<Term>OAuth</Term> ログイン後の戻り先は、認証必須ページへ直接送るより、専用の callback route を挟むほうが安定します。
+
+<Term>Next.js</Term>、<Term>Supabase</Term>、<Term>Middleware</Term> を組み合わせる場合は、`code` をセッションへ交換してから保護ページへ移動する流れを明確にしておくと、初回ログインの失敗を防ぎやすくなります。

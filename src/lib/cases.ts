@@ -148,6 +148,26 @@ export const caseStudies: CaseStudy[] = [
     visibility: "public",
     relatedArticles: [
       {
+        title: "前回作業日の未完了データを入口画面で補正するUI",
+        href: "/articles/nextjs/previous-workday-incomplete-data-ui",
+        category: "Next.js",
+      },
+      {
+        title: "修正フォームの近くに参考情報を表示するUI",
+        href: "/articles/nextjs/edit-form-reference-info",
+        category: "Next.js",
+      },
+      {
+        title: "Supabase OAuth後にcallback routeを挟む",
+        href: "/articles/nextjs/supabase-oauth-callback-route",
+        category: "Next.js",
+      },
+      {
+        title: "公開アプリ更新時にREADME・仕様書・画面導線を揃える",
+        href: "/articles/codex/public-app-docs-links-sync",
+        category: "Codex",
+      },
+      {
         title: "Next.js App RouterとSupabase Authでミドルウェア認証ガードを実装する方法",
         href: "/articles/nextjs/supabase-auth-middleware",
         category: "Next.js",
