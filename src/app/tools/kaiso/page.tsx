@@ -65,6 +65,12 @@ export default function KaisoTopPage() {
           >
             開発事例を見る
           </Link>
+          <Link
+            href="/tools/kaiso/releases/v3-1-0-54"
+            className="rounded border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            v3.1.0.54 更新内容
+          </Link>
         </div>
       </header>
 
@@ -112,6 +118,9 @@ export default function KaisoTopPage() {
           </Link>
           <Link href="/tools/kaiso/troubleshoot" className="rounded bg-white p-4 text-sm font-medium text-blue-700 ring-1 ring-blue-100 hover:bg-blue-50">
             FAQ
+          </Link>
+          <Link href="/tools/kaiso/releases/v3-1-0-54" className="rounded bg-white p-4 text-sm font-medium text-blue-700 ring-1 ring-blue-100 hover:bg-blue-50">
+            v3.1.0.54 更新内容
           </Link>
         </div>
       </section>

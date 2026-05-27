@@ -139,6 +139,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.6,
     },
     {
+      url: `${BASE_URL}/tools/kaiso/releases/v3-1-0-54`,
+      lastModified: new Date(),
+      changeFrequency: "monthly",
+      priority: 0.6,
+    },
+    {
       url: `${BASE_URL}/terms`,
       lastModified: new Date(),
       changeFrequency: "weekly",

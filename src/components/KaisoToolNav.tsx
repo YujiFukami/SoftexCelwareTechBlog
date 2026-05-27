@@ -14,6 +14,7 @@ const pages = [
   { href: "/tools/kaiso/customize", label: "設定" },
   { href: "/tools/kaiso/vba-api", label: "VBA連携" },
   { href: "/tools/kaiso/troubleshoot", label: "FAQ" },
+  { href: "/tools/kaiso/releases/v3-1-0-54", label: "更新情報" },
 ];
 
 export function KaisoToolNav() {
