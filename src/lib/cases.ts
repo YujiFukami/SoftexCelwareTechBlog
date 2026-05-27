@@ -16,6 +16,7 @@ export type CaseStudy = {
   projectUrl?: string;
   githubUrl?: string;
   externalArticleUrl?: string;
+  toolGuideUrl?: string;
   ogImage?: string;
   images?: {
     src: string;
@@ -145,6 +146,7 @@ export const caseStudies: CaseStudy[] = [
       "Vercel運用時のセキュリティ確認",
     ],
     projectUrl: "https://rakulog-app.vercel.app",
+    toolGuideUrl: "/tools/rakulog-task",
     visibility: "public",
     relatedArticles: [
       {
@@ -392,6 +394,7 @@ export const caseStudies: CaseStudy[] = [
       "Lexer / Parser / Resolverによるコード解析",
       "ClickOnce配布と自動更新設計",
     ],
+    toolGuideUrl: "/tools/kaiso",
     visibility: "limited",
     relatedArticles: [
       {
