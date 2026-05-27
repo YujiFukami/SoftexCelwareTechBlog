@@ -99,8 +99,8 @@ export default function RakulogTaskToolPage() {
           <Link href="/cases/rakulog-task" className="rounded border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
             開発事例を見る
           </Link>
-          <Link href="/tools/rakulog-task/releases/beta-0-5-6" className="rounded border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
-            β0.5.6 更新内容
+          <Link href="/tools/rakulog-task/releases/beta-0-5-7" className="rounded border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            β0.5.7 更新内容
           </Link>
         </div>
       </header>
@@ -137,11 +137,17 @@ export default function RakulogTaskToolPage() {
       <section className="mb-10 rounded-lg border border-blue-100 bg-blue-50 p-5">
         <h2 className="mb-3 text-xl font-bold text-gray-900">最新更新情報</h2>
         <p className="mb-4 text-sm leading-7 text-gray-700">
-          β0.5.6では、使い方ガイドへのリンク追加、前回作業日の退勤忘れ表示、退勤忘れ一覧での最終作業開始表示、Googleログインの安定化を行いました。
+          β0.5.7では、別ウィンドウ・別端末で同じ入力画面を開いたときの同期処理を改善しました。
+          他の画面で行われた作業登録や退勤操作を反映しやすくし、操作直前にも最新状態を確認することで、二重登録や履歴順のズレを抑えます。
         </p>
-        <Link href="/tools/rakulog-task/releases/beta-0-5-6" className="inline-flex rounded bg-white px-4 py-2 text-sm font-medium text-blue-700 ring-1 ring-blue-100 hover:bg-blue-50">
-          β0.5.6 の詳しい更新内容を見る
-        </Link>
+        <div className="flex flex-wrap gap-3">
+          <Link href="/tools/rakulog-task/releases/beta-0-5-7" className="inline-flex rounded bg-white px-4 py-2 text-sm font-medium text-blue-700 ring-1 ring-blue-100 hover:bg-blue-50">
+            β0.5.7 の詳しい更新内容を見る
+          </Link>
+          <Link href="/tools/rakulog-task/releases/beta-0-5-6" className="inline-flex rounded bg-white px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50">
+            β0.5.6 の更新内容を見る
+          </Link>
+        </div>
       </section>
 
       <section className="mb-10 rounded-lg border border-blue-100 bg-blue-50 p-5">
