@@ -1,0 +1,112 @@
+---
+title: "計算表のセルをクリックして式と代入値を確認できるUI"
+category: "vanillajs"
+slug: "clickable-calculation-cell-detail"
+tags: ["バニラJS", "計算表", "モーダル", "学習UI", "スプライン補間"]
+description: "行列や係数表のセルに、一般式、代入値、計算結果、説明を持たせ、クリックで詳細を確認できるUIパターンです。"
+date: "2026-05-29"
+---
+
+## はじめに
+
+計算表では、セルに表示されている数値だけを見ても、なぜその値になったのか分からないことがあります。
+
+学習用のWebアプリでは、数値の裏側にある一般式、代入した値、計算結果を確認できると、理解しやすくなります。
+
+この記事では、行列や係数表のセルをクリックすると詳細を表示するUIパターンを整理します。
+
+## 使う場面
+
+- 行列の各セルが、どの式から作られたかを説明したい
+- 係数表の値について、代入前後の計算を見せたい
+- 計算結果だけでなく、途中式を確認できる学習アプリを作りたい
+- 表示面積を増やしすぎずに、必要なときだけ詳細を出したい
+
+## セルに持たせる情報
+
+クリック可能なセルでは、表示値だけでなく、説明用の情報を一緒に保持します。
+
+```javascript
+const cell = {
+  value: 12,
+  formula: "6 * h_k",
+  substituted: "6 * 2",
+  result: "12",
+  note: "区間幅 h_k を代入した係数です。",
+};
+```
+
+この情報をセルの`data-*`属性に埋め込むか、セルIDから別の詳細データを参照する形にします。
+
+小規模なアプリなら`data-*`属性で十分です。
+情報量が多い場合は、セルごとにIDを持たせ、詳細データをオブジェクトで管理すると扱いやすくなります。
+
+## 実装イメージ
+
+セルを描画するときに、詳細データを安全に保持します。
+
+```javascript
+function createCalculationCell(cell) {
+  const td = document.createElement("td");
+  td.textContent = cell.value;
+  td.className = "calculation-cell";
+  td.dataset.formula = cell.formula;
+  td.dataset.substituted = cell.substituted;
+  td.dataset.result = cell.result;
+  td.dataset.note = cell.note;
+  return td;
+}
+```
+
+クリック時には、モーダルや詳細パネルへ表示します。
+
+```javascript
+table.addEventListener("click", (event) => {
+  const cell = event.target.closest(".calculation-cell");
+  if (!cell) return;
+
+  detailTitle.textContent = "セルの計算詳細";
+  detailFormula.textContent = cell.dataset.formula;
+  detailSubstituted.textContent = cell.dataset.substituted;
+  detailResult.textContent = cell.dataset.result;
+  detailNote.textContent = cell.dataset.note;
+  modal.hidden = false;
+});
+```
+
+これだけでも、表はコンパクトなまま、必要なセルだけ詳しく確認できます。
+
+## どこに表示するか
+
+詳細の表示方法は、画面の用途で選びます。
+
+| 表示方法 | 向いている場面 |
+|---|---|
+| モーダル | 表を広く使いたい、1セルだけ集中して見せたい |
+| 右側パネル | クリックしながら複数セルを連続確認したい |
+| 行内展開 | 表の上下関係も一緒に見せたい |
+
+学習用アプリでは、モーダルか右側パネルが分かりやすいです。
+スマートフォン対応を考えるなら、画面下から開くパネルも候補になります。
+
+## フォームUIにも応用できる
+
+この考え方は、計算表だけでなく入力フォームにも使えます。
+
+例えば、入力欄の横にある参照値、計算元、補足説明をクリックで確認できるようにすると、入力ミスの原因を追いやすくなります。
+
+関連するUIパターンとして、[編集フォームの近くに参照情報を置く設計](/articles/nextjs/edit-form-reference-info)もあります。
+
+## 注意点
+
+詳細表示に、実行時の内部データを何でも出すのは避けます。
+学習や確認に必要な式、代入値、説明だけに絞る方が読みやすくなります。
+
+また、HTMLとして文字列を直接埋め込む場合は、ユーザー入力をそのまま表示しないように注意します。
+入力値を含めるなら、`textContent`で出すか、HTMLエスケープを行います。
+
+## まとめ
+
+計算表のセルに、一般式、代入値、結果、説明を持たせると、数値の意味を後から確認できる学習UIになります。
+
+表示はコンパクトに保ち、必要なときだけ詳細を開けるようにすると、初心者にも扱いやすい画面になります。

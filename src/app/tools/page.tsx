@@ -24,6 +24,14 @@ const tools = [
       "Excel VBAプロジェクトを解析し、プロシージャの階層関係、検索、外部参照整理を支援するVSTOアドインです。",
     tags: ["Excel", "VBA", "VSTO", "コード解析"],
   },
+  {
+    href: "/tools/spline-study",
+    title: "スプライン補間学習計算ツール",
+    category: "数値計算学習Webアプリ",
+    description:
+      "通常スプライン補間、パラメトリックスプライン補間、閉曲線スプライン補間の導出過程、行列、係数、補間式を順番に確認できる学習用Webアプリです。",
+    tags: ["Vanilla JS", "Chart.js", "MathJax", "スプライン補間"],
+  },
 ];
 
 export default function ToolsPage() {

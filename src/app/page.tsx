@@ -135,21 +135,38 @@ export default function HomePage() {
             一覧を見る &rarr;
           </Link>
         </div>
-        <Link
-          href="/tools/kaiso"
-          className="block rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50/40"
-        >
-          <div className="mb-2 text-xs font-medium text-blue-600">
-            Excel VSTOアドイン
-          </div>
-          <h3 className="font-semibold text-gray-900">
-            階層化フォーム (Kaiso)
-          </h3>
-          <p className="mt-2 text-sm leading-6 text-gray-600">
-            Excel VBAプロジェクトのプロシージャ階層、検索、外部参照整理を支援する公開ツールです。
-            インストール手順と使い方をまとめています。
-          </p>
-        </Link>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Link
+            href="/tools/kaiso"
+            className="block rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50/40"
+          >
+            <div className="mb-2 text-xs font-medium text-blue-600">
+              Excel VSTOアドイン
+            </div>
+            <h3 className="font-semibold text-gray-900">
+              階層化フォーム (Kaiso)
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-gray-600">
+              Excel VBAプロジェクトのプロシージャ階層、検索、外部参照整理を支援する公開ツールです。
+              インストール手順と使い方をまとめています。
+            </p>
+          </Link>
+          <Link
+            href="/tools/spline-study"
+            className="block rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50/40"
+          >
+            <div className="mb-2 text-xs font-medium text-blue-600">
+              数値計算学習Webアプリ
+            </div>
+            <h3 className="font-semibold text-gray-900">
+              スプライン補間学習計算ツール
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-gray-600">
+              通常補間、パラメトリック補間、閉曲線補間の導出過程を、
+              式・行列・グラフで確認できる学習用ツールです。
+            </p>
+          </Link>
+        </div>
       </section>
 
       <section>
