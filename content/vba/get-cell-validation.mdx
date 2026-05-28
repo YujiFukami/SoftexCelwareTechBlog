@@ -1,0 +1,61 @@
+---
+title: "セルの入力規則リストを取得するExcel VBA汎用関数 GetCellValidation"
+category: "vba"
+slug: "get-cell-validation"
+tags: ["Excel VBA", "汎用プロシージャ", "入力規則", "Validation", "配列"]
+description: "指定セルに設定された入力規則リストを読み取り、候補値を一次元配列として返すExcel VBA汎用関数を解説します。"
+date: "2026-05-28"
+---
+
+## 概要
+
+`GetCellValidation`は、指定したセルに設定されている<Term>入力規則</Term>リストを取得し、候補値を一次元<Term>配列</Term>として返す関数です。
+
+[入力規則リスト切替スピンボタン](/articles/vba/event-show-move-spin-button-value)では、現在選択しているセルの候補一覧を取り出すために使っています。
+
+## 使う場面
+
+- 入力規則のリスト候補をVBAから取得したい
+- カンマ区切りの入力規則を配列化したい
+- 範囲参照の入力規則から候補値を取り出したい
+- リスト候補をもとに、前後の値へ切り替えるUIを作りたい
+
+## 使用例
+
+```vba
+Dim list As Variant
+list = GetCellValidation(Range("B2"))
+
+If IsEmpty(list) Then Exit Sub
+MsgBox list(1)
+```
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="GetCellValidation.bas" src="/articles/vba/get-cell-validation.bas" />
+
+## 初心者向けコード解説
+
+まず、`Cell.Validation`で対象セルのValidationオブジェクトを取得します。`validation.Type = xlValidateList`で、入力規則がリスト形式かどうかを確認します。
+
+リスト形式の場合は、`Formula1`から候補の定義を読み取ります。`Formula1`が`=`で始まる場合は範囲参照として扱い、その範囲内のセル値を順番に配列へ入れます。
+
+`Formula1`が範囲参照でない場合は、`未対応,対応中,完了`のようなカンマ区切り文字列として扱い、`Split`で配列化します。`Split`で作られる配列は0始まりなので、`ConvArray1D_Start1`で1始まり配列へ変換しています。
+
+## 関連記事
+
+- [入力規則リストを矢印ボタンで切り替えるEventShowMoveSpinButton_Value](/articles/vba/event-show-move-spin-button-value)
+- [入力規則リストを前後へ切り替えるChangeDownValue_MoveSpinButton / ChangeUpValue_MoveSpinButton](/articles/vba/change-value-move-spin-button)
+- [0始まり配列を1始まりへ変換するConvArray1D_Start1](/articles/vba/conv-array1d-start1)
+
+## 注意点
+
+- リスト形式の入力規則だけを対象にしています。
+- カンマ区切りリストでは、項目名そのものにカンマが含まれる場合は正しく分割できません。
+- 範囲参照の入力規則では、`Range(Mid(Formula, 2))`で解釈できる参照式を想定しています。
+- 別シート参照や名前定義を使う場合は、参照式に合わせた調整が必要になることがあります。
+- 入力規則がリスト形式でない場合は`Empty`を返します。
+
+## 軽いまとめ
+
+`GetCellValidation`を用意しておくと、セルに設定済みの入力規則をVBA側の候補配列として扱えます。入力規則を単なる制限機能として使うだけでなく、独自の入力補助UIに展開しやすくなる部品です。

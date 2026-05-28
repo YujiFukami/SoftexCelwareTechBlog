@@ -1,0 +1,132 @@
+---
+title: "入力規則リストを矢印ボタンで切り替えるExcel VBA汎用プロシージャ"
+category: "vba"
+slug: "event-show-move-spin-button-value"
+tags: ["Excel VBA", "汎用プロシージャ", "入力規則", "SelectionChange", "Shape"]
+description: "Worksheet_SelectionChangeから呼び出し、入力規則リストが設定されたセルで左右ボタンを表示して候補値を前後へ切り替えるExcel VBA汎用プロシージャを解説します。"
+date: "2026-05-28"
+---
+
+## 概要
+
+`EventShowMoveSpinButton_Value`は、<Term>Excel VBA</Term>で指定範囲内のセルを選択したときだけ、選択セルの下に左右の<Term>Shape</Term>ボタンを表示する汎用プロシージャです。
+
+以前追加した[数値を増減する移動スピンボタン](/articles/vba/event-show-move-spin-button)の姉妹版で、今回は数値を1ずつ増減するのではなく、セルに設定された<Term>入力規則</Term>リストの値を前後へ切り替えます。
+
+たとえば、入力規則に`未対応,対応中,完了`が設定されているセルなら、右ボタンで`未対応`から`対応中`へ、左ボタンで`完了`から`対応中`へ戻せます。
+
+## 使う場面
+
+- ステータス、区分、評価、工程などをリストから選ばせたい
+- セルの入力規則ドロップダウンを開かずに、左右ボタンで候補を切り替えたい
+- 表形式の入力画面で、選択中セルだけに操作ボタンを出したい
+- 数値増減版と同じUIで、文字列や分類値も扱いたい
+- 入力ミスを減らしつつ、Excelシート上の操作感を上げたい
+
+## デモ
+
+対象範囲内のセルを選択すると、セルの下に左右ボタンが表示されます。セルに設定された入力規則リストを読み取り、クリックで前後の候補へ切り替えます。
+
+<video controls preload="metadata" className="my-6 w-full rounded-lg border border-gray-200 bg-black">
+  <source src="/articles/vba/event-show-move-spin-button-value/demo.mp4" type="video/mp4" />
+</video>
+
+## 処理イメージ図
+
+この部品は、表示用のプロシージャ、クリック時の値変更、入力規則リスト取得、配列内検索を組み合わせて動かします。
+
+<figure className="my-6 overflow-hidden rounded-lg border border-gray-200 bg-white">
+  <a href="/articles/vba/event-show-move-spin-button-value/hierarchy.png" target="_blank" rel="noopener noreferrer">
+    <img src="/articles/vba/event-show-move-spin-button-value/hierarchy.png" alt="EventShowMoveSpinButton_Valueの階層構造" className="h-auto w-full" />
+  </a>
+  <figcaption className="border-t border-gray-100 px-4 py-3 text-sm leading-6 text-gray-600">
+    入力規則リスト切替版の依存関係。既存の図形操作部品に、入力規則リスト取得と配列内検索を組み合わせています。
+  </figcaption>
+</figure>
+
+## プロシージャの階層構造
+
+```text
+EventShowMoveSpinButton_Value
+├─ GetShapeByName
+├─ DrawRectangleRound
+├─ Set__FontColor
+├─ Move__UpDownButton
+├─ ChangeDownValue_MoveSpinButton
+│  ├─ ChangePushedButtonColor
+│  ├─ GetSelectionCell
+│  ├─ ModifyTargetCount
+│  ├─ GetCellValidation
+│  │  └─ ConvArray1D_Start1
+│  └─ Change__CellValueByList
+│     └─ GetNumFromArray1D
+└─ ChangeUpValue_MoveSpinButton
+   ├─ ChangePushedButtonColor
+   ├─ GetSelectionCell
+   ├─ ModifyTargetCount
+   ├─ GetCellValidation
+   │  └─ ConvArray1D_Start1
+   └─ Change__CellValueByList
+      └─ GetNumFromArray1D
+```
+
+中心になるのは`EventShowMoveSpinButton_Value`です。選択セルの位置にボタンを作成・移動し、ボタンクリック時の処理を`ChangeDownValue_MoveSpinButton`と`ChangeUpValue_MoveSpinButton`へ渡します。
+
+## 使用例
+
+シートモジュールの`Worksheet_SelectionChange`イベントから呼び出します。下の例では、`B2:B20`の中を選択したときだけ、入力規則リスト切替用の左右ボタンを表示します。
+
+<CopyCode language="vba" filename="使用例" src="/articles/vba/event-show-move-spin-button-value/usage.bas" />
+
+`CellArea`には、ボタンを表示したい<Term>Range</Term>を渡します。対象範囲外を選択すると、表示済みのボタンは削除されます。
+
+## サンプルブック
+
+動作確認用のマクロ有効ブックを用意しています。
+
+<p>
+  <a href="/downloads/vba/event-show-move-spin-button-value-sample.xlsm" download style={{ display: "inline-block", padding: "0.75rem 1rem", borderRadius: "8px", background: "#0f766e", color: "#fff", fontWeight: 700, textDecoration: "none" }}>
+    EventShowMoveSpinButton_Valueサンプルブックをダウンロード
+  </a>
+</p>
+
+サンプルを開くときは、Excel側でマクロを有効化してください。会社PCなどでマクロ実行が制限されている場合は、ローカルのテスト環境で確認するのが安全です。
+
+## コピー可能な実装コード
+
+このコードには、中心処理と関連する子プロシージャをまとめて含めています。まず動きを確認したい場合は、この一式を標準モジュールへ入れて試すのが分かりやすいです。
+
+<CopyCode language="vba" filename="EventShowMoveSpinButton_Value.bas" src="/articles/vba/event-show-move-spin-button-value/EventShowMoveSpinButton_Value.bas" />
+
+## 初心者向けコード解説
+
+`EventShowMoveSpinButton_Value(ByRef Target As Range, ByRef CellArea As Range)`では、現在選択されたセル`Target`と、ボタンを表示したい範囲`CellArea`を受け取ります。
+
+選択セルが対象範囲内であれば、セルの下に左右ボタンを表示します。ボタンは毎回作り直すのではなく、既存の「減少ボタン」「増加ボタン」を取得し、選択セルの位置へ移動させます。どちらか片方だけ残っている場合は、一度削除して作り直すようにしています。
+
+ボタンには`OnAction`で`ChangeDownValue_MoveSpinButton`と`ChangeUpValue_MoveSpinButton`を割り当てています。クリックされると、現在選択中のセルを取得し、そのセルの入力規則リストを`GetCellValidation`で一次元配列として取り出します。
+
+値の変更では、`GetNumFromArray1D`で現在値がリストの何番目かを調べ、左ボタンなら1つ前、右ボタンなら1つ次の値をセルへ入れます。
+
+## 関連記事
+
+- [数値を増減する移動スピンボタン](/articles/vba/event-show-move-spin-button)
+- [入力規則リストを取得するGetCellValidation](/articles/vba/get-cell-validation)
+- [入力規則リストを前後へ切り替えるChangeDownValue_MoveSpinButton / ChangeUpValue_MoveSpinButton](/articles/vba/change-value-move-spin-button)
+- [一次元配列から値の位置を取得するGetNumFromArray1D](/articles/vba/get-num-from-array1d)
+- [0始まり配列を1始まりへ変換するConvArray1D_Start1](/articles/vba/conv-array1d-start1)
+
+## 注意点
+
+- 対象セルにはリスト形式の入力規則が設定されている必要があります。
+- 入力規則がリスト形式でない場合、値変更処理は行いません。
+- `GetCellValidation`は、カンマ区切りリストと範囲参照の入力規則を想定しています。
+- 項目名そのものにカンマを含むリストには向きません。
+- 別シート参照や名前定義を使った入力規則では、参照式の書き方によって調整が必要になる場合があります。
+- ボタン名として「減少ボタン」「増加ボタン」を使います。同名の図形を別用途で置かないようにしてください。
+
+## 軽いまとめ
+
+`EventShowMoveSpinButton_Value`を使うと、Excelの入力規則リストを、ドロップダウンではなく左右ボタンで切り替えられるようになります。
+
+数値増減版と同じ考え方で、選択セルに追従する2つの図形ボタンを使い回すため、シート上に大量のボタンを置かずに入力補助UIを作れます。ステータス入力や区分選択のような、候補値を順番に切り替えたい場面で使いやすい部品です。

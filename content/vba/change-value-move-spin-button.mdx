@@ -1,0 +1,62 @@
+---
+title: "入力規則リストを前後へ切り替えるExcel VBA汎用プロシージャ"
+category: "vba"
+slug: "change-value-move-spin-button"
+tags: ["Excel VBA", "汎用プロシージャ", "入力規則", "配列", "入力補助"]
+description: "選択セルの入力規則リストを取得し、現在値を1つ前または1つ次の候補へ切り替えるChangeDownValue_MoveSpinButton / ChangeUpValue_MoveSpinButtonを解説します。"
+date: "2026-05-28"
+---
+
+## 概要
+
+`ChangeDownValue_MoveSpinButton`と`ChangeUpValue_MoveSpinButton`は、入力規則リストが設定されたセルの値を、リスト内の1つ前または1つ次の候補へ切り替えるプロシージャです。
+
+[EventShowMoveSpinButton_Value](/articles/vba/event-show-move-spin-button-value)で作成した左右ボタンの`OnAction`に設定して使います。
+
+## 使う場面
+
+- 入力規則リストの候補を矢印ボタンで切り替えたい
+- ステータス、区分、工程名などを順番に変更したい
+- 選択セルの入力規則リストを読み取り、現在値を基準に変更したい
+- 数値増減ではなく、文字列候補の前後移動を共通化したい
+
+## 使用例
+
+`EventShowMoveSpinButton_Value`で作成した図形に、`OnAction`として割り当てます。
+
+```vba
+ShapeDown.OnAction = "ChangeDownValue_MoveSpinButton"
+ShapeUp.OnAction = "ChangeUpValue_MoveSpinButton"
+```
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="ChangeDownValue_MoveSpinButton.bas" src="/articles/vba/change-value-move-spin-button.bas" />
+
+## 初心者向けコード解説
+
+最初に`ChangePushedButtonColor`でクリックされたボタンの色を一時的に変更します。次に`GetSelectionCell`で現在選択中のセルを取得し、`ModifyTargetCount`で複数セル選択時も先頭1セルへ絞ります。
+
+`GetCellValidation`では、選択セルに設定された入力規則リストを一次元配列として取得します。リストが取れない場合は、処理を終了します。
+
+値を切り替える本体は`Change__CellValueByList`です。現在値が配列の何番目かを`GetNumFromArray1D`で調べ、上方向なら次の要素、下方向なら前の要素をセルへ代入します。
+
+## 関連記事
+
+- [入力規則リストを矢印ボタンで切り替えるEventShowMoveSpinButton_Value](/articles/vba/event-show-move-spin-button-value)
+- [入力規則リストを取得するGetCellValidation](/articles/vba/get-cell-validation)
+- [一次元配列から値の位置を取得するGetNumFromArray1D](/articles/vba/get-num-from-array1d)
+- [クリックされた図形の色を一時変更するChangePushedButtonColor](/articles/vba/change-pushed-button-color)
+- [選択中セルを安全に取得するGetSelectionCell](/articles/vba/get-selection-cell)
+
+## 注意点
+
+- 現在選択中のセルを対象にするため、クリック前の選択状態が重要です。
+- 対象セルにリスト形式の入力規則がない場合は何もしません。
+- 現在値がリスト内に見つからない場合は、上方向でも下方向でも先頭候補に寄せる挙動になります。
+- リストの順番がそのまま切り替え順になります。
+- `Change__CellValueByList`は内部用のPrivate Subとして、この記事のコード内に含めています。
+
+## 軽いまとめ
+
+この2つのプロシージャは、図形ボタンから入力規則リストの値を切り替えるための橋渡し役です。候補リストの取得、現在値の位置判定、セル値の変更を分けているため、入力補助UIの部品として再利用しやすくなります。

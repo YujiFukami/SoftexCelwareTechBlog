@@ -1,0 +1,61 @@
+---
+title: "一次元配列から値の位置を取得するExcel VBA汎用関数 GetNumFromArray1D"
+category: "vba"
+slug: "get-num-from-array1d"
+tags: ["Excel VBA", "汎用プロシージャ", "配列", "Variant", "検索"]
+description: "指定した値が一次元配列の何番目にあるかを調べ、見つからない場合は0を返すExcel VBA汎用関数を解説します。"
+date: "2026-05-28"
+---
+
+## 概要
+
+`GetNumFromArray1D`は、指定した値が一次元<Term>配列</Term>の何番目にあるかを調べる関数です。見つかった場合は要素番号を返し、見つからない場合は`0`を返します。
+
+[入力規則リスト切替スピンボタン](/articles/vba/event-show-move-spin-button-value)では、現在セルに入っている値が入力規則リストの何番目かを調べるために使っています。
+
+## 使う場面
+
+- 一次元配列の中から値の位置を探したい
+- 入力規則リスト内の現在値の位置を知りたい
+- 見つからなかった場合に`0`で分岐したい
+- 配列上の簡単な検索処理を共通化したい
+
+## 使用例
+
+```vba
+Dim list(1 To 3) As Variant
+list(1) = "未対応"
+list(2) = "対応中"
+list(3) = "完了"
+
+MsgBox GetNumFromArray1D("対応中", list)
+```
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="GetNumFromArray1D.bas" src="/articles/vba/get-num-from-array1d.bas" />
+
+## 初心者向けコード解説
+
+最初に`IsEmpty(Array1D)`で配列が空かどうかを確認します。空の場合はそのまま終了するため、戻り値は初期値の`0`になります。
+
+次に`UBound(Array1D, 1)`で配列の最大要素番号を取得し、`For I = 1 To N`で先頭から順番に比較します。
+
+`Value = Array1D(I)`が一致したら、その番号を`Output`へ入れて`Exit For`で検索を終えます。最後に`GetNumFromArray1D = Output`で結果を返します。
+
+## 関連記事
+
+- [入力規則リストを矢印ボタンで切り替えるEventShowMoveSpinButton_Value](/articles/vba/event-show-move-spin-button-value)
+- [入力規則リストを前後へ切り替えるChangeDownValue_MoveSpinButton / ChangeUpValue_MoveSpinButton](/articles/vba/change-value-move-spin-button)
+- [0始まり配列を1始まりへ変換するConvArray1D_Start1](/articles/vba/conv-array1d-start1)
+
+## 注意点
+
+- この実装は1始まりの一次元配列を前提にしています。
+- 0始まり配列を渡す場合は、先に`ConvArray1D_Start1`で変換します。
+- 見つからない場合は`0`を返します。呼び出し側で`0`の意味を決めておく必要があります。
+- 大量データの高速検索ではなく、小さな候補リスト向けの簡易検索です。
+
+## 軽いまとめ
+
+`GetNumFromArray1D`は、一次元配列内の現在位置を知るための小さな部品です。入力規則リストや候補リストのように、順番に意味がある配列を扱うときに使いやすくなります。

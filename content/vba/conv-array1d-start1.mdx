@@ -1,0 +1,61 @@
+---
+title: "0始まり配列を1始まりへ変換するExcel VBA汎用関数 ConvArray1D_Start1"
+category: "vba"
+slug: "conv-array1d-start1"
+tags: ["Excel VBA", "汎用プロシージャ", "配列", "Variant", "Split"]
+description: "Splitなどで作られる0始まりの一次元配列を、VBAの処理で扱いやすい1始まり配列へ変換する汎用関数を解説します。"
+date: "2026-05-28"
+---
+
+## 概要
+
+`ConvArray1D_Start1`は、0始まりの一次元<Term>配列</Term>を、1始まりの一次元配列へ変換する関数です。
+
+`Split`で作った配列は0始まりになります。一方、Excelのセル範囲から値を扱う処理や、今回の入力規則リスト切替処理では、1始まり配列にそろえると扱いやすくなります。
+
+## 使う場面
+
+- `Split`で作った0始まり配列を1始まりへそろえたい
+- 入力規則リストの候補を配列として扱いたい
+- 配列の添字ルールを統一して、後続処理を単純にしたい
+- 1始まり前提の共通関数へ配列を渡したい
+
+## 使用例
+
+```vba
+Dim values As Variant
+values = Split("未対応,対応中,完了", ",")
+
+values = ConvArray1D_Start1(values)
+MsgBox values(1)
+```
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="ConvArray1D_Start1.bas" src="/articles/vba/conv-array1d-start1.bas" />
+
+## 初心者向けコード解説
+
+最初に`IsArray1D`で、入力が一次元配列かどうかを確認します。二次元配列などが入った場合は、ここで処理を止めます。
+
+すでに`LBound(Array1D, 1) = 1`なら、変換の必要はありません。そのまま元の配列を返します。
+
+0始まりの場合は、`ReDim Output(1 To N + 1)`で1始まりの出力配列を作り、`Array1D(I - 1)`を`Output(I)`へ移します。オブジェクト配列も扱えるように、`IsObject`の場合は`Set`で代入しています。
+
+## 関連記事
+
+- [入力規則リストを取得するGetCellValidation](/articles/vba/get-cell-validation)
+- [一次元配列から値の位置を取得するGetNumFromArray1D](/articles/vba/get-num-from-array1d)
+- [入力規則リストを矢印ボタンで切り替えるEventShowMoveSpinButton_Value](/articles/vba/event-show-move-spin-button-value)
+
+## 注意点
+
+- 一次元配列だけを対象にしています。
+- すでに1始まりの配列は、そのまま返します。
+- `Split`の結果を扱うときに特に便利です。
+- 配列の添字を変換すると、元の添字番号とは意味が変わるため、呼び出し側の前提をそろえて使います。
+- `IsArray1D`も同じモジュール内、または同じブック内に必要です。
+
+## 軽いまとめ
+
+`ConvArray1D_Start1`は、配列の開始番号をそろえるための地味ですが便利な部品です。入力規則リストや候補リストを複数の関数で受け渡すときに、1始まりへ統一しておくと後続処理が読みやすくなります。

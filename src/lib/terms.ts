@@ -1586,6 +1586,21 @@ export const terms: TermEntry[] = [
     references: [{ title: "Microsoft Learn - VBA", url: "https://learn.microsoft.com/office/vba/api/overview/" }],
   },
   {
+    slug: "excel-data-validation",
+    title: "Excel入力規則",
+    category: "Excel VBA",
+    aliases: ["入力規則", "データの入力規則", "Data Validation", "Validation"],
+    summary: "Excelセルに入力できる値を制限したり、リストから選択させたりする機能です。",
+    description: [
+      "Excel入力規則を使うと、セルに入力できる値をリスト、数値範囲、日付範囲などに制限できます。",
+      "VBAではValidationオブジェクトのTypeやFormula1を読むことで、セルに設定された入力規則リストを取得できます。",
+    ],
+    useCases: ["セル入力候補の作成", "選択式の入力UI", "入力ミスの抑制"],
+    related: ["vba", "array"],
+    googleQuery: "Excel 入力規則 VBA Validation とは",
+    references: [{ title: "Microsoft Learn - Validation object", url: "https://learn.microsoft.com/office/vba/api/excel.validation" }],
+  },
+  {
     slug: "procedure",
     title: "プロシージャ",
     category: "Excel VBA",
