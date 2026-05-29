@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-const appUrl = "https://yujifukami.github.io/Spline_Study_WebApp/";
+const appUrl = "https://cubic-spline-learning-tool.netlify.app/";
 const githubUrl = "https://github.com/YujiFukami/Spline_Study_WebApp";
 const normalSplineArticle =
   "https://www.softex-celware.com/post/spline-excelvba";
