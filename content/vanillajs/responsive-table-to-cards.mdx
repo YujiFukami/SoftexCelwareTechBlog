@@ -1,0 +1,125 @@
+---
+title: "スマホでは表をカード表示に変換するCSS"
+category: "vanillajs"
+slug: "responsive-table-to-cards"
+tags: ["バニラJS", "CSS", "レスポンシブ", "テーブル", "スマホ対応"]
+description: "PCでは通常テーブル、スマホでは行単位のカード表示に切り替えて、計算結果表の横切れを防ぐCSSパターンです。"
+date: "2026-05-29"
+---
+
+## はじめに
+
+PC向けの横長テーブルは、スマートフォンでは横スクロールになりやすいです。
+
+見積や計算結果の表では、横スクロールよりも1行ずつカード化した方が読みやすい場合があります。
+
+この記事では、[ココナラ見積・手取り・予算逆算ツール](/tools/coconala-fee-calculator)で使った、スマホ幅だけ表をカード表示に変換するCSSパターンを整理します。
+
+## 使う場面
+
+- PCでは通常テーブル、スマホでは縦積みカードで見せたい業務UI
+- 金額、計算式、備考など列数が多い表
+- 横スクロールで重要な列が隠れると困る画面
+- <Term>レスポンシブデザイン</Term>で計算結果を見やすくしたい場合
+
+## 基本方針
+
+PCでは通常の`table`として表示し、スマホ幅では`table`、`thead`、`tbody`、`tr`、`td`をブロック表示に切り替えます。
+
+`thead`を隠す代わりに、`td::before`へ列見出しを出します。
+
+```css
+@media (max-width: 720px) {
+  .table-wrap {
+    overflow: visible;
+    border: 0;
+  }
+
+  table,
+  thead,
+  tbody,
+  tr,
+  td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  thead {
+    display: none;
+  }
+
+  tr {
+    margin-bottom: 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    overflow: hidden;
+  }
+}
+```
+
+これで、1行が1枚のカードのように表示されます。
+
+## セルに見出しを付ける
+
+`thead`を非表示にする場合でも、各セルの意味は残す必要があります。
+
+```css
+@media (max-width: 720px) {
+  td {
+    display: grid;
+    grid-template-columns: 7.5em minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  td:nth-child(1)::before { content: "項目"; }
+  td:nth-child(2)::before { content: "金額"; }
+  td:nth-child(3)::before { content: "計算式"; }
+  td:nth-child(4)::before { content: "備考"; }
+
+  td::before {
+    color: #64748b;
+    font-weight: 700;
+  }
+}
+```
+
+これにより、スマホでも「金額」「計算式」「備考」の意味を失わずに読めます。
+
+## 向いている表と向かない表
+
+この方法は、列数と列の意味が固定されている表に向いています。
+
+一方、ユーザー操作で列数が変わる表や、列見出しが動的に変わる表では、CSSの`nth-child`だけでは管理しにくくなります。
+
+その場合は、`data-label`属性を使って、HTML側から見出しを渡す方法もあります。
+
+```html
+<td data-label="金額">11,605円</td>
+```
+
+```css
+td::before {
+  content: attr(data-label);
+}
+```
+
+## 注意点
+
+- PC側の`min-width`をスマホ幅で解除する
+- `thead`を隠す場合でも、`td::before`で列名を補う
+- 強調行や警告行は、スマホ表示でも意味が残るように背景色や上線を調整する
+- 表をカード化しても、読み上げやコピー用途で不自然にならないようにする
+
+## 実例
+
+[ココナラ見積・手取り・予算逆算ツール](/tools/coconala-fee-calculator)では、PCでは内訳詳細テーブル、スマホでは各行をカード状に表示して横切れを防いでいます。
+
+公開アプリは[こちら](https://coconala-fee-calculator.vercel.app/)、ソースは[GitHub](https://github.com/YujiFukami/coconala-fee-calculator)で確認できます。
+
+## まとめ
+
+横長テーブルをスマートフォンでそのまま表示すると、重要な列が隠れやすくなります。
+
+列数が固定された計算結果表なら、スマホ幅だけ行単位のカード表示に変換することで、読みやすさを保ちながらPC表示も維持できます。

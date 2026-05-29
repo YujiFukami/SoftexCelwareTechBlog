@@ -1,0 +1,115 @@
+---
+title: "計算ロジックを純粋関数に分離する設計"
+category: "vanillajs"
+slug: "pure-function-calculation-logic"
+tags: ["バニラJS", "純粋関数", "料金計算", "テストしやすい設計"]
+description: "見積、税、手数料などの計算処理をUIイベントから切り離し、DOMに依存しない純粋関数として扱う設計パターンです。"
+date: "2026-05-29"
+---
+
+## はじめに
+
+料金計算ツールでは、画面イベントの中に計算式を直接書いてしまうと、UIを少し直しただけで計算ロジックまで壊れやすくなります。
+
+税率、手数料、<Term>端数処理</Term>のように検証が必要な処理は、画面とは独立して確認できる形にしておく方が安全です。
+
+この記事では、[ココナラ見積・手取り・予算逆算ツール](/tools/coconala-fee-calculator)で使った、計算ロジックを<Term>純粋関数</Term>へ分離する設計を整理します。
+
+## 使う場面
+
+- 見積、料金、税金、手数料などの計算ツール
+- <Term>JavaScript</Term>だけで作る静的<Term>Webアプリ</Term>
+- 計算式の根拠を画面に表示しつつ、ロジックも検証したい場合
+- UI変更と計算ロジック変更を分けて管理したい場合
+
+## 分離する理由
+
+計算関数の中で`document.querySelector`や`textContent`の更新まで行うと、関数の役割が増えます。
+
+その状態では、計算だけを確認したいときにもブラウザ画面が必要になります。
+
+計算関数は、次のように入力値と設定だけを受け取り、結果オブジェクトを返す形にします。
+
+```javascript
+function calcFromEstimate(estimateAmount, options) {
+  const taxAmount = options.taxMode === "taxable"
+    ? roundByMode(estimateAmount * options.taxRate, options.roundingMode)
+    : 0;
+
+  const feeBaseAmount = estimateAmount + taxAmount;
+  const buyerFee = roundByMode(
+    feeBaseAmount * options.buyerFeeRate,
+    options.roundingMode
+  );
+  const sellerFee = roundByMode(
+    feeBaseAmount * options.sellerFeeRate,
+    options.roundingMode
+  );
+
+  return {
+    estimateAmount,
+    taxAmount,
+    feeBaseAmount,
+    buyerFee,
+    buyerTotal: feeBaseAmount + buyerFee,
+    sellerFee,
+    sellerNet: feeBaseAmount - sellerFee,
+  };
+}
+```
+
+この関数はDOMを読みません。
+画面へ出すか、テストで検証するか、説明文に使うかは呼び出し側で決めます。
+
+## ファイル構成の考え方
+
+小規模なバニラJSアプリでも、最低限このように分けておくと保守しやすくなります。
+
+| ファイル | 役割 |
+|---|---|
+| `calculator.js` | 見積、予算、手取り、税、手数料の計算 |
+| `app.js` | 入力欄、タブ、ボタン、結果表示の制御 |
+| `styles.css` | PC/スマホ表示、表、カード、入力パッドの見た目 |
+
+計算関数を`calculator.js`へ集めると、[円単位の逆算を二分探索で実装する](/articles/vanillajs/binary-search-yen-reverse-calculation)ような処理も、UIに触れずに追加できます。
+
+## テストしやすくする工夫
+
+ブラウザ用には`window`へ公開し、Node.jsの簡易テスト用には`module.exports`でも返す形にすると、ビルドなしでも検証しやすくなります。
+
+```javascript
+const Calculator = {
+  calcFromEstimate,
+  calcFromBudget,
+  calcFromNet,
+};
+
+if (typeof window !== "undefined") {
+  window.Calculator = Calculator;
+}
+
+if (typeof module !== "undefined") {
+  module.exports = Calculator;
+}
+```
+
+フレームワークなしの公開ツールでも、この薄い分離だけで確認しやすさが大きく変わります。
+
+## 注意点
+
+- DOMを読まない、DOMを書き換えない
+- 入力値、料率、端数処理は引数で渡す
+- 表示用のカンマ整形や文言生成はUI側へ分ける
+- 公式仕様が変わりうる料率は、固定値だけでなく画面から変更できるようにする
+
+## 実例
+
+[ココナラ見積・手取り・予算逆算ツール](/tools/coconala-fee-calculator)では、`calcFromEstimate`、`calcFromBudget`、`calcFromNet`を計算専用ファイルへ分離しています。
+
+公開アプリは[こちら](https://coconala-fee-calculator.vercel.app/)、ソースは[GitHub](https://github.com/YujiFukami/coconala-fee-calculator)で確認できます。
+
+## まとめ
+
+料金計算のように正確さが必要な処理は、UIイベントから切り離し、純粋関数として扱うと安全です。
+
+画面表示と計算ロジックを分けておくことで、UI改善、スマホ対応、説明文生成、テストをそれぞれ進めやすくなります。

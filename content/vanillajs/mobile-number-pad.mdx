@@ -1,0 +1,110 @@
+---
+title: "モバイル向け数値入力パッド"
+category: "vanillajs"
+slug: "mobile-number-pad"
+tags: ["バニラJS", "モバイルUI", "数値入力", "料金計算", "スマホ対応"]
+description: "スマートフォンで金額を入力しやすくするために、数字、増減、全消去、1字削除ボタンを画面内に置く入力UIパターンです。"
+date: "2026-05-29"
+---
+
+## はじめに
+
+スマートフォンで金額を入力する場合、OSのソフトキーボードが画面を圧迫し、入力欄と計算結果を行き来しづらくなることがあります。
+
+料金計算や見積確認の<Term>Webアプリ</Term>では、画面内のボタンだけで金額を操作できると、試算がかなり楽になります。
+
+この記事では、[ココナラ見積・手取り・予算逆算ツール](/tools/coconala-fee-calculator)で使ったモバイル向け数値入力パッドの構成を整理します。
+
+## 使う場面
+
+- スマホでも使う見積、料金、予算、在庫などの数値入力アプリ
+- マウスだけで操作したいデモ用Webアプリ
+- 入力欄に加えて、よく使う増減ボタンを置きたい場合
+- ソフトキーボードで画面が隠れると困る計算画面
+
+## HTML構成
+
+数字ボタン、増減ボタン、全消去、1字消すボタンを画面内に置きます。
+
+```html
+<input id="amount" inputmode="numeric" autocomplete="off" />
+
+<div class="quick-amounts">
+  <button type="button" data-step="-10000">-1万</button>
+  <button type="button" data-step="1000">+千</button>
+  <button type="button" data-step="10000">+1万</button>
+</div>
+
+<div class="number-pad" aria-label="数字入力">
+  <button type="button" data-digit="1">1</button>
+  <button type="button" data-digit="2">2</button>
+  <button type="button" data-digit="3">3</button>
+  <button type="button" data-digit="0">0</button>
+</div>
+
+<div class="number-pad-actions">
+  <button type="button" data-number-action="clear">全消去</button>
+  <button type="button" data-number-action="backspace">1字消す</button>
+</div>
+```
+
+`inputmode="numeric"`は残しておくと、手入力したい人も使えます。
+
+## JavaScriptで入力値を更新する
+
+内部処理では、カンマを外した数値文字列を扱います。
+
+```javascript
+document.querySelectorAll("[data-digit]").forEach((button) => {
+  button.addEventListener("click", () => appendDigit(button.dataset.digit));
+});
+
+function appendDigit(digit) {
+  const raw = amountInput.value.replace(/,/g, "").replace(/\D/g, "");
+  const nextRaw = raw === "0" ? digit : `${raw}${digit}`;
+  setAmountValue(Number(nextRaw));
+  calculateAndRender();
+}
+```
+
+表示用のカンマ整形と内部数値は分けます。
+この分離をしておくと、[計算ロジックを純粋関数に分離する設計](/articles/vanillajs/pure-function-calculation-logic)とも相性がよくなります。
+
+## スマホ幅での配置
+
+スマホでは、ボタンが横にはみ出さないようにグリッドへ並べます。
+
+```css
+.number-pad {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .number-pad {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+```
+
+よく使う増減ボタンは大きめに、ネタ用や特殊入力ボタンは控えめにするなど、主操作の優先度を見た目に反映します。
+
+## 注意点
+
+- 画面内ボタンがあっても、通常のキーボード入力は残す
+- カンマ区切り表示と内部数値を分ける
+- スマホ幅では横にはみ出さないグリッドにする
+- 全消去や特殊ボタンは誤タップしにくい位置に置く
+
+## 実例
+
+[ココナラ見積・手取り・予算逆算ツール](/tools/coconala-fee-calculator)では、増減ボタン、0から9、全消去、1字消すボタンを追加しています。
+
+公開アプリは[こちら](https://coconala-fee-calculator.vercel.app/)、ソースは[GitHub](https://github.com/YujiFukami/coconala-fee-calculator)で確認できます。
+
+## まとめ
+
+スマートフォン向けの料金計算ツールでは、入力欄だけでなく画面内の数値入力パッドを用意すると、試算のテンポが上がります。
+
+手入力も残しつつ、増減ボタンや削除ボタンを組み合わせることで、PCでもスマホでも扱いやすい入力UIになります。

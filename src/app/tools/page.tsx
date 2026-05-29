@@ -32,6 +32,14 @@ const tools = [
       "通常スプライン補間、パラメトリックスプライン補間、閉曲線スプライン補間の導出過程、行列、係数、補間式を順番に確認できる学習用Webアプリです。",
     tags: ["Vanilla JS", "Chart.js", "MathJax", "スプライン補間"],
   },
+  {
+    href: "/tools/coconala-fee-calculator",
+    title: "ココナラ見積・手取り・予算逆算ツール",
+    category: "料金シミュレーター",
+    description:
+      "ココナラ出品者向けに、見積額から支払総額と手取りを計算し、予算上限や目標手取りから必要な見積額も逆算できる参考計算Webアプリです。",
+    tags: ["Vanilla JS", "料金計算", "二分探索", "レスポンシブUI"],
+  },
 ];
 
 export default function ToolsPage() {

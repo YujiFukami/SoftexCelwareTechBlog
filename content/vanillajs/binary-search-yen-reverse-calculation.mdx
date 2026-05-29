@@ -1,0 +1,108 @@
+---
+title: "円単位の逆算を二分探索で実装する"
+category: "vanillajs"
+slug: "binary-search-yen-reverse-calculation"
+tags: ["バニラJS", "二分探索", "料金計算", "逆算", "端数処理"]
+description: "手数料や消費税の端数処理がある料金計算で、予算内最大額や目標手取り以上の最小額を1円単位で探索する方法です。"
+date: "2026-05-29"
+---
+
+## はじめに
+
+手数料や消費税に<Term>端数処理</Term>がある場合、単純に「予算 ÷ 1.055」のように割り算で逆算すると、1円ずれることがあります。
+
+実務用の見積ツールでは、条件を満たす最大額または最小額を、整数円単位で探す方が安全です。
+
+この記事では、[ココナラ見積・手取り・予算逆算ツール](/tools/coconala-fee-calculator)で使った<Term>二分探索</Term>による逆算パターンを整理します。
+
+## 使う場面
+
+- 予算上限から提示可能な見積額を逆算する
+- 目標手取り額から必要見積額を逆算する
+- 税率、手数料率、四捨五入、切り上げ、切り捨てが絡む料金計算
+- 単純な数式変形では正確な整数円に戻しにくい場合
+
+## 考え方
+
+予算から逆算する場合は、「見積額を入れて計算した結果が、予算以内か」を判定できれば十分です。
+
+その判定を使い、0円から予算上限までの範囲を半分ずつ絞ります。
+
+```javascript
+function calcFromBudget(buyerBudget, options) {
+  let left = 0;
+  let right = buyerBudget;
+  let answer = 0;
+
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    const result = calcFromEstimate(mid, options);
+
+    if (result.buyerTotal <= buyerBudget) {
+      answer = mid;
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
+  }
+
+  return calcFromEstimate(answer, options);
+}
+```
+
+ここでは、予算内に収まる最大の見積額を探しています。
+
+## 手取りから逆算する場合
+
+目標手取りから逆算する場合は、条件が逆になります。
+
+「手取りが目標以上になる最小見積額」を探します。
+
+```javascript
+function calcFromNet(targetNet, options) {
+  let left = 0;
+  let right = Math.max(targetNet * 3, 10000);
+  let answer = right;
+
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    const result = calcFromEstimate(mid, options);
+
+    if (result.sellerNet >= targetNet) {
+      answer = mid;
+      right = mid - 1;
+    } else {
+      left = mid + 1;
+    }
+  }
+
+  return calcFromEstimate(answer, options);
+}
+```
+
+重要なのは、逆算用に別の近似式を作らず、本計算関数をそのまま使って判定することです。
+
+## 純粋関数と相性がよい
+
+このパターンは、計算ロジックが<Term>純粋関数</Term>として分離されているほど扱いやすくなります。
+
+詳しくは、[計算ロジックを純粋関数に分離する設計](/articles/vanillajs/pure-function-calculation-logic)で整理しています。
+
+## 注意点
+
+- 探索対象は円単位の整数にする
+- 端数処理を含んだ本計算関数を使って判定する
+- 目標手取りから逆算する場合は、十分な上限を確保する
+- 金額が極端に大きい場合は、JavaScriptの安全な整数範囲に注意する
+
+## 実例
+
+[ココナラ見積・手取り・予算逆算ツール](/tools/coconala-fee-calculator)では、購入者支払上限から最大見積額を逆算し、目標手取りから必要見積額を逆算しています。
+
+公開アプリは[こちら](https://coconala-fee-calculator.vercel.app/)、ソースは[GitHub](https://github.com/YujiFukami/coconala-fee-calculator)で確認できます。
+
+## まとめ
+
+税金や手数料の端数処理が入る料金計算では、割り算だけの逆算では1円単位でずれることがあります。
+
+条件を満たすかどうかを本計算関数で判定し、二分探索で整数円を探すと、実務向けの逆算として安定します。

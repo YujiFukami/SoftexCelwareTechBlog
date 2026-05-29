@@ -135,7 +135,7 @@ export default function HomePage() {
             一覧を見る &rarr;
           </Link>
         </div>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-3">
           <Link
             href="/tools/kaiso"
             className="block rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50/40"
@@ -164,6 +164,20 @@ export default function HomePage() {
             <p className="mt-2 text-sm leading-6 text-gray-600">
               通常補間、パラメトリック補間、閉曲線補間の導出過程を、
               式・行列・グラフで確認できる学習用ツールです。
+            </p>
+          </Link>
+          <Link
+            href="/tools/coconala-fee-calculator"
+            className="block rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50/40"
+          >
+            <div className="mb-2 text-xs font-medium text-blue-600">
+              料金シミュレーター
+            </div>
+            <h3 className="font-semibold text-gray-900">
+              ココナラ見積・手取り・予算逆算ツール
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-gray-600">
+              見積額、購入者支払総額、出品者手取りを確認し、予算や手取りから逆算できる参考計算ツールです。
             </p>
           </Link>
         </div>

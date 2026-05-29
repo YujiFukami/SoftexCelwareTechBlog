@@ -1,0 +1,111 @@
+---
+title: "タブごとに入力状態を保持するUI"
+category: "vanillajs"
+slug: "tab-state-preserving-ui"
+tags: ["バニラJS", "タブUI", "状態管理", "料金計算", "フォーム"]
+description: "見積額、予算、手取りなど複数モードを持つ計算ツールで、タブごとに金額や設定を保存・復元するUIパターンです。"
+date: "2026-05-29"
+---
+
+## はじめに
+
+計算モードをタブで切り替えるUIでは、タブを戻したときに入力値が消えると比較作業がしづらくなります。
+
+金額だけでなく、消費税の有無、料率、<Term>端数処理</Term>などの設定も、モードごとに保持したい場面があります。
+
+この記事では、[ココナラ見積・手取り・予算逆算ツール](/tools/coconala-fee-calculator)で使った、タブごとの入力状態保持パターンを整理します。
+
+## 使う場面
+
+- 見積額、予算、手取りなど複数モードを持つ計算ツール
+- 条件を変えながら比較する業務アプリ
+- タブUIだが、各タブを独立した入力フォームとして扱いたい場合
+- <Term>JavaScript</Term>だけで軽い状態管理をしたい場合
+
+## 状態オブジェクトを持つ
+
+モード名をキーにした状態オブジェクトを持ち、タブを離れる前に保存し、移動後に復元します。
+
+```javascript
+const state = {
+  mode: "fromEstimate",
+  modeInputs: {
+    fromEstimate: {
+      amount: "50,000",
+      taxMode: "taxable",
+      roundingMode: "round",
+    },
+    fromBudget: {
+      amount: "200,000",
+      taxMode: "taxable",
+      roundingMode: "round",
+    },
+    fromNet: {
+      amount: "150,000",
+      taxMode: "taxable",
+      roundingMode: "round",
+    },
+  },
+};
+```
+
+## タブ切替時の流れ
+
+タブ切替時は、順番が重要です。
+
+1. 現在タブの入力状態を保存する
+2. `state.mode`を次のモードへ変更する
+3. 次のモードの入力状態を復元する
+4. 復元後の値で再計算する
+
+```javascript
+function saveCurrentModeInputs() {
+  state.modeInputs[state.mode] = {
+    amount: amountInput.value,
+    taxMode: form.taxMode.value,
+    buyerFeeRate: form.buyerFeeRate.value,
+    sellerFeeRate: form.sellerFeeRate.value,
+    taxRate: form.taxRate.value,
+    roundingMode: form.roundingMode.value,
+  };
+}
+
+function restoreModeInputs(mode) {
+  const inputs = state.modeInputs[mode];
+  amountInput.value = inputs.amount;
+  form.taxMode.value = inputs.taxMode;
+  form.roundingMode.value = inputs.roundingMode;
+}
+```
+
+復元後に再計算することで、画面表示と内部状態のずれを防ぎます。
+
+## リセット仕様を決める
+
+タブ別に状態を持つ場合、リセットボタンの仕様を先に決めておく必要があります。
+
+| リセット対象 | 向いている場面 |
+|---|---|
+| 現在タブだけ | 各モードを別々に試算したい |
+| 全タブ | 条件を全部初期化したい |
+| 金額だけ | 料率や端数処理は残したい |
+
+料金計算ツールでは、現在タブだけを戻す方が比較作業を邪魔しにくいです。
+
+## 関連UI
+
+タブごとの入力状態を保持すると、スマートフォンでも同じ条件を行き来しやすくなります。
+
+スマホ向けには、[モバイル向け数値入力パッド](/articles/vanillajs/mobile-number-pad)や、[スマホでは表をカード表示に変換するCSS](/articles/vanillajs/responsive-table-to-cards)も合わせて使うと操作しやすくなります。
+
+## 実例
+
+[ココナラ見積・手取り・予算逆算ツール](/tools/coconala-fee-calculator)では、3つの計算モードそれぞれで金額、消費税ありなし、料率、端数処理を保持するようにしています。
+
+公開アプリは[こちら](https://coconala-fee-calculator.vercel.app/)、ソースは[GitHub](https://github.com/YujiFukami/coconala-fee-calculator)で確認できます。
+
+## まとめ
+
+タブUIでは、見た目の切り替えだけでなく、各タブの入力状態をどう保持するかが使いやすさに直結します。
+
+モードごとに状態を保存・復元し、復元後に再計算することで、比較しやすい計算ツールになります。
