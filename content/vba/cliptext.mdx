@@ -1,0 +1,79 @@
+---
+title: "文字列をクリップボードへ格納するExcel VBA汎用プロシージャ ClipText"
+category: "vba"
+slug: "cliptext"
+tags: ["Excel VBA", "汎用プロシージャ", "クリップボード", "MSForms", "コード生成"]
+description: "VBAで生成した文字列やコードをクリップボードへ格納し、すぐ貼り付けできる状態にする汎用プロシージャClipTextを解説します。"
+date: "2026-06-01"
+---
+
+## 概要
+
+`ClipText`は、指定した文字列を<Term>クリップボード</Term>へ格納するための<Term>Excel VBA</Term>汎用プロシージャです。
+
+引数`Text`に渡した文字列を一時的な`Forms.TextBox.1`へ入れ、全選択して`.Copy`することで、VBAから文字列をコピー済みの状態にします。`MCCErrorEscape`のように、VBAで生成したコードテンプレートをすぐコードウィンドウへ貼り付けたい場合に使いやすい補助処理です。
+
+## 使う場面
+
+- VBAで生成したコード文字列を、そのまま<Term>VBE</Term>へ貼り付けたい
+- ログ、URL、メッセージ文などをユーザーがすぐ貼り付けられる状態にしたい
+- `MCCErrorEscape`のようなコード生成補助プロシージャから、生成結果を受け渡したい
+- 改行を含む複数行テキストをまとめてコピーしたい
+
+## 使用例
+
+1行の文字列をコピーする場合は、次のように呼び出します。
+
+<CopyCode language="vba" filename="使用例" src="/articles/vba/cliptext/usage.bas" />
+
+`Sample_ClipText`を実行すると、次の文字列が貼り付け可能な状態になります。
+
+```text
+この文字列をクリップボードにコピーします。
+```
+
+`Sample_ClipText_MultiLine`のように、`vbCrLf`でつないだ複数行の文字列もコピーできます。コード生成やメール本文の生成などでは、この複数行コピーが特に便利です。
+
+## MCCErrorEscapeとの関係
+
+`MCCErrorEscape`では、エラー回避用テンプレートを`Str`へ組み立てたあと、最後に`ClipText(Str)`を呼び出しています。
+
+```vba
+'クリップボード格納
+Call ClipText(Str)
+```
+
+この1行があることで、生成した`On Error GoTo`テンプレートを手で選択してコピーする必要がなくなります。<Term>イミディエイトウィンドウ</Term>から`MCCErrorEscape`を実行したあと、コードウィンドウに戻って貼り付けるだけで次の作業へ進めます。
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="ClipText.bas" src="/articles/vba/cliptext/ClipText.bas" />
+
+## 初心者向けコード解説
+
+`Public Sub ClipText(ByVal Text As String)`は、コピーしたい文字列を`Text`として受け取るSubプロシージャです。戻り値はなく、実行するとクリップボードの内容が書き換わります。
+
+`CreateObject("Forms.TextBox.1")`では、<Term>MSForms</Term>のテキストボックスを一時的に作っています。これはワークシート上に表示するための部品ではなく、文字列をコピーするための入れ物として使っています。
+
+`.MultiLine = True`は、改行を含む文字列を扱えるようにする設定です。コード生成では複数行の文字列をコピーすることが多いため、この設定を入れておくと使い回しやすくなります。
+
+`.Text = Text`で、引数として渡された文字列をテキストボックスへ入れます。その後、`.SelStart = 0`と`.SelLength = .TextLength`で全文を選択し、最後に`.Copy`でクリップボードへコピーします。
+
+## 注意点
+
+- 実行すると、直前にユーザーがコピーしていたクリップボード内容は上書きされます。
+- `Forms.TextBox.1`を使うため、配布先環境でMSForms系の部品が利用できるか確認してください。通常のWindows版Excelでは使えるケースが多いですが、環境差はあります。
+- パスワード、APIキー、個人情報などの機密情報をコピーする用途では、誤貼り付けやログ残りに注意してください。
+- コード生成補助として使う場合は、生成コードを貼り付けたあとに必ず目視確認してから実行します。
+
+## 関連記事
+
+- [エラー回避コードのひな形を生成するMCCErrorEscape](/articles/vba/mcc-error-escape)
+- [コードウィンドウへ戻すShowCodeWindowDelay](/articles/vba/show-code-window-delay)
+- [イミディエイトウィンドウをCUIのように使ってプロシージャコードを半自動生成する](/articles/vba/immediate-window-cui-procedure-generator)
+
+## 軽いまとめ
+
+`ClipText`は、VBAで作った文字列をユーザーがすぐ貼り付けられる状態にする小さな汎用部品です。
+
+単体でも便利ですが、`MCCErrorEscape`のようなコード生成補助プロシージャと組み合わせると、生成、コピー、貼り付けの流れをかなり短縮できます。

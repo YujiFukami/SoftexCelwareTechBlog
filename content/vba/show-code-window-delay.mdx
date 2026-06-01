@@ -1,0 +1,105 @@
+---
+title: "イミディエイトウィンドウ実行後にコードウィンドウへ戻すExcel VBA汎用プロシージャ ShowCodeWindowDelay"
+category: "vba"
+slug: "show-code-window-delay"
+tags: ["Excel VBA", "汎用プロシージャ", "VBE", "VBIDE", "Application.OnTime"]
+description: "イミディエイトウィンドウから開発補助マクロを実行したあと、Application.OnTimeとDoEventsでタイミングをずらしてVBEのコードウィンドウへ戻す補助プロシージャを解説します。"
+date: "2026-06-01"
+---
+
+## 概要
+
+`ShowCodeWindowDelay`は、<Term>イミディエイトウィンドウ</Term>から処理を実行したあと、<Term>VBE</Term>のコードウィンドウを前面に戻すための<Term>Excel VBA</Term>汎用プロシージャです。
+
+`MCCErrorEscape`のようなコード生成補助では、テンプレートを<Term>クリップボード</Term>へ入れたあと、ユーザーがすぐコードウィンドウへ貼り付けられる状態にしたい場面があります。ただし、イミディエイトウィンドウから実行した直後にすぐ`SetFocus`しても、フォーカス移動が安定しないことがあります。
+
+そこで`ShowCodeWindowDelay`では、<Term>Application.OnTime</Term>で処理タイミングを切り離し、さらに`ShowCodeWindow`側で短く待機してからコードウィンドウを探します。
+
+## 使う場面
+
+- イミディエイトウィンドウから開発補助マクロを実行したあと、コードウィンドウへ戻したい
+- コード生成結果をクリップボードへ入れたあと、貼り付け先の画面を前面にしたい
+- <Term>VBIDE</Term>を操作する自作ツールで、最後に編集対象のコード画面へ戻したい
+- VBEのフォーカス移動が不安定な処理に、少し待機を入れて安定させたい
+
+## 使用例
+
+単体で動きを確認する場合は、次のように呼び出します。
+
+<CopyCode language="vba" filename="使用例" src="/articles/vba/show-code-window-delay/usage.bas" />
+
+実際には、`MCCErrorEscape`のような処理の最後で呼び出します。
+
+```vba
+'コードウィンドウ表示
+Debug.Print Str
+Call ShowCodeWindowDelay
+```
+
+これにより、生成したテンプレートを<Term>Debug.Print</Term>で確認しつつ、コードウィンドウへ戻って貼り付ける流れを作れます。
+
+## 処理の流れ
+
+```text
+ShowCodeWindowDelay
+  1. ThisWorkbook.Nameを取得する
+  2. 実行対象としてShowCodeWindowを指定する
+  3. ブック名!ShowCodeWindow の形式にする
+  4. Application.OnTimeでShowCodeWindowの実行を予約する
+
+ShowCodeWindow
+  1. DoEventsを回しながら約0.05秒待つ
+  2. Application.VBE.Windowsを順番に見る
+  3. コードウィンドウかつ最大化状態のウィンドウを探す
+  4. Visible = True と SetFocus で前面に出す
+```
+
+ポイントは、コードウィンドウを直接表示しようとせず、いったん予約実行に回している点です。イミディエイトウィンドウで処理が終わった直後の画面状態を避けることで、表示切り替えが成功しやすくなります。
+
+## MCCErrorEscapeとの関係
+
+`MCCErrorEscape`では、エラー回避テンプレートを生成して`ClipText`でクリップボードへ格納したあと、最後に`ShowCodeWindowDelay`を呼び出します。
+
+```vba
+Call ClipText(Str)
+Debug.Print Str
+Call ShowCodeWindowDelay
+```
+
+この流れにより、ユーザーはイミディエイトウィンドウで`MCCErrorEscape`を実行したあと、生成されたコードを確認しつつ、コードウィンドウへ戻って貼り付けられます。
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="ShowCodeWindowDelay.bas" src="/articles/vba/show-code-window-delay/ShowCodeWindowDelay.bas" />
+
+## 初心者向けコード解説
+
+`ShowCodeWindowDelay`では、まず`ThisWorkbook.Name`で現在のブック名を取得します。`Application.OnTime`で実行するプロシージャを指定するときに、`ブック名!プロシージャ名`の形にするためです。
+
+`Dim ProcName As String: ProcName = "ShowCodeWindow"`では、あとで実行したいプロシージャ名を文字列として持っています。`FullProc = BookName & "!" & ProcName`で、実行対象を組み立てています。
+
+`Application.OnTime`は、指定した時刻にマクロを実行するExcelの機能です。ここでは`Time_ = Now()`としているため、すぐ実行する指定に近いですが、今の処理の流れから一度切り離して`ShowCodeWindow`を呼ぶ意味があります。
+
+`ShowCodeWindow`では、`Timer`と`DoEvents`を使って約0.05秒だけ待っています。この短い待機により、クリップボード操作やVBE側のフォーカス移動が落ち着く余地を作っています。
+
+`Application.VBE.Windows`は、VBE内のウィンドウ一覧です。ここから、`Window.Type = vbext_wt_CodeWindow`かつ`Window.WindowState = vbext_ws_Maximize`のウィンドウを探し、`Window.SetFocus`で前面に出します。
+
+## 注意点
+
+- `Application.VBE.Windows`を使うため、VBEの「ツール」→「参照設定」で`Microsoft Visual Basic for Applications Extensibility 5.3`が必要になる場合があります。
+- 環境によっては、Excelのトラストセンターで「VBAプロジェクト オブジェクト モデルへのアクセスを信頼する」の確認が必要です。
+- 最大化されているコードウィンドウを対象にしているため、VBEの表示状態によっては期待したウィンドウへ戻らない場合があります。
+- 画面フォーカスを操作する補助処理なので、一般ユーザー向けの業務処理よりも、開発者向けの補助マクロとして扱うのが向いています。
+- `Application.OnTime`で予約実行するため、対象ブックが閉じられている状態では正しく動きません。
+
+## 関連記事
+
+- [エラー回避コードのひな形を生成するMCCErrorEscape](/articles/vba/mcc-error-escape)
+- [文字列をクリップボードへ格納するClipText](/articles/vba/cliptext)
+- [イミディエイトウィンドウをCUIのように使ってプロシージャコードを半自動生成する](/articles/vba/immediate-window-cui-procedure-generator)
+
+## 軽いまとめ
+
+`ShowCodeWindowDelay`は、イミディエイトウィンドウから実行した開発補助マクロの最後に、コードウィンドウへ戻るための小さな部品です。
+
+単体では画面復帰だけの処理ですが、`ClipText`や`MCCErrorEscape`のようなコード生成・クリップボード連携と組み合わせることで、VBA開発中の「生成して貼り付ける」流れをかなり滑らかにできます。
