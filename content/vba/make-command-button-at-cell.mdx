@@ -1,0 +1,101 @@
+---
+title: "セル範囲に合わせてボタンを作成するExcel VBA汎用プロシージャ MakeCommandButtonAtCell"
+category: "vba"
+slug: "make-command-button-at-cell"
+tags: ["Excel VBA", "汎用プロシージャ", "フォームコントロール", "OnAction", "Shape"]
+description: "指定したセル範囲と同じ位置・サイズでフォームコントロールのボタンを作成し、クリック時に実行するマクロまで登録するExcel VBA汎用関数を解説します。"
+date: "2026-06-02"
+image: "/articles/vba/make-command-button-at-cell/workflow.jpg"
+---
+
+## 概要
+
+`MakeCommandButtonAtCell`は、指定した<Term>Range</Term>の位置とサイズに合わせて、ワークシート上へ<Term>フォームコントロールのボタン</Term>を作成する<Term>Excel VBA</Term>の汎用関数です。
+
+セルの`Left`、`Top`、`Width`、`Height`をそのまま使うため、「このセル範囲の上に実行ボタンを置きたい」という処理を短く書けます。作成したボタンには<Term>OnAction</Term>で指定マクロを登録し、同名の<Term>Shape</Term>が既にある場合は重複作成しない構成にしています。
+
+ここで扱うボタンは、UserForm上の`CommandButton`ではなく、ワークシート上へ配置するフォームコントロールの`Button`です。
+
+## 使う場面
+
+- 帳票シートや入力シートに「実行」「登録」「更新」などのボタンを自動配置したい
+- テンプレートシート生成時に、セル配置とボタン配置をまとめて作りたい
+- 複数のセル範囲へ同じ形式の操作ボタンを作成したい
+- アドインや共通モジュール側の処理から、各ブック内のマクロをボタンへ割り当てたい
+- 既に作成済みのボタンを重複して増やさないようにしたい
+
+## 処理イメージ図
+
+<figure>
+  <a href="/articles/vba/make-command-button-at-cell/workflow.jpg" target="_blank" rel="noopener noreferrer">
+    <img src="/articles/vba/make-command-button-at-cell/workflow.jpg" alt="MakeCommandButtonAtCellで指定セル範囲にボタンを作成してマクロを実行する流れ" className="h-auto w-full" />
+  </a>
+  <figcaption>セル範囲、表示文字、登録マクロ名、ボタン名を渡すと、指定セル範囲と同じ大きさのボタンが作成され、クリックで登録マクロを実行できます。</figcaption>
+</figure>
+
+## 使用例
+
+次の例では、`B2:C3`の範囲に「テスト」というボタンを作成し、クリック時に`S_メッセージ表示のみ`を実行します。
+
+<CopyCode language="vba" filename="使用例" src="/articles/vba/make-command-button-at-cell/usage.bas" />
+
+作成後のボタンを変数で受け取りたい場合は、戻り値の`Button`を`Set`で受けます。戻り値を使わない場合は、`Call MakeCommandButtonAtCell(...)`の形でも呼び出せます。
+
+## サンプルブック
+
+動作確認用のマクロ有効ブックも用意しています。
+
+<p>
+  <a href="/downloads/vba/make-command-button-at-cell-sample.xlsm" download style={{ display: "inline-block", padding: "0.75rem 1rem", borderRadius: "8px", background: "#0f766e", color: "#fff", fontWeight: 700, textDecoration: "none" }}>
+    MakeCommandButtonAtCellサンプルブックをダウンロード
+  </a>
+</p>
+
+`.xlsm`形式のため、Excelで開くときはマクロの有効化、保護ビュー、ダウンロードファイルのブロック解除を確認してください。
+
+## コピー可能な実装コード
+
+下のコードは、`MakeCommandButtonAtCell`と、重複作成の確認に使う`GetShapeByName`を1つにまとめた貼り付け用パッケージです。
+
+<CopyCode language="vba" filename="MakeCommandButtonAtCell.bas" src="/articles/vba/make-command-button-at-cell/MakeCommandButtonAtCell.bas" />
+
+## 初心者向けコード解説
+
+最初に`Set Sheet = Cell.Worksheet`で、ボタンを作成する対象シートを取得しています。呼び出し側でシートを別途渡さなくても、指定したセル範囲から対象シートを判断できるようにするためです。
+
+`ButtonName`が空の場合は、`Caption`をそのままボタン名に使います。その後、`GetShapeByName(Sheet, ButtonName)`で同じ名前の図形があるかを確認し、既に存在する場合は`Exit Function`で抜けます。これにより、同じボタンを何度も作ってしまう事故を防ぎます。
+
+ボタン作成の中心は、次の1行です。
+
+```vba
+Set Button = Sheet.Buttons.Add(Cell.Left, Cell.Top, Cell.Width, Cell.Height)
+```
+
+`Cell.Left`と`Cell.Top`でセル範囲の左上位置を取り、`Cell.Width`と`Cell.Height`で幅と高さを取ります。そのため、指定したセル範囲にぴったり重なるボタンを作成できます。
+
+`Button.OnAction = "'" & BookFullPath & "'!" & RegistMacro`では、マクロ名だけではなく、ブックのフルパス付きで実行先を登録しています。`MakeCommandButtonAtCell`を`xlam`などの外部アドイン側へ置いた場合でも、ボタンが押されたときに対象ブック側のマクロを呼び出しやすくするためです。
+
+最後に`Button.ShapeRange.Name = ButtonName`でボタンの図形名を設定し、`Set MakeCommandButtonAtCell = Button`で作成したボタンを戻り値として返します。
+
+## 注意点
+
+- `ButtonName`を省略すると`Caption`がボタン名になります。同じ表示名のボタンを複数作りたい場合は、必ず別々の`ButtonName`を指定します。
+- 同名の<Term>Shape</Term>が既に存在する場合は何も作成せずに終了するため、戻り値は`Nothing`になり得ます。戻り値を使う場合は`If Btn Is Nothing Then`で確認します。
+- `RegistMacro`には、実行したいプロシージャ名を正確に渡します。引数付きマクロを直接割り当てたい場合は、<Term>OnAction</Term>へ設定する文字列を別途調整します。
+- 保護シートではボタン作成に失敗する場合があります。事前にシート保護の状態を確認してください。
+- ブックのフルパスを<Term>OnAction</Term>へ含めるため、ブックを移動した後は登録先の見直しが必要になる場合があります。
+- マクロ有効ブックやアドインとして使う場合は、Excelのマクロセキュリティ設定も確認してください。
+
+## 関連記事
+
+- [指定名の図形を取得するGetShapeByName](/articles/vba/get-shape-by-name)
+- [クリックされた図形を取得するGetShapePushed](/articles/vba/get-shape-pushed)
+- [選択セルに追従する増減ボタンを表示するEventShowMoveSpinButton](/articles/vba/event-show-move-spin-button)
+- [入力規則の値を切り替えるEventShowMoveSpinButton_Value](/articles/vba/event-show-move-spin-button-value)
+- [エラー回避コードのひな形を生成するMCCErrorEscape](/articles/vba/mcc-error-escape)
+
+## 軽いまとめ
+
+`MakeCommandButtonAtCell`を用意しておくと、セル範囲に合わせた操作ボタンの作成とマクロ登録を1行で扱えるようになります。
+
+Excelツールでは、シート上に操作ボタンを置く場面が多いため、テンプレート生成や入力画面の整備に使い回しやすい小さな汎用部品です。
