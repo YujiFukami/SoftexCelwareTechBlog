@@ -1,5 +1,6 @@
-import { getAllArticles } from "@/lib/articles";
+import { categoryLabels, getAllArticles } from "@/lib/articles";
 import ArticleCard from "@/components/ArticleCard";
+import ArticleUpdateCalendar from "@/components/ArticleUpdateCalendar";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -13,6 +14,7 @@ export default function ArticlesPage() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">記事一覧</h1>
+      <ArticleUpdateCalendar articles={articles} categoryLabels={categoryLabels} />
       {articles.length === 0 ? (
         <p className="text-gray-500 text-sm">記事を準備中です。</p>
       ) : (
