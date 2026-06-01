@@ -1,0 +1,251 @@
+---
+title: "「Excel VBAはそのうち無くなる」は本当か？VBA廃止説の歴史と現実"
+category: "summary"
+slug: "excel-vba-deprecation-myth"
+tags: ["Excel VBA", "VBA", "マクロ", "Office Scripts", "Office Add-ins", "Power Automate", "技術選定"]
+description: "Excel VBAやマクロは昔から「そのうち使えなくなる」と言われ続けています。VBA廃止説が繰り返される背景と、実務での現実的な使い分けを整理します。"
+date: "2026-06-01"
+image: "/articles/summary/excel-vba-deprecation-myth/cover.png"
+---
+
+<Term>Excel VBA</Term>やマクロについて話していると、昔からよく出てくる話があります。
+
+> VBAはそのうち使えなくなるのではないか。
+
+> マクロはもう古いのではないか。
+
+> MicrosoftはVBAをなくしたいのではないか。
+
+Excelを使った業務改善や社内ツール開発に関わっている人であれば、一度は聞いたことがある話だと思います。
+
+たしかに、VBAは最新のWeb技術やクラウド型の自動化ツールと比べると、古い技術に見えます。マクロウイルス対策の流れで、インターネット由来のマクロ実行が厳しく制限されてきたことも事実です。
+
+しかし、現実の業務現場では、VBAは今でも多くのExcel業務で使われています。この記事では、VBA廃止説がなぜ何度も語られてきたのか、そして実務ではどう捉えるのが現実的なのかを整理します。
+
+<figure>
+  <img src="/articles/summary/excel-vba-deprecation-myth/cover.png" alt="Excel VBA廃止説の歴史と現実を整理した図" />
+  <figcaption>VBAは何度も「終わる」と言われてきましたが、実際には用途を変えながら業務現場に残っています。</figcaption>
+</figure>
+
+## 結論: VBAは主役の最新技術ではないが、今すぐ消える技術でもない
+
+まず結論から言うと、VBAは「これからの最新主役技術」ではありません。
+
+現在の<Term>Microsoft 365</Term>では、Web版Excel、<Term>Office Scripts</Term>、<Term>Office Add-ins</Term>、<Term>Power Automate</Term>、<Term>Power Platform</Term>など、クラウド、Web、共有環境に向いた選択肢が整ってきています。
+
+ただし、それは「VBAがすぐ使えなくなる」という意味ではありません。
+
+現実的には、次のように捉えるのが自然です。
+
+- VBAは、主にデスクトップ版Officeで使われる既存業務自動化の基盤
+- Office ScriptsやOffice Add-insは、Web版Excelやクラウド連携に強い選択肢
+- Power AutomateやPower Platformは、組織全体の業務フロー自動化に向いた選択肢
+- それぞれ用途が違うため、単純な置き換えではなく使い分けが重要
+
+つまり、「古いから終わり」ではなく、**目的に応じて選ぶ技術の一つとして残っている**という見方が近いです。
+
+## なぜVBA廃止説は繰り返されるのか
+
+VBA廃止説が繰り返される理由は、大きく4つあります。
+
+### 1. 古い技術に見えるから
+
+VBAは1990年代からOfficeに組み込まれてきた技術です。
+
+JavaScript、Python、クラウドAPI、Power Platformなどと比べると、どうしても古い印象を持たれやすくなります。
+
+ただし、古い技術であることと、使えない技術であることは別です。業務現場では、長年使われてきた技術ほど、既存資産や運用ノウハウが蓄積されています。
+
+VBAはまさにその典型です。
+
+### 2. .NETやVSTOなどの後継候補が出てきたから
+
+2000年代には、.NET Frameworkや<Term>VSTO</Term>など、Office開発の新しい選択肢が登場しました。
+
+この時期に「これからは.NETでOffice開発する時代ではないか」「VBAは古いのではないか」という見方が出ました。
+
+実際、大規模なアドイン開発や.NET資産と組み合わせる開発では、VSTOは有力な選択肢です。一方で、Excel上で手軽に処理を自動化する、帳票を整える、CSVを取り込む、ボタン一つで集計する、といった現場密着型の用途では、VBAの手軽さが残りました。
+
+新技術が出たからといって、既存の業務用途がすぐ置き換わるわけではなかった、ということです。
+
+### 3. Office Add-insやOffice Scriptsが登場したから
+
+2010年代以降、MicrosoftはWeb技術ベースのOffice拡張としてOffice Add-insを整備してきました。
+
+Office Add-insでは、HTML、CSS、JavaScriptなどを使って、Excel、Word、PowerPoint、Outlookなどを拡張できます。Windowsだけでなく、Mac、Webブラウザ、iPadなど、複数環境を意識しやすいのが特徴です。
+
+近年は、Excel作業を自動化する技術としてOffice Scriptsも整備されています。Office Scriptsは、Excel上の操作をスクリプト化し、Power Automateと組み合わせて自動実行する用途にも使われます。
+
+こうした流れを見ると、「MicrosoftはVBAからWeb技術へ移行させたいのではないか」と感じるのは自然です。
+
+ただし、これも「VBAがすぐ廃止される」という意味とは少し違います。Web版Excelやクラウド連携ではOffice ScriptsやOffice Add-insが有力ですが、デスクトップ版Excelの既存ブック、既存マクロ、ローカルファイル操作、細かな帳票処理では、今もVBAが使われています。
+
+### 4. マクロのセキュリティ対策が強化されたから
+
+VBAマクロは便利な一方で、悪意あるファイルに利用されるリスクがあります。
+
+Microsoftは、インターネットから取得したOfficeファイル内のマクロを既定でブロックするなど、セキュリティ対策を強化してきました。
+
+このような変更があると、「マクロが禁止されるのでは」「VBAはもう使えなくなるのでは」という話が出やすくなります。
+
+ここで重要なのは、問題になっているのは主に信頼できないファイルやインターネット経由の危険なマクロであり、すべての業務用マクロが同じ扱いではないことです。
+
+社内で管理されたファイル、信頼済みの場所、署名付きマクロなど、適切に管理された運用は残されています。
+
+## 歴史的には「終了説」が何度も出ている
+
+大まかに時系列で見ると、VBA廃止説は一度だけ出てきた話ではありません。
+
+| 時期 | 出来事 | 終了説が出やすくなった理由 |
+| --- | --- | --- |
+| 1990年代 | VBAがExcelやOfficeに定着 | 業務自動化の標準的な手段として広がる |
+| 2000年代 | .NET / VSTOが登場 | 「これからは.NETでは」という見方が出る |
+| 2010年代 | Office Add-insが登場 | Web技術ベースのOffice拡張が注目される |
+| 2020年代 | Office Scripts、Power Automate、マクロセキュリティ強化 | 「マクロ終了」「VBA不要」という話が再燃 |
+
+新しい技術が出るたびに、「今度こそVBAは終わるのでは」という話が繰り返されてきました。
+
+しかし現実には、そのたびにVBAは完全には消えず、業務現場で使われ続けてきました。
+
+## なぜ今もVBAは使われるのか
+
+VBAが今も使われる理由は、単に昔からあるからではありません。業務現場における合理的な理由があります。
+
+## 既存資産が膨大にある
+
+多くの会社には、長年使われてきたExcelファイルがあります。
+
+- 売上集計表
+- 請求書発行ツール
+- 在庫管理表
+- 勤怠管理表
+- CSV取込ツール
+- 帳票作成ツール
+- 社内独自の集計ブック
+
+これらの中には、VBAマクロが組み込まれているものも多くあります。
+
+既存業務に深く入り込んだExcelマクロを、すべて別技術に置き換えるには、大きなコストと時間がかかります。そのため、現実的には「使えるものは保守しながら使う」という判断になりやすいです。
+
+## 導入コストが低い
+
+VBAの強みは、Excelさえあれば始めやすいことです。
+
+専用サーバー、Webアプリ環境、データベース、クラウド契約などを用意しなくても、既存のExcelファイル上で処理を追加できます。
+
+中小企業や小規模現場では、この手軽さが大きなメリットになります。
+
+もちろん、すべての業務をVBAで行うべきではありません。しかし、「まず現場の作業を少し楽にする」「今あるExcelを改善する」という目的では、VBAは今でも有効です。
+
+## Excel利用者が多い
+
+Excelは多くの業務現場で使われています。
+
+現場の人がすでにExcelに慣れている場合、新しい専用システムを導入するよりも、既存のExcelを拡張した方がスムーズなことがあります。
+
+特に、次のようなケースではVBAが相性の良い選択肢になります。
+
+- 担当者がExcel操作に慣れている
+- 入力、確認、印刷がExcel中心で行われている
+- 既存のExcel帳票をそのまま活かしたい
+- 小規模な改善から始めたい
+- 現場独自の細かなルールが多い
+
+Excelが業務現場の共通言語になっているからこそ、VBAも残り続けています。
+
+## 現場の小回りが利く
+
+VBAは、現場の細かな要望に対応しやすい技術です。
+
+- この列だけ自動で色を付けたい
+- ボタンを押したらPDF出力したい
+- CSVを取り込んで指定形式に変換したい
+- 入力ミスをチェックしたい
+- 複数シートの情報を集計したい
+- 印刷範囲を整えて帳票化したい
+
+こうした処理を、既存のExcelブックに直接組み込めます。
+
+大規模システム開発ほどの予算や期間をかけずに、現場の困りごとへ素早く対応できる。これがVBAの大きな強みです。
+
+## VBAが向いている場面
+
+VBAは、次のような場面で今も有力です。
+
+- 既存のExcel業務を改善したい
+- 小規模から中規模の自動化を短期間で行いたい
+- 現場がExcelに慣れている
+- 帳票、印刷、CSV、ファイル整理が中心
+- ローカル環境で完結する処理が多い
+- 予算を抑えて業務改善したい
+
+このような用途では、無理にWebアプリ化するより、VBAで改善した方が早く、現場にも受け入れられやすいことがあります。
+
+## VBA以外も検討すべき場面
+
+反対に、次のような用途ではVBA以外も検討した方がよいです。
+
+- 複数人同時利用が前提
+- Webブラウザやスマートフォンで使いたい
+- クラウド上で自動実行したい
+- API連携やデータベース連携が中心
+- 将来的に大規模化する
+- 厳密な権限管理やログ管理が必要
+- 24時間稼働や常時監視が必要
+
+このような場合は、<Term>Webアプリ</Term>、データベース、Power Platform、GAS、Python、Node.js、クラウドサービスなどを含めて検討する方が現実的です。
+
+大事なのは、VBAを過大評価することでも、過小評価することでもありません。
+
+**VBAで十分なものはVBAで作る。VBAでは無理があるものは別技術を使う。**
+
+この判断が一番大切です。
+
+## Microsoft公式情報から見えること
+
+Microsoftは、VBAを積極的に最新技術として大きく進化させているわけではありません。
+
+一方で、Microsoft LearnにはVBAの公式ドキュメントが存在し、OfficeでVBAを使うための情報も公開されています。Office ScriptsやOffice Add-insの公式情報も整備されています。
+
+この状況を見ると、次のように考えるのが自然です。
+
+- 既存のデスクトップOffice利用者向けには、VBA互換性を維持する
+- 新しいクラウド、Web、共有環境向けには、Office ScriptsやOffice Add-insを推進する
+- セキュリティ上危険なマクロ実行は制限する
+- 既存マクロをすぐに全廃するのではなく、信頼できる運用へ寄せる
+
+ただし、「Microsoftが将来にわたってVBAを必ず残す」と断定することはできません。将来の仕様変更やセキュリティ方針変更はあり得ます。
+
+そのため、実務では「VBAが使えるうちは既存資産を活かす」「新規開発では用途に応じて別技術も検討する」というバランスが重要です。
+
+## まとめ
+
+Excel VBAは、昔から何度も「そのうち無くなる」と言われてきました。
+
+その背景には、.NET、VSTO、Office Add-ins、Office Scripts、Power Automateなど、新しい技術が登場してきたことがあります。マクロのセキュリティ対策が強化されたことも、VBA終了説を加速させてきました。
+
+しかし、現実にはVBAは今もデスクトップ版Officeで利用され、多くの業務現場で既存資産として使われ続けています。
+
+結論としては、次のように考えるのが一番自然です。
+
+> VBAはこれからの最新主役技術ではない。
+
+> しかし、今すぐ消える過去の技術でもない。
+
+> 既存のExcel業務を改善する現場密着型の技術として、今も十分に役割がある。
+
+VBA廃止説をそのまま信じるのではなく、実際の業務内容、利用環境、将来性、保守性を見て、冷静に技術選定することが大切です。
+
+## 関連記事
+
+- [Excel VBA汎用部品化テクニック](/articles/vba/vba-componentization-technique)
+- [Excel VBAコードをAIが読める形に出力する考え方](/articles/codex/excel-vba-ai-readable-export)
+- [VSTOでExcelアドインを作るときの独立フォーム表示パターン](/articles/vsto/vsto-independent-form-hosting-patterns)
+- [現場DXの理想と現実](/articles/design-philosophy/field-dx-reality)
+
+## 参考情報
+
+- [Microsoft Learn: Getting started with VBA in Office](https://learn.microsoft.com/en-us/office/vba/library-reference/concepts/getting-started-with-vba-in-office)
+- [Microsoft Learn: Office Scripts in Excel](https://learn.microsoft.com/en-us/office/dev/scripts/overview/excel)
+- [Microsoft Learn: Office Add-ins platform overview](https://learn.microsoft.com/en-us/office/dev/add-ins/overview/office-add-ins)
+- [Microsoft Learn: Macros from the internet are blocked by default in Office](https://learn.microsoft.com/en-us/deployoffice/security/internet-macros-blocked)
