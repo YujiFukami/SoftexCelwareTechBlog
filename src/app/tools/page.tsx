@@ -40,6 +40,14 @@ const tools = [
       "ココナラ出品者向けに、見積額から支払総額と手取りを計算し、予算上限や目標手取りから必要な見積額も逆算できる参考計算Webアプリです。",
     tags: ["Vanilla JS", "料金計算", "二分探索", "レスポンシブUI"],
   },
+  {
+    href: "/tools/spherical-lissajous-explorer",
+    title: "球面リサージュ曲面 / 内トロコイド曲面 Webアプリ",
+    category: "3D数式曲面学習Webアプリ",
+    description:
+      "球面リサージュ曲面と内トロコイド曲面をブラウザ上で3D可視化し、パラメータ調整とSTL出力まで確認できる学習・検証用Webアプリです。",
+    tags: ["Vanilla JS", "Three.js", "3D", "STL出力"],
+  },
 ];
 
 export default function ToolsPage() {

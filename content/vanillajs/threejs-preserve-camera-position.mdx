@@ -1,0 +1,136 @@
+---
+title: "Three.jsでパラメータ変更時にカメラ位置を保持するパターン"
+category: "vanillajs"
+slug: "threejs-preserve-camera-position"
+tags: ["Vanilla JS", "Three.js", "3Dビューア", "OrbitControls", "UI設計"]
+description: "3Dモデル更新時に視点を毎回リセットせず、初回やモード切替だけ自動フィットするためのカメラ制御パターンです。"
+date: "2026-06-01"
+---
+
+<Term>Three.js</Term>で3Dビューアを作るとき、パラメータ変更のたびにモデルを作り直すことがあります。
+
+このとき毎回カメラを自動フィットすると、ユーザーが見たい角度に回転していた視点までリセットされてしまいます。一方で、初回表示や別モードへの切り替えでは、形状全体が見える位置に自動で合わせたいこともあります。
+
+この記事では、**ホーム位置の計算**と**実際のカメラ移動**を分離し、必要なときだけ自動フィットするパターンを整理します。
+
+## 課題
+
+3D学習ツールでは、スライダーでパラメータを動かしながら形状を確認します。
+
+- パラメータ変更時は、ユーザーが選んだ視点を維持したい
+- 初回ロード時は、モデル全体が見えるようにしたい
+- タブ切替時は、新しい形状へ自動フィットしたい
+- Resetボタンでは、現在の形状に合ったホーム位置へ戻したい
+- 形状サイズが変わっても、near/farのクリッピングで消えないようにしたい
+
+これを実現するには、「ホーム位置を更新する処理」と「カメラを動かす処理」を混ぜないことが重要です。
+
+## 基本方針
+
+ビューア側では、次の2つの処理を分けます。
+
+| 処理 | 役割 |
+| --- | --- |
+| `_calcHomeCamera` | モデルの中心、半径、near/far、ホーム位置を計算して保存する |
+| `_applyHomeCamera` | 保存済みのホーム位置へ実際にカメラとOrbitControlsのtargetを移動する |
+
+モデル更新時は、ホーム位置とクリッピング面を常に更新します。ただし、実際にカメラを移動するのは `fit=true` のときだけです。
+
+```js
+class Viewer {
+  setMesh(mesh, fit = false) {
+    this.clearModel();
+    // BufferGeometry, Mesh, WireframeGeometry などを構築する
+
+    // Resetボタンやクリッピング面が新しい形状に追従するように常に更新
+    this._calcHomeCamera(mesh.bounds);
+
+    // 初回表示やモード切替など、明示的に必要なときだけ移動
+    if (fit) {
+      this._applyHomeCamera();
+    }
+  }
+
+  _calcHomeCamera(bounds) {
+    const center = new THREE.Vector3(...bounds.center);
+    const radius = Math.max(...bounds.size, 0.001) * 0.6;
+    const dist = radius / Math.sin((this.camera.fov * Math.PI) / 180 / 2);
+    const dir = new THREE.Vector3(1, 0.8, 1).normalize();
+    const pos = center.clone().add(dir.multiplyScalar(dist * 1.3));
+
+    this._homeCamera.pos.copy(pos);
+    this._homeCamera.target.copy(center);
+
+    this.camera.near = dist / 100;
+    this.camera.far = dist * 100;
+    this.camera.updateProjectionMatrix();
+  }
+
+  _applyHomeCamera() {
+    this.camera.position.copy(this._homeCamera.pos);
+    this.controls.target.copy(this._homeCamera.target);
+    this.controls.update();
+  }
+
+  resetCamera() {
+    this._applyHomeCamera();
+  }
+}
+```
+
+## 呼び出し側はフラグで制御する
+
+アプリ側では、`needsCameraFit` のようなフラグを持たせます。
+
+```js
+const state = {
+  needsCameraFit: true,
+};
+
+function loadMode(type) {
+  state.curveType = type;
+  state.needsCameraFit = true;
+  recompute();
+}
+
+function recompute() {
+  const result = generate(state.params);
+
+  const fit = state.needsCameraFit;
+  state.needsCameraFit = false;
+
+  viewer.setMesh(
+    { vertices: result.vertices, faces: result.faces, bounds: result.bounds },
+    fit
+  );
+}
+```
+
+初回表示やモード切替では `true` にします。通常のパラメータ変更では `false` のままなので、視点は維持されます。
+
+## near/far更新は毎回必要
+
+カメラ位置を動かさない場合でも、near/farは新しい形状サイズに合わせて更新しておく必要があります。
+
+たとえば、形状が大きくなったのに `far` が小さいままだと、モデルの一部が切り取られたり、何も表示されていないように見えたりします。
+
+そのため、`_calcHomeCamera` は毎回呼び、`_applyHomeCamera` だけを必要時に限定します。
+
+## 実装した効果
+
+[球面リサージュ曲面 / 内トロコイド曲面 Webアプリ](/tools/spherical-lissajous-explorer)では、この分離により次の挙動にできました。
+
+- スライダーを動かしても視点は維持される
+- ワイヤー表示や透明表示の切替でも視点は変わらない
+- 曲面タイプのタブ切替時だけ、新しい形状へ自動フィットする
+- Resetボタンを押すと、現在の形状に合った位置へ戻る
+
+3Dビューアでは、ユーザーが今見ている角度そのものが作業状態です。勝手に視点を戻さないだけで、操作感は大きく改善します。
+
+## まとめ
+
+3Dモデルの更新処理では、ホーム位置の計算とカメラ移動を分けると扱いやすくなります。
+
+毎回更新するものは、モデル、ホーム位置、near/far。必要なときだけ動かすものは、実際のカメラ位置とOrbitControlsのtargetです。
+
+この分離は、[スライダー操作中プレビューとデバウンス](/articles/vanillajs/slider-preview-debounce)のようなリアルタイム更新UIとも相性が良く、パラメータ変更中でも視点を安定させられます。

@@ -1,0 +1,144 @@
+---
+title: "重い計算UIでスライダー操作中プレビューとデバウンスを両立する"
+category: "vanillajs"
+slug: "slider-preview-debounce"
+tags: ["Vanilla JS", "デバウンス", "UI設計", "3D", "パフォーマンス"]
+description: "スライダー操作中は軽量プレビュー、操作完了時は本解像度で再計算することで、重い3D計算UIの操作感を保つパターンです。"
+date: "2026-06-01"
+---
+
+スライダーでパラメータを変えるたびに重い計算を実行すると、画面が固まって操作しづらくなります。
+
+一方で、単純に<Term>デバウンス</Term>するだけでは、ユーザーがスライダーを動かしている間に変化が見えません。3D形状やグラフを調整するUIでは、ドラッグ中にも大まかなプレビューが見えることが重要です。
+
+この記事では、**ドラッグ中は軽量プレビュー、離したら本解像度で再計算**する2段階更新パターンを整理します。
+
+## 課題
+
+3Dメッシュ生成、画像生成、複雑な数値計算では、1回の再計算に時間がかかります。
+
+スライダーの `input` イベントはドラッグ中に連続発火するため、毎回本計算を走らせると次の問題が起きます。
+
+- UIが固まる
+- スライダーのつまみが遅れて動く
+- 古い計算結果が後から描画される
+- ダウンロード対象のデータがプレビュー品質で上書きされる
+- ユーザーが調整中の変化を確認しづらい
+
+## 2段階更新にする
+
+基本方針は次の2段階です。
+
+| タイミング | 処理 |
+| --- | --- |
+| `input` | 分割数や解像度を下げた軽量プレビューを表示する |
+| `change` | スライダーを離したタイミングで本解像度の計算を即時実行する |
+
+さらに、連続入力に備えてデバウンスを入れ、古い結果が後から返ってきても採用しないようにシーケンス番号を付けます。
+
+```js
+const PREVIEW_DIV_CAP = 60;
+const DEBOUNCE_MS = 200;
+
+let computeSeq = 0;
+let debounceTimer = null;
+
+slider.addEventListener("input", () => {
+  state.params[key] = parseFloat(slider.value);
+  scheduleRecompute(true);
+});
+
+slider.addEventListener("change", () => {
+  state.params[key] = parseFloat(slider.value);
+  recompute(false);
+});
+```
+
+## デバウンス付きスケジューラ
+
+ドラッグ中の `input` では、短い待ち時間を挟んでプレビュー計算を予約します。
+
+```js
+function scheduleRecompute(preview) {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+  }
+
+  debounceTimer = setTimeout(() => {
+    recompute(preview);
+  }, DEBOUNCE_MS);
+}
+```
+
+これにより、スライダーが高速に動いている間は計算回数を抑えられます。
+
+## プレビュー時だけ計算量を下げる
+
+本計算と同じ分割数でプレビューすると、結局重くなります。プレビュー時は分割数や解像度に上限をかけます。
+
+```js
+function recompute(preview) {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+
+  const seq = ++computeSeq;
+  setStatus("calculating");
+
+  const params = { ...state.params };
+  if (preview) {
+    params.thetaDiv = Math.min(params.thetaDiv, PREVIEW_DIV_CAP);
+    params.phiDiv = Math.min(params.phiDiv, PREVIEW_DIV_CAP);
+  }
+
+  const result = heavyCompute(params);
+
+  if (seq !== computeSeq) {
+    return;
+  }
+
+  if (!preview) {
+    state.lastMesh = result;
+  }
+
+  updateViewer(result);
+  setStatus(preview ? "preview" : "ready");
+}
+```
+
+プレビュー中は `state.lastMesh` を更新しないのがポイントです。
+
+たとえば<Term>STL</Term>ダウンロード機能がある場合、プレビュー品質のメッシュを保存してしまうと、ユーザーが意図せず低解像度データを出力してしまいます。本解像度の結果だけを正式な出力対象にします。
+
+## シーケンス番号で古い結果を破棄する
+
+`computeSeq` は、計算リクエストの番号です。
+
+新しい計算を始めるたびに番号を増やし、計算後に番号が一致しているか確認します。もし一致しなければ、その結果は古いものとして破棄します。
+
+同期計算でも、この考え方を入れておくと、将来<Term>Web Worker</Term>へ移行したときにそのまま使えます。
+
+## プレビュー上限の目安
+
+プレビュー上限は、計算内容に合わせて調整します。
+
+| 計算内容 | 目安 |
+| --- | --- |
+| 軽めの3Dメッシュ | 60から100分割 |
+| 重めの3Dメッシュ | 30から50分割 |
+| 画像やテクスチャ生成 | 本解像度の4分の1程度 |
+
+ユーザーが形状変化を把握できる最低限の品質に抑えるのがコツです。
+
+## 実装したプロジェクト
+
+[球面リサージュ曲面 / 内トロコイド曲面 Webアプリ](/tools/spherical-lissajous-explorer)では、このパターンを使って、スライダー操作中の形状変化を軽く確認できるようにしています。
+
+あわせて、[Three.jsカメラ位置保持パターン](/articles/vanillajs/threejs-preserve-camera-position)を入れることで、ドラッグ中に視点が勝手に戻らないようにしています。
+
+## まとめ
+
+重い計算UIでは、すべてを本解像度で即時計算しようとすると操作感が悪くなります。
+
+ドラッグ中は軽量プレビュー、離したら本解像度。この2段階に分けることで、ユーザーは変化を見ながら調整でき、最終出力の品質も保てます。

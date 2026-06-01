@@ -1,0 +1,135 @@
+---
+title: "importmapでThree.jsをCDNから読み込むビルドレス3D Web構成"
+category: "vanillajs"
+slug: "importmap-threejs-cdn-buildless"
+tags: ["Vanilla JS", "Three.js", "importmap", "CDN", "3D"]
+description: "npmやViteを使わず、importmapでThree.jsとOrbitControlsをCDNから読み込む静的3D Webアプリ構成を整理します。"
+date: "2026-06-01"
+---
+
+<Term>Three.js</Term>を使った3D Webアプリを作るとき、最初に迷いやすいのがビルド環境です。npm、Vite、webpackを用意すれば本格的に作れますが、小さな検証ツールや静的配布のアプリでは、そこまでの構成が重く感じることがあります。
+
+この記事では、`<script type="importmap">` を使い、<Term>CDN</Term>上のThree.jsをそのまま<Term>ES Modules</Term>として読み込む構成を整理します。
+
+## 使う場面
+
+この構成は、次のような場面に向いています。
+
+- 小さな3Dビューアを静的HTMLとして作りたい
+- npm installなしで動くサンプルを配布したい
+- Vercelなどへビルドなしでデプロイしたい
+- 計算ロジックはVanilla JSで書き、表示だけThree.jsに任せたい
+- 学習用ツールや検証用ツールとして軽く公開したい
+
+今回のパターンは、[球面リサージュ曲面 / 内トロコイド曲面 Webアプリ](/tools/spherical-lissajous-explorer)で利用しています。
+
+## importmapでThree.jsを名前付きimportにする
+
+通常のブラウザでは、次のような裸のモジュール指定はそのままでは解決できません。
+
+```js
+import * as THREE from "three";
+```
+
+そこで、HTML側に<Term>importmap</Term>を書き、`three` という名前をCDN上のURLに対応させます。
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="viewer"></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
+```
+
+これで、JavaScript側では通常のES Modules記法でThree.jsとアドオンを読み込めます。
+
+```js
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(
+  45,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  1000
+);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.getElementById("viewer").appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+camera.position.set(3, 3, 3);
+
+const geometry = new THREE.BoxGeometry();
+const material = new THREE.MeshStandardMaterial({ color: 0x3f74c9 });
+scene.add(new THREE.Mesh(geometry, material));
+scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+});
+```
+
+## ローカル確認は簡易サーバー経由にする
+
+`file://` で直接HTMLを開くと、モジュール読み込みや外部ファイル参照でCORS系のエラーになることがあります。
+
+開発中は、次のように簡易サーバーを立てて確認します。
+
+```bash
+python -m http.server 8000
+```
+
+その後、ブラウザで `http://localhost:8000/` を開きます。
+
+## よく使うアドオンの読み込み
+
+`three/addons/` をimportmapに登録しておくと、Three.js公式examples内のモジュールも読み込みやすくなります。
+
+```js
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { STLLoader } from "three/addons/loaders/STLLoader.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { GUI } from "three/addons/libs/lil-gui.module.min.js";
+```
+
+3Dビューアでは、OrbitControls、STLLoader、GLTFLoaderあたりを使うことが多いです。
+
+## バージョンはURLで固定する
+
+CDNから読み込む場合は、Three.jsのバージョンをURLに明記します。
+
+```text
+https://unpkg.com/three@0.160.0/build/three.module.js
+```
+
+`latest` のような指定にすると、ある日突然アドオンのパスや挙動が変わり、表示が壊れる可能性があります。公開ツールとして置く場合は、意図したバージョンを固定した方が安定します。
+
+## 注意点
+
+この構成は軽く始められる一方で、CDNの可用性に依存します。業務上重要なアプリや、オフライン利用が必要なアプリでは、Three.js本体を `vendor/` などに配置する構成も検討します。
+
+また、ブラウザキャッシュで古いモジュールが残ることがあります。開発中に反映されない場合は、強制リロードやキャッシュ削除を確認します。
+
+## まとめ
+
+importmapを使うと、ビルドツールを用意しなくても、Three.jsを通常の `import` 記法で扱えます。
+
+小規模な3D学習ツール、検証用ビューア、静的公開アプリでは、実装と公開の手間をかなり減らせます。まずはビルドレス構成で動く形を作り、規模が大きくなったらnpm構成へ移行する、という使い分けが現実的です。
+
+関連する実装例として、[スキーマ駆動パラメータUI](/articles/vanillajs/schema-driven-parameter-ui-mode-registry)や[Three.jsカメラ位置保持パターン](/articles/vanillajs/threejs-preserve-camera-position)も合わせて見ると、3D Webアプリ全体の構成を整理しやすくなります。

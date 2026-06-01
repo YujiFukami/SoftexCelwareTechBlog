@@ -1,0 +1,161 @@
+---
+title: "スキーマ駆動パラメータUIとモードレジストリで分岐を減らす"
+category: "vanillajs"
+slug: "schema-driven-parameter-ui-mode-registry"
+tags: ["Vanilla JS", "UI設計", "状態管理", "モード切替", "設計パターン"]
+description: "複数モードを持つWebアプリで、入力項目、検証、計算関数、出力ファイル名をモードレジストリに集約する設計パターンです。"
+date: "2026-06-01"
+---
+
+複数の計算モードを持つWebアプリでは、モードごとに入力項目、初期値、検証、計算関数、出力ファイル名が変わります。
+
+そのたびに `if` や `switch` を増やしていくと、UI描画、計算、リセット、ダウンロード処理がばらばらになり、モード追加時の修正漏れが起きやすくなります。
+
+この記事では、**モードレジストリ**に入力スキーマと処理関数を集約し、UIをスキーマから動的生成するパターンを整理します。
+
+## 課題
+
+たとえば3D曲面の学習アプリで、次の2モードを持つとします。
+
+- リサージュ曲面
+- 内トロコイド曲面
+
+それぞれ、係数名、初期値、スライダー範囲、計算関数、数式表示、<Term>STL</Term>ファイル名が異なります。
+
+HTMLに入力欄を直接書き、JavaScript側でモード別に表示を切り替えると、次のような問題が出ます。
+
+- 新モード追加時に修正箇所が多い
+- HTMLとJavaScriptの入力定義がずれる
+- リセット処理だけ古い初期値を使ってしまう
+- ダウンロードファイル名だけ対応し忘れる
+- 基本モードと拡張モードの有効無効制御が複雑になる
+
+## モードレジストリにまとめる
+
+解決策は、モードごとの情報を1つのオブジェクトに集めることです。
+
+```js
+const MODES = {
+  lissajous: {
+    label: "リサージュ曲面",
+    defaults: { A: 2, B: 3, C: 2, thetaDiv: 120 },
+    generate: generateLissajous,
+    buildFormula: buildLissajousFormula,
+    buildFileName: buildLissajousName,
+    schema: [
+      { key: "A", label: "A", min: 0, max: 10, step: 1 },
+      { key: "B", label: "B", min: 0, max: 10, step: 1 },
+      { key: "C", label: "C", min: 0, max: 10, step: 1, derivedInBasic: "A" },
+    ],
+  },
+  trochoid: {
+    label: "内トロコイド曲面",
+    defaults: { Rt: 5, rt: 2, dt: 2, thetaDiv: 120 },
+    generate: generateTrochoid,
+    buildFormula: buildTrochoidFormula,
+    buildFileName: buildTrochoidName,
+    schema: [
+      { key: "Rt", label: "R θ", min: 0.5, max: 10, step: 0.5 },
+      { key: "rt", label: "r θ", min: 0.5, max: 10, step: 0.5 },
+      { key: "dt", label: "d θ", min: 0.5, max: 10, step: 0.5, derivedInBasic: "rt" },
+    ],
+  },
+};
+```
+
+この形にすると、モードごとの違いを `MODES[type]` だけで扱えるようになります。
+
+## 入力UIをスキーマから作る
+
+HTMLにパラメータ行を固定で書かず、スキーマから生成します。
+
+```js
+function renderParamRows(container, schema) {
+  container.innerHTML = schema.map((item) => `
+    <div class="param-row" data-param="${item.key}">
+      <span class="param-label">${item.label}</span>
+      <input type="range" class="param-slider"
+        min="${item.min}" max="${item.max}" step="${item.step}" />
+      <input type="number" class="param-number" step="${item.step}" />
+    </div>
+  `).join("");
+
+  schema.forEach((item) => bindParamRow(item.key));
+}
+```
+
+モード切替時は、現在モードの `schema` を渡して再描画します。
+
+```js
+function loadMode(type) {
+  state.curveType = type;
+  state.params = { ...MODES[type].defaults };
+  renderParamRows(paramContainer, MODES[type].schema);
+  syncInputsFromParams();
+  recompute();
+}
+```
+
+## 計算と出力もレジストリ経由にする
+
+計算処理やファイル名生成も、モードレジストリから呼び出します。
+
+```js
+function recompute() {
+  const mode = MODES[state.curveType];
+  const result = mode.generate(state.params);
+
+  formulaEl.textContent = mode.buildFormula(result.metadata);
+  updateViewer(result);
+}
+
+function onDownloadStl() {
+  const mode = MODES[state.curveType];
+  const stl = buildAsciiStl(state.lastMesh.vertices, state.lastMesh.faces);
+  downloadText(mode.buildFileName(state.lastMeta), stl);
+}
+```
+
+これで、新しいモードを追加するときは、基本的に `MODES` に1エントリ追加するだけで済みます。
+
+## derivedInBasicで従属パラメータを宣言する
+
+基本モードでは、ある値を別の値から自動導出したいことがあります。
+
+たとえば、`C` は `A` と同じ値にする、`d` は `r` と同じ値にする、といったケースです。
+
+このような関係は、`derivedInBasic` のようなフィールドでスキーマに持たせます。
+
+```js
+function updateModeEnabled(basic) {
+  MODES[state.curveType].schema.forEach((item) => {
+    if (!item.derivedInBasic) return;
+
+    const row = document.querySelector(`.param-row[data-param="${item.key}"]`);
+    row.classList.toggle("disabled", basic);
+    row.querySelectorAll("input").forEach((input) => {
+      input.disabled = basic;
+    });
+
+    if (basic) {
+      state.params[item.key] = state.params[item.derivedInBasic];
+    }
+  });
+}
+```
+
+UIの有効無効と値の導出ルールを、個別の分岐ではなくスキーマで表現できます。
+
+## 実装したプロジェクト
+
+このパターンは、[球面リサージュ曲面 / 内トロコイド曲面 Webアプリ](/tools/spherical-lissajous-explorer)で使っています。
+
+曲面タイプのタブ、基本/拡張モード、数式表示、STL出力を、できるだけ同じ流れで扱うための設計です。
+
+関連して、[importmapでThree.jsをCDNから読み込む構成](/articles/vanillajs/importmap-threejs-cdn-buildless)と[スライダー操作中プレビュー](/articles/vanillajs/slider-preview-debounce)も合わせて使うことで、ビルドレスでも複数モードの3Dアプリを作りやすくなります。
+
+## まとめ
+
+モードごとの違いを散らばった分岐で表現するのではなく、レジストリに集約すると、追加と保守が楽になります。
+
+入力スキーマ、初期値、計算関数、出力関数を同じ場所に置くことで、「このモードに必要なもの」がひと目で分かります。複数モードを持つ学習ツールや計算ツールでは、早めにこの構造にしておくと後から拡張しやすくなります。
