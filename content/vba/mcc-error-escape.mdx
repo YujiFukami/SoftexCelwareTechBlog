@@ -1,0 +1,152 @@
+---
+title: "エラー回避コードのひな形を生成するExcel VBA汎用プロシージャ MCCErrorEscape"
+category: "vba"
+slug: "mcc-error-escape"
+tags: ["Excel VBA", "汎用プロシージャ", "エラー処理", "イミディエイトウィンドウ", "クリップボード"]
+description: "イミディエイトウィンドウからMCCErrorEscapeを実行し、エラー回避用テンプレートをクリップボードへ生成してコードウィンドウへ戻るVBA開発補助プロシージャを解説します。"
+date: "2026-06-01"
+image: "/articles/vba/mcc-error-escape/workflow.jpg"
+---
+
+## 概要
+
+`MCCErrorEscape`は、<Term>Excel VBA</Term>の開発中に、エラーが起きそうな処理を囲むための`On Error GoTo`テンプレートをすぐ作れるようにする汎用プロシージャです。
+
+<Term>イミディエイトウィンドウ</Term>で`MCCErrorEscape`を実行すると、エラー回避用のコードを生成し、<Term>クリップボード</Term>へ格納します。その後、コードウィンドウへ戻るため、任意の位置に貼り付けて、保護したい処理をテンプレート内へ移動できます。
+
+本格的なログ基盤を作る前の段階で、「ここはエラーが出ても処理全体を止めたくない」「エラー内容だけイミディエイトウィンドウへ出しておきたい」という場面に向いた開発補助コードです。
+
+## 使う場面
+
+- ファイル操作、外部ブック操作、図形操作など、実行環境によって失敗しやすい処理を一時的に囲みたい
+- 毎回`On Error GoTo`、エラーラベル、終了ラベルを手入力する手間を減らしたい
+- 開発中に発生したエラー内容を<Term>Debug.Print</Term>で確認したい
+- <Term>VBE</Term>上で、定型的なエラー処理テンプレートをすぐ貼り付けたい
+
+## 処理イメージ図
+
+<figure>
+  <a href="/articles/vba/mcc-error-escape/workflow.jpg" target="_blank" rel="noopener noreferrer">
+    <img src="/articles/vba/mcc-error-escape/workflow.jpg" alt="MCCErrorEscapeでエラー回避コードのテンプレートを生成して貼り付ける流れ" className="h-auto w-full" />
+  </a>
+  <figcaption>イミディエイトウィンドウで実行し、生成されたテンプレートをコードウィンドウへ貼り付け、エラーを回避したい処理を内側へ移動します。</figcaption>
+</figure>
+
+## 操作デモ
+
+実際の操作では、イミディエイトウィンドウで`MCCErrorEscape`を実行し、戻ってきたコードウィンドウ上で貼り付けます。
+
+<video controls preload="metadata" className="my-6 w-full rounded-lg border border-gray-200 bg-black">
+  <source src="/articles/vba/mcc-error-escape/demo.mp4" type="video/mp4" />
+</video>
+
+## プロシージャの構成
+
+今回のパッケージは、トップの`MCCErrorEscape`から補助処理を呼び出す構成です。
+
+```text
+MCCErrorEscape
+├─ ClipText
+└─ ShowCodeWindowDelay
+   └─ ShowCodeWindow
+```
+
+`ClipText`は生成した文字列をクリップボードへ入れます。`ShowCodeWindowDelay`は<Term>Application.OnTime</Term>で`ShowCodeWindow`を呼び、イミディエイトウィンドウで実行したあとにコードウィンドウへ戻しやすくします。
+
+## 使用例
+
+標準モジュールへ実装コードを入れたあと、VBEのイミディエイトウィンドウで次のように実行します。
+
+```text
+MCCErrorEscape
+```
+
+生成されるテンプレートは次のような形です。
+
+```vba
+    On Error GoTo ErrorEscape
+
+    GoTo ErrorEscapeEnd
+
+ErrorEscape:
+    ''エラーが生じたらエラーメッセージをイミディエイトウィンドウに表示
+    If Err.Description <> "" Then
+        Debug.Print Err.Description, Now()
+    End If
+ErrorEscapeEnd:
+```
+
+貼り付けたあと、エラーを回避したい処理を`On Error GoTo ErrorEscape`と`GoTo ErrorEscapeEnd`の間へ移動します。
+
+```vba
+Private Sub Sample()
+
+    On Error GoTo ErrorEscape
+
+    '何かしらエラーが起きそうな処理 開始
+    'ここにファイル操作、図形操作、外部ブック操作などを置く
+    '何かしらエラーが起きそうな処理 終了
+
+    GoTo ErrorEscapeEnd
+
+ErrorEscape:
+    ''エラーが生じたらエラーメッセージをイミディエイトウィンドウに表示
+    If Err.Description <> "" Then
+        Debug.Print Err.Description, Now()
+    End If
+ErrorEscapeEnd:
+
+End Sub
+```
+
+## サンプルブック
+
+動作確認用のマクロ有効ブックも用意しています。
+
+<p>
+  <a href="/downloads/vba/mcc-error-escape-sample.xlsm" download style={{ display: "inline-block", padding: "0.75rem 1rem", borderRadius: "8px", background: "#0f766e", color: "#fff", fontWeight: 700, textDecoration: "none" }}>
+    MCCErrorEscapeサンプルブックをダウンロード
+  </a>
+</p>
+
+`.xlsm`形式のため、Excelで開くときはマクロの有効化、保護ビュー、ダウンロードファイルのブロック解除を確認してください。
+
+## コピー可能な実装コード
+
+下のコードは、`MCCErrorEscape`、`ClipText`、`ShowCodeWindowDelay`、`ShowCodeWindow`を1つにまとめた貼り付け用パッケージです。
+
+<CopyCode language="vba" filename="MCCErrorEscape.bas" src="/articles/vba/mcc-error-escape/MCCErrorEscape.bas" />
+
+## 初心者向けコード解説
+
+`MCCErrorEscape`の中心は、`Str = Str & ...`でテンプレート文字列を1行ずつ組み立てる部分です。`vbLf`で改行を入れ、最終的に貼り付けやすいVBAコードのまとまりにしています。
+
+`On Error GoTo ErrorEscape`は、実行中にエラーが発生したときに`ErrorEscape:`ラベルへ移動する指定です。一方で、通常終了時にそのままエラー処理部分へ流れ込まないように、途中に`GoTo ErrorEscapeEnd`を入れています。
+
+`ErrorEscape:`内では、`Err.Description`が空でない場合だけ<Term>Debug.Print</Term>でエラー内容と時刻を出します。メッセージボックスを出さないため、開発中に何度も試す処理でも邪魔になりにくい構成です。
+
+`ClipText(Str)`は、生成したテンプレートをクリップボードへコピーします。内部では<Term>MSForms</Term>の`Forms.TextBox.1`を一時的に作り、文字列を選択して`.Copy`しています。
+
+`ShowCodeWindowDelay`は、すぐに`ShowCodeWindow`を呼ばず、`Application.OnTime`で少しタイミングをずらして実行します。イミディエイトウィンドウから起動した直後に画面フォーカスを戻す処理はタイミングの影響を受けやすいため、このように分けています。
+
+`ShowCodeWindow`では<Term>VBIDE</Term>の`Application.VBE.Windows`を調べ、最大化されているコードウィンドウを見つけて`SetFocus`します。これにより、生成コードを貼り付ける場所へ戻りやすくなります。
+
+## 注意点
+
+- このプロシージャは開発者向けの補助マクロです。業務ロジックそのもののエラー設計を完全に代替するものではありません。
+- クリップボードを使うため、実行直前にコピーしていた内容は上書きされます。
+- `ShowCodeWindow`は`Application.VBE.Windows`、`vbext_wt_CodeWindow`、`vbext_ws_Maximize`を使います。コンパイルエラーになる場合は、VBEの「ツール」→「参照設定」で`Microsoft Visual Basic for Applications Extensibility 5.3`を確認してください。
+- 環境によっては、Excelのトラストセンターで「VBAプロジェクト オブジェクト モデルへのアクセスを信頼する」の確認が必要になることがあります。
+- `Forms.TextBox.1`を使ってクリップボードへコピーするため、環境によってはMSForms関連の利用可否も確認してください。
+- `On Error GoTo ErrorEscape`で囲む範囲は広げすぎない方が安全です。原因を追いたい処理までまとめて隠してしまうと、デバッグしづらくなります。
+
+## 関連記事
+
+- [イミディエイトウィンドウをCUIのように使ってプロシージャコードを半自動生成する](/articles/vba/immediate-window-cui-procedure-generator)
+- [Excel VBAの処理を汎用部品として残すための考え方](/articles/vba/vba-componentization-technique)
+
+## 軽いまとめ
+
+`MCCErrorEscape`は、エラー回避用テンプレートを毎回手入力せず、イミディエイトウィンドウから一発で生成して貼り付けるための小さな開発補助プロシージャです。
+
+汎用プロシージャとして残しておくと、VBA開発中に「この処理だけ一時的に逃がしたい」「エラー内容だけ確認したい」という場面で、素早く同じ形のエラー処理を挿入できます。
