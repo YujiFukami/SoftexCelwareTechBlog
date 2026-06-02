@@ -1,0 +1,210 @@
+---
+title: "Chromeブックマークレットでココナラ分析グラフの数値をExcel用にコピーする"
+category: "vanillajs"
+slug: "coconala-analytics-bookmarklet-copy"
+tags: ["JavaScript", "Chrome", "ブックマークレット", "クリップボード", "TSV", "業務効率化", "ココナラ分析"]
+description: "Chromeのブックマークレットを使い、ココナラの分析ページに表示される日付別の表示数・閲覧数・販売数をTSV形式でクリップボードへコピーする実装例です。"
+date: "2026-06-03"
+image: "/articles/vanillajs/coconala-analytics-bookmarklet-copy/workflow.jpg"
+---
+
+## はじめに
+
+ココナラの分析ページでは、表示数、閲覧数、販売数の推移をグラフで確認できます。
+
+ただ、日付ごとの数値をあとで<Term>Excel</Term>やGoogleスプレッドシートへ貼り付けて集計したい場合、画面を見ながら手入力するのは手間がかかります。
+
+この記事では、<Term>Chrome</Term>の<Term>ブックマークレット</Term>として<Term>JavaScript</Term>を登録し、ログイン済みの自分の分析ページ上で実行することで、表示されている分析値を<Term>TSV</Term>形式で<Term>クリップボード</Term>へコピーする方法を整理します。
+
+## 全体の流れ
+
+<figure>
+  <a href="/articles/vanillajs/coconala-analytics-bookmarklet-copy/workflow.jpg" target="_blank" rel="noopener noreferrer">
+    <img src="/articles/vanillajs/coconala-analytics-bookmarklet-copy/workflow.jpg" alt="ココナラ分析ページの数値をブックマークレットで取得し、クリップボードへコピーする流れ" className="h-auto w-full" />
+  </a>
+  <figcaption>ブックマークにJavaScriptを登録し、分析ページを開いた状態でクリックすると、日付別の表示数・閲覧数・販売数がクリップボードへ入ります。</figcaption>
+</figure>
+
+流れは次のようになります。
+
+1. Chromeのブックマークに、`javascript:`から始まるコードを登録する
+2. ココナラのサービス・ブログ分析ページを開く
+3. 登録したブックマークをクリックする
+4. ページ内部の分析データを取得する
+5. 日付、表示数、閲覧数、販売数をタブ区切りで整形する
+6. クリップボードへコピーし、Excelやスプレッドシートへ貼り付ける
+
+## ブックマークレットとは
+
+ブックマークレットは、通常のURLではなく、`javascript:`から始まる短いコードをブックマークに登録しておき、現在開いているページ上で実行する仕組みです。
+
+通常のブックマークは、次のようなURLを保存します。
+
+```text
+https://example.com/
+```
+
+一方、ブックマークレットでは次のような形でコードを保存します。
+
+```javascript
+javascript:(()=>{ alert("実行されました"); })();
+```
+
+クリックすると、いま表示しているページ上でJavaScriptが実行されます。小さな画面操作、入力補助、表示中データの整形コピーなどに使いやすい方法です。
+
+## 今回取得するデータ
+
+今回の対象は、分析ページ上で確認できる日付別のデータです。
+
+| 項目 | 内容 |
+|---|---|
+| 日付 | 分析対象の日付 |
+| 表示数 | サービスが一覧などに表示された回数 |
+| 閲覧数 | サービス詳細ページなどが閲覧された回数 |
+| 販売数 | その日の販売件数 |
+
+出力は、ExcelやGoogleスプレッドシートに貼り付けやすいタブ区切り形式にします。
+
+```text
+日付	表示数	閲覧数	販売数
+2026-05-04	1979	71	0
+2026-05-05	2123	77	0
+```
+
+カンマ区切りではなくタブ区切りにしておくと、Excelへ貼り付けたときに列へ分かれやすくなります。
+
+## 仕組み
+
+画面上ではグラフとして表示されていても、Webページ内部にはグラフ描画用のデータがJavaScriptの状態として保持されていることがあります。
+
+今回確認したページでは、分析データが主に次のような構造から参照できました。
+
+```javascript
+window.__NUXT__.state.pages.analytics.serviceAnalytics
+```
+
+閲覧数・販売数は次の配列に入っています。
+
+```javascript
+serviceAnalytics.numberOfTermsList
+```
+
+表示数は次の配列に入っています。
+
+```javascript
+serviceAnalytics.serviceImpressions.numberOfTermsList
+```
+
+この2つの配列を日付で突き合わせると、日付別の一覧を作れます。実装では<Term>Map</Term>を使って日付ごとのデータを引けるようにし、<Term>Set</Term>で日付一覧の重複を取り除いています。
+
+## コピー可能なコード
+
+下のコードは、処理を確認しやすい通常版です。
+
+<CopyCode language="javascript" filename="coconala-analytics-bookmarklet.js" src="/articles/vanillajs/coconala-analytics-bookmarklet-copy/coconala-analytics-bookmarklet.js" />
+
+ブックマークのURL欄へ登録するときは、このコードを一行にまとめ、先頭に`javascript:`を付けます。
+
+```text
+javascript:(async()=>{ /* ここに一行化した処理を入れる */ })();
+```
+
+実際に登録する前に、コード内で外部サイトへ送信する処理がないことを確認してください。今回のコードは、ページ内のデータを読み取り、クリップボードへコピーする処理に限定しています。
+
+## コードの要点
+
+最初に、分析ページの状態データを探します。
+
+```javascript
+const root =
+  window.__NUXT__?.state?.pages?.analytics ||
+  window.$nuxt?.$store?.state?.pages?.analytics;
+```
+
+`?.`を使っているため、途中のプロパティが存在しない場合でも、その時点でエラーになりにくくなります。分析ページ以外で実行した場合は、後続のチェックでエラーメッセージを出します。
+
+次に、閲覧数・販売数と表示数の配列を取得します。
+
+```javascript
+const viewSaleList = service.numberOfTermsList || [];
+const impressionList = service.serviceImpressions?.numberOfTermsList || [];
+```
+
+2つの配列は別々なので、日付をキーにして結合します。
+
+```javascript
+const viewSaleMap = new Map(viewSaleList.map(item => [item.term, item]));
+const impressionMap = new Map(impressionList.map(item => [item.term, item]));
+```
+
+最後に、ヘッダー行とデータ行をタブ区切りでつなげます。
+
+```javascript
+const outputText = [header, ...rows]
+  .map(row => row.join("\t"))
+  .join("\n");
+```
+
+コピー処理では、まず<Term>Clipboard API</Term>を使います。
+
+```javascript
+await navigator.clipboard.writeText(outputText);
+```
+
+環境によってClipboard APIが使えない場合に備えて、一時的な`textarea`を作り、`document.execCommand("copy")`でコピーする予備処理も入れています。
+
+## 使うときの手順
+
+Chromeでブックマークバーを表示していない場合は、`Ctrl + Shift + B`で表示します。
+
+次に、任意のページをブックマークし、そのブックマークを右クリックして編集します。名前は、たとえば次のようにしておきます。
+
+```text
+分析データ取得
+```
+
+URL欄には、一行化したブックマークレットコードを貼り付けます。
+
+その後、ココナラのサービス・ブログ分析ページを開き、作成したブックマークをクリックします。成功すると、コピー完了のメッセージが表示され、Excelやスプレッドシートへ貼り付けられる状態になります。
+
+## うまく動かないとき
+
+分析データが見つからない場合は、次を確認します。
+
+- ココナラにログインしているか
+- サービス・ブログ分析ページ上で実行しているか
+- 対象期間の分析データが表示されているか
+- ブックマークURLの先頭が`javascript:`になっているか
+- コードを貼り付けるときに途中で欠けていないか
+
+また、ココナラ側の画面構造や内部データ構造が変わると、`window.__NUXT__`以下の参照先が変わる可能性があります。その場合は、現在のページ構造に合わせてコードを見直す必要があります。
+
+## 注意点
+
+ブックマークレットは、現在開いているページ上でJavaScriptを実行する仕組みです。内容を理解できないコードや、出所が不明なコードは登録しないでください。
+
+今回のようなログイン済みページで使う処理では、次の点に注意します。
+
+- 自分が管理している画面の、手作業で見えているデータを扱う用途に限定する
+- サービスの利用規約や自動取得に関するルールを確認する
+- 高頻度の自動実行や、サーバーへ負荷をかける使い方をしない
+- アカウント情報、通知、出品情報、実績値などを公開画像に含めない
+- 保存したHTMLファイルやログイン済みページのソースは公開しない
+- クリップボードの内容は上書きされるため、直前にコピーしていた内容が消えることを理解して使う
+
+記事や社内資料にする場合は、画面キャプチャ内のアカウント名、通知、具体的な実績値を必ずマスクします。
+
+## 関連記事
+
+- [静的サイトに検索機能を追加する](/articles/nextjs/static-site-search)
+- [表示中の内容をCanvasから画像として出力する](/articles/vanillajs/canvas-export)
+- [UIと計算ロジックを分離する純粋関数パターン](/articles/vanillajs/pure-function-calculation-logic)
+- [文字列をクリップボードへ格納するExcel VBA汎用プロシージャ ClipText](/articles/vba/cliptext)
+
+## まとめ
+
+ブックマークレットを使うと、既存のWebサービス画面に小さなJavaScript処理を追加する感覚で、手作業の転記を減らせます。
+
+今回の例では、グラフの数値を目で見て写すのではなく、ページ内部の分析データを読み取り、日付別のTSVとしてクリップボードへコピーしました。
+
+大がかりなシステム化までは不要でも、日々の確認や集計を少し楽にしたい場面では、ブラウザ上の小さな自動化テクニックとして役立ちます。
