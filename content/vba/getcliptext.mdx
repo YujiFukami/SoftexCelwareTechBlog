@@ -1,0 +1,140 @@
+---
+title: "Excel VBAでクリップボードの文字列を取得する汎用関数 GetClipText"
+category: "vba"
+slug: "getcliptext"
+tags: ["Excel VBA", "汎用プロシージャ", "クリップボード", "MSForms", "コード生成"]
+description: "Excel VBAからクリップボード内の文字列を取得し、Stringとして返す汎用関数GetClipTextを解説します。MCCLoopArray1Dの子部品として、配列名をクリップボードから受け取る用途にも使えます。"
+date: "2026-06-02"
+---
+
+## 概要
+
+`GetClipText`は、<Term>クリップボード</Term>に入っている文字列を取得し、`String`として返す<Term>Excel VBA</Term>汎用関数です。
+
+ユーザーがコピーした文字列や、別の処理がクリップボードへ入れた文字列を、VBA側で読み取って再利用したい場面で使います。
+
+たとえば、[一次元配列ループの雛形を生成するMCCLoopArray1D](/articles/vba/make-clip-code-loop-array1d)では、事前にコピーしておいた配列名を`GetClipText`で取得し、その文字列を使ってループコードを生成しています。
+
+## 使う場面
+
+- コピー済みの文字列をVBAで読み取りたい
+- クリップボード経由で、外部アプリや別マクロから文字列を受け取りたい
+- 文字列をセル、フォーム、変数へ取り込みたい
+- コード生成補助マクロで、コピー済みの変数名や配列名を入力値として使いたい
+- [ClipText](/articles/vba/cliptext)でクリップボードへ格納した文字列を、別処理で取得したい
+
+`ClipText`が「文字列をクリップボードへ入れる」部品であるのに対し、`GetClipText`は「クリップボードから文字列を取り出す」部品です。
+
+## 処理イメージ
+
+```text
+ユーザーが文字列をコピー
+  ↓
+GetClipText
+  ↓
+DataObject.GetFromClipboard
+  ↓
+DataObject.GetText
+  ↓
+Stringとして返す
+```
+
+単体では小さな関数ですが、コード生成補助や文字列加工処理では入力口として使いやすい部品です。
+
+## 使用例
+
+現在クリップボードに入っている文字列を、<Term>イミディエイトウィンドウ</Term>へ出力する例です。
+
+<CopyCode language="vba" filename="使用例" src="/articles/vba/getcliptext/usage.bas" />
+
+事前に「テスト文字列」をコピーしてから実行すると、イミディエイトウィンドウに次のように表示されます。
+
+```text
+テスト文字列
+```
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="GetClipText.bas" src="/articles/vba/getcliptext/GetClipText.bas" />
+
+## 初心者向けコード解説
+
+`Public Function GetClipText() As String`は、文字列を返す関数です。引数はなく、現在のクリップボード状態を読み取ります。
+
+```vba
+Public Function GetClipText() As String
+```
+
+`On Error Resume Next`は、クリップボードに文字列以外の内容が入っている場合でも、処理全体を止めにくくするための記述です。クリップボードには、画像、ファイル、図形、空データなどが入っていることもあります。その状態で`.GetText`を実行するとエラーになる可能性があります。
+
+```vba
+On Error Resume Next
+```
+
+`Dim Clip As New DataObject`では、<Term>DataObject</Term>を作成しています。DataObjectは<Term>MSForms</Term>系のオブジェクトで、クリップボードの文字列を扱うときに使えます。
+
+```vba
+Dim Clip As New DataObject
+```
+
+`.GetFromClipboard`で現在のクリップボード内容をDataObjectへ読み込み、`.GetText`で文字列として取り出します。
+
+```vba
+.GetFromClipboard
+Output = .GetText
+```
+
+最後に`On Error GoTo 0`でエラー無視の状態を解除し、`GetClipText = Output`で取得した文字列を関数の戻り値にします。
+
+```vba
+On Error GoTo 0
+GetClipText = Output
+```
+
+VBAでは、関数名に値を代入することで戻り値を設定します。この場合、`Output`に入った文字列が`GetClipText()`の結果になります。
+
+## MCCLoopArray1Dとの関係
+
+`GetClipText`は、`MCCLoopArray1D`の下位にある子部品として使われます。
+
+```text
+MCCLoopArray1D
+  ↓
+MakeClipCodeLoopArray1D
+  ↓
+GetClipText
+  ↓
+コピー済みの配列名を取得
+  ↓
+一次元配列ループのコードを生成
+  ↓
+ClipTextで生成コードをクリップボードへ格納
+```
+
+この流れでは、`GetClipText`が「ユーザーがコピーした配列名を受け取る入口」になります。親処理である`MakeClipCodeLoopArray1D`は、取得した文字列を配列名として使い、`For I = 1 To N`の雛形コードを組み立てます。
+
+つまり、`GetClipText`は単なるクリップボード取得関数ではなく、コード生成補助マクロの入力部品としても重要です。
+
+## 注意点
+
+- `DataObject`を使うため、VBEの「ツール」→「参照設定」で`Microsoft Forms 2.0 Object Library`が必要になる場合があります。
+- クリップボードに画像やファイルなど、文字列以外の内容が入っている場合は、空文字が返ることがあります。
+- `On Error Resume Next`でエラーを握りつぶすため、原因調査が必要な処理では`Err.Number`や`Err.Description`を確認する形に変更してください。
+- クリップボードの内容はユーザー操作にも依存します。実行直前に何がコピーされているかを前提にする処理では、空文字チェックを入れると安全です。
+- パスワード、APIキー、個人情報などの機密情報をクリップボードから扱う場合は、誤ってログやセルへ出力しないよう注意します。
+
+## 関連記事
+
+- [一次元配列ループの雛形を生成するMCCLoopArray1D](/articles/vba/make-clip-code-loop-array1d)
+- [文字列をクリップボードへ格納するClipText](/articles/vba/cliptext)
+- [エラー回避コードのひな形を生成するMCCErrorEscape](/articles/vba/mcc-error-escape)
+- [コードウィンドウへ戻すShowCodeWindowDelay](/articles/vba/show-code-window-delay)
+- [イミディエイトウィンドウをCUIのように使ってプロシージャコードを半自動生成する](/articles/vba/immediate-window-cui-procedure-generator)
+
+## 軽いまとめ
+
+`GetClipText`は、クリップボード内の文字列をVBAから取得するための小さな汎用関数です。
+
+単体ではシンプルですが、`ClipText`と組み合わせると、VBAで「文字列を生成してコピーする」「コピー済み文字列を取得して次の処理に使う」という流れを作れます。
+
+特に`MCCLoopArray1D`のようなコード生成補助マクロでは、コピー済みの配列名を受け取る子部品として再利用しやすいプロシージャです。
