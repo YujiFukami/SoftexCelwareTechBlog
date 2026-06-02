@@ -1,0 +1,149 @@
+---
+title: "Excel VBAとSQL Server Expressで同時編集に強いマクロブックを作る構想"
+category: "design-philosophy"
+slug: "excel-vba-sql-server-express-concurrent-workbook"
+tags: ["アイデア", "Excel VBA", "SQL Server Express", "ADO", "同時編集対策"]
+description: "Excelマクロ付きブックを操作画面、SQL Server Expressを共通データベースとして分離し、rowversionで古い画面からの上書きを検出する構想を整理します。"
+date: "2026-06-02"
+image: "/articles/design-philosophy/excel-vba-sql-server-express-concurrent-workbook/cover.png"
+---
+
+この記事は、完成済みの納品事例ではなく、<Term>Excel VBA</Term>の業務ツールを複数人で使いやすくするための技術検証・構想段階の整理です。
+
+Excelマクロ付きブックは、現場の業務改善では今でも強力です。一方で、ブックの中に業務データを持たせたまま複数人で使うと、ファイル共有の競合や古い画面からの上書きが起きやすくなります。
+
+そこで、Excelは入力画面・操作画面として使い、データは<Term>SQL Server Express</Term>に集約する構成を考えます。さらに<Term>rowversion</Term>を使うことで、同じデータを複数のExcelブックで開いたときの更新競合を検出できるようにします。
+
+<figure>
+  <a href="/articles/design-philosophy/excel-vba-sql-server-express-concurrent-workbook/cover.png" target="_blank" rel="noreferrer">
+    <img src="/articles/design-philosophy/excel-vba-sql-server-express-concurrent-workbook/cover.png" alt="Excel VBAとSQL Server Expressで同時編集に強いマクロブックを作る構成図" />
+  </a>
+  <figcaption>Excelを画面、SQL Server Expressを共通データベース、rowversionを同時編集チェックとして使う構想です。</figcaption>
+</figure>
+
+## Excelマクロブック単体で起きやすい問題
+
+Excelブックを業務ツールとして使う場合、最初は1つのファイルだけで完結できるため、導入しやすいです。
+
+ただし、利用者が増えたり、同じデータを複数人で編集したりすると、次の問題が出やすくなります。
+
+- 誰が最新データを持っているのか分かりにくい
+- 共有ブックや共有フォルダ上のExcelファイルで競合が起きる
+- 古い状態で開いていた人が、あとから保存して上書きしてしまう
+- データ量が増えると検索、集計、履歴管理が重くなる
+- ブックが壊れたときの影響範囲が大きい
+
+Excelは入力や確認の画面としては使いやすい一方で、複数人が同じデータを扱う基盤としては限界があります。
+
+## Excelを画面、SQL Serverをデータ基盤に分ける
+
+この構想では、役割を次のように分けます。
+
+```text
+Excel VBA = 入力画面・操作画面
+SQL Server Express = 共通データベース
+ADO = ExcelとSQL Serverの接続路
+rowversion = 同時編集の安全装置
+```
+
+Excelブックの中に商品マスタや案件データを直接持たせるのではなく、Excelから<Term>ADO</Term>で<Term>SQL Server Express</Term>へ接続します。
+
+Excel側は、一覧表示、検索、入力フォーム、編集画面、帳票出力などの操作に集中します。データの保存場所はSQL Server側に置くため、複数のExcelブックから同じデータを読み書きできます。
+
+この分離により、Excelの使いやすさを残しながら、データはデータベース側で一元管理できます。
+
+## 最小検証の構成
+
+今回のメモでは、商品マスタ `T_商品` を題材にして、次のような最小構成を想定しています。
+
+- <Term>SQL Server Express</Term>をローカルPCに構築する
+- SQL Server Management Studioでデータベースと `T_商品` テーブルを作る
+- <Term>Excel VBA</Term>から<Term>ADO</Term>で接続する
+- 商品一覧の取得、1件読み込み、新規登録、更新を行う
+- `RowVer` 列を持たせ、更新時に同時編集チェックを行う
+
+最初から大きな販売管理システムや在庫管理システムを作るのではなく、商品マスタの読み込みと更新だけに絞ると、構成の有効性を確認しやすくなります。
+
+## rowversionで古い画面からの上書きを検出する
+
+複数人編集で特に怖いのは、古い画面からの上書きです。
+
+たとえば、Excel AとExcel Bが同じ商品を読み込んだとします。その後、Excel Bが先に商品名を変更して保存します。この時点で、<Term>SQL Server Express</Term>上の `RowVer` は新しい値に変わります。
+
+その後、Excel Aが古い `RowVer` のまま保存しようとした場合、次のように更新条件へ読み込み時の `RowVer` を含めます。
+
+```sql
+UPDATE T_商品
+SET 商品名 = @ProductName
+WHERE 商品ID = @ProductId
+  AND RowVer = @OldRowVer
+```
+
+Excel Aが持っている `@OldRowVer` は、すでにDB上の値と一致しません。そのため更新件数は0件になります。
+
+この0件更新を「他の端末で先に更新された」と判断し、ユーザーには次のようなメッセージを出します。
+
+```text
+他の端末で先に更新されています。再読み込みしてください。
+```
+
+これは<Term>楽観ロック</Term>の考え方です。編集中ずっとデータをロックするのではなく、保存時に「読み込んだときの状態から変わっていないか」を<Term>rowversion</Term>で確認します。
+
+## この構成が向いている場面
+
+この構成は、次のような業務ツールで検討しやすいです。
+
+- Excelの入力画面や帳票を活かしたい
+- 複数人が同じマスタや案件データを扱う
+- ファイル共有ではなく、データを一元管理したい
+- いきなり大規模なWebシステムにするほどではない
+- まずは社内PCや小規模環境で技術検証したい
+- 将来的に履歴管理や権限管理へ拡張したい
+
+<Term>Excel VBA</Term>は、業務担当者が見慣れた画面を作りやすい技術です。そこに<Term>SQL Server Express</Term>を組み合わせると、「Excelらしい操作感」と「DBによるデータ管理」を分けて考えられます。
+
+## 本番運用へ広げるときの注意点
+
+<Term>SQL Server Express</Term>は検証や小規模用途に始めやすい一方で、本番運用では別途確認すべき点があります。
+
+- バックアップと復元手順
+- 接続文字列の管理
+- Windows認証やSQL Server認証の扱い
+- 共有PCや複数PCから接続する場合のネットワーク設定
+- <Term>SQL Server Express</Term>の制限に収まるデータ量か
+- 更新処理を<Term>トランザクション</Term>で守る必要があるか
+- 監査ログや変更履歴を残す必要があるか
+- Excelブック側の配布、更新、バージョン管理をどうするか
+
+特に、業務データを扱う場合は「動いた」だけでは不十分です。障害時に戻せるか、誰が更新したか追えるか、古いExcelブックが残っても問題が起きないかを確認する必要があります。
+
+## 小さな検証から始める価値
+
+いきなり大規模な業務システムへ移行しようとすると、要件整理、画面設計、データ移行、運用設計の負担が大きくなります。
+
+一方で、既存のExcel業務を活かしながら、データ部分だけ<Term>SQL Server Express</Term>へ逃がす構成なら、次のように段階的に試せます。
+
+```text
+1. 既存Excel業務の中から、共有したいマスタだけを切り出す
+2. SQL Server Expressにテーブルを作る
+3. Excel VBAからADOで一覧取得と更新を実装する
+4. rowversionで同時編集チェックを入れる
+5. 問題がなければ履歴管理や複数PC接続へ広げる
+```
+
+この進め方であれば、Excelをすぐに捨てるのではなく、現場が慣れている操作を残しながら少しずつデータ基盤を整えられます。
+
+## 関連記事
+
+- [Excel VBA廃止論の歴史と現実: 今でも現場で使われ続ける理由](/articles/summary/excel-vba-deprecation-myth)
+- [Googleスプレッドシートを簡易DBとして使うMVP構成のアイデア](/articles/design-philosophy/google-sheets-simple-db-mvp)
+- [現場DXの理想と現実: スマホ入力化が必ずしも効率化になるとは限らない](/articles/design-philosophy/field-dx-reality)
+- [Excel VBAの部品化テクニックを言語化する](/articles/vba/vba-componentization-technique)
+
+## まとめ
+
+Excelマクロ付きブックは、業務現場に合わせた画面を素早く作れる一方で、データ共有と同時編集には弱さがあります。
+
+Excelを操作画面、<Term>SQL Server Express</Term>を共通データベースとして分け、<Term>ADO</Term>で接続し、<Term>rowversion</Term>で古い画面からの上書きを検出する。この構成は、Excel業務をいきなりWeb化する前の現実的な中間案になります。
+
+まだ構想・検証段階ではありますが、既存Excel資産を活かしつつ、複数人利用に耐えやすい業務ツールへ育てるための有力な設計パターンとして使えそうです。
