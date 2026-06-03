@@ -99,15 +99,13 @@ serviceAnalytics.serviceImpressions.numberOfTermsList
 
 ## コピー可能なコード
 
-下のコードは、処理を確認しやすい通常版です。
+ブックマークのURL欄へ登録するときは、下の **改行なし・`javascript:`付き** のコードをそのまま貼り付けます。
 
-<CopyCode language="javascript" filename="coconala-analytics-bookmarklet.js" src="/articles/vanillajs/coconala-analytics-bookmarklet-copy/coconala-analytics-bookmarklet.js" />
+<CopyCode language="text" filename="ブックマークURL欄に貼り付けるコード（改行なし）" src="/articles/vanillajs/coconala-analytics-bookmarklet-copy/coconala-analytics-bookmarklet-url.txt" />
 
-ブックマークのURL欄へ登録するときは、このコードを一行にまとめ、先頭に`javascript:`を付けます。
+処理内容を確認したい場合は、下の **改行あり** のコードを見ます。こちらは読みやすさを優先した版なので、ブックマークのURL欄へ貼り付ける場合は、上の改行なし版を使います。
 
-```text
-javascript:(async()=>{ /* ここに一行化した処理を入れる */ })();
-```
+<CopyCode language="javascript" filename="処理確認用コード（改行あり）" src="/articles/vanillajs/coconala-analytics-bookmarklet-copy/coconala-analytics-bookmarklet-readable.js" />
 
 実際に登録する前に、コード内で外部サイトへ送信する処理がないことを確認してください。今回のコードは、ページ内のデータを読み取り、クリップボードへコピーする処理に限定しています。
 
