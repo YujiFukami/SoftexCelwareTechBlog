@@ -1,0 +1,218 @@
+---
+title: "GASでGoogleスプレッドシートを簡易DB化し外部WebアプリからCRUDする構成"
+category: "gas"
+slug: "spreadsheet-db-api-external-webapp"
+tags: ["GAS", "Googleスプレッドシート", "Web API", "CRUD", "業務アプリ"]
+description: "Googleスプレッドシートを簡易データベースとして使い、GASをAPIサーバー化して外部Webアプリから一覧取得・登録・更新・論理削除を行う構成を解説します。"
+date: "2026-06-03"
+image: "/articles/gas/spreadsheet-db-api/apps-script-code.jpg"
+---
+
+<Term>Googleスプレッドシート</Term>を簡易DBとして使う場合、ブラウザ画面から直接シートへ書き込むよりも、<Term>Google Apps Script</Term>をAPIサーバーのように使い、Webアプリ側のサーバー処理から中継する構成にすると扱いやすくなります。
+
+この記事では、外部WebアプリからGAS APIへアクセスし、スプレッドシート上の顧客DBへ一覧取得、個別取得、登録、更新、<Term>論理削除</Term>を行う実装パターンをまとめます。
+
+以前まとめた[Googleスプレッドシートを簡易DBとして使うMVP構成のアイデア](/articles/design-philosophy/google-sheets-simple-db-mvp)は構想寄りの記事でした。今回は、その考え方を実装に落とした記事です。
+
+## 全体構成
+
+構成は次のようにします。
+
+```text
+ブラウザ画面
+  ↓
+Webアプリ側API / Node.js / Next.js API Route
+  ↓
+GAS Web API
+  ↓
+GoogleスプレッドシートDB
+```
+
+重要なのは、ブラウザ側JavaScriptからGAS APIを直接呼び出さないことです。GAS側の認証に使う<Term>API_TOKEN</Term>をブラウザへ置くと、利用者から見えてしまいます。
+
+そのため、ブラウザからは自分のWebアプリ側APIへアクセスし、Webアプリ側APIが<Term>API_TOKEN</Term>を付けてGASへ中継します。
+
+<figure>
+  <img src="/articles/gas/spreadsheet-db-api/apps-script-code.jpg" alt="GASにスプレッドシートDB用のAPIコードを貼り付ける画面" />
+  <figcaption>Apps Script側にCRUD API用のCode.gsを貼り付け、Webアプリとして公開します。</figcaption>
+</figure>
+
+## 使う場面
+
+この構成は、次のような小規模な業務アプリや試作に向いています。
+
+- 社内向けの簡易顧客管理
+- 問い合わせ、予約、作業履歴の管理
+- スマホ入力フォームと管理用スプレッドシートをつなぐ仕組み
+- 本格DBへ移行する前のMVP
+- 管理者がスプレッドシート上で直接データを確認したい業務
+
+反対に、大量アクセス、複雑な検索、高度な権限管理、厳密なトランザクションが必要な場合は、<Term>Supabase</Term>やPostgreSQLなどの本格DBを検討した方が安全です。
+
+## シート設計
+
+サンプルでは、`顧客DB` と `ログ` の2シートを使います。
+
+`顧客DB` の1行目には、次のヘッダーを置きます。
+
+| 列名 | 役割 |
+|---|---|
+| `id` | レコードを識別する<Term>UUID</Term> |
+| `createdAt` | 作成日時 |
+| `updatedAt` | 更新日時 |
+| `deletedAt` | 論理削除日時 |
+| `version` | 更新回数の目安 |
+| `name` | 名前 |
+| `email` | メールアドレス |
+| `tel` | 電話番号 |
+| `status` | 状態 |
+| `memo` | メモ |
+
+IDに行番号を使うと、並び替えや削除で参照が崩れます。スプレッドシートをDB代わりに使う場合でも、`id` 列を用意して<Term>UUID</Term>を入れておくと、後から本格DBへ移行しやすくなります。
+
+`ログ` シートには、操作履歴を残します。
+
+| 列名 | 役割 |
+|---|---|
+| `loggedAt` | ログ記録日時 |
+| `action` | `list` / `get` / `create` / `update` / `delete` |
+| `targetSheet` | 対象シート |
+| `targetId` | 対象ID |
+| `status` | `success` または `error` |
+| `message` | エラー内容など |
+
+<figure>
+  <img src="/articles/gas/spreadsheet-db-api/log-sheet.png" alt="GAS APIの操作履歴を残すログシート" />
+  <figcaption>操作履歴をログシートへ残しておくと、Webアプリ側で何が起きたかを後から確認できます。</figcaption>
+</figure>
+
+## GAS側APIの役割
+
+GAS側では、`action` の値で処理を分けます。
+
+| action | 処理 |
+|---|---|
+| `list` | 削除されていないレコードの一覧取得 |
+| `get` | `id` を指定して1件取得 |
+| `create` | 新規登録 |
+| `update` | `id` を指定して更新 |
+| `delete` | `deletedAt` を入れる論理削除 |
+
+GAS側の主な実装ポイントは次の通りです。
+
+- <Term>スクリプトプロパティ</Term>に<Term>API_TOKEN</Term>を保存する
+- `Utilities.getUuid()` で<Term>UUID</Term>を発行する
+- 削除は行を消さず、`deletedAt` を入れる<Term>論理削除</Term>にする
+- 書き込み処理は<Term>LockService</Term>で同時実行を抑える
+- 列番号固定ではなく、ヘッダー名ベースで値を組み立てる
+- エラー時も<Term>JSON</Term>で結果を返す
+- 操作ログを `ログ` シートに残す
+
+<figure>
+  <img src="/articles/gas/spreadsheet-db-api/script-properties.jpg" alt="Apps ScriptのスクリプトプロパティでAPI_TOKENを設定する画面" />
+  <figcaption>API_TOKENはコードへ直書きせず、スクリプトプロパティで管理します。画像内の値はサンプルです。</figcaption>
+</figure>
+
+GAS側の実装例です。
+
+<CopyCode language="javascript" filename="Code.gs" src="/articles/gas/spreadsheet-db-api/Code.gs" />
+
+## Webアプリ側で中継する
+
+Webアプリ側では、ブラウザから受けたリクエストをGAS APIへ中継します。
+
+この例では<Term query="Node.js">Node.js</Term>の小さなローカルサーバーを使っていますが、実運用では<Term>Next.js</Term>のAPI Route、Vercel Functions、その他のサーバー側処理に置き換えられます。
+
+`.env` には次のように設定します。
+
+<CopyCode language="text" filename=".env.example" src="/articles/gas/spreadsheet-db-api/env-example.txt" />
+
+`GAS_API_TOKEN` はサーバー側だけで使います。ブラウザへ返すHTMLやJavaScriptには含めません。
+
+Webアプリ側APIの中継サンプルです。
+
+<CopyCode language="javascript" filename="server.js" src="/articles/gas/spreadsheet-db-api/server.js" />
+
+## APIリクエストの例
+
+GAS APIへは、サーバー側から次のような<Term>JSON</Term>を送ります。
+
+```json
+{
+  "token": "YOUR_API_TOKEN",
+  "action": "create",
+  "data": {
+    "name": "サンプル顧客",
+    "email": "sample@example.com",
+    "tel": "000-0000-0000",
+    "status": "有効",
+    "memo": "初回登録"
+  }
+}
+```
+
+成功時は次のようなレスポンスを返します。
+
+```json
+{
+  "ok": true,
+  "action": "create",
+  "result": {
+    "id": "uuid"
+  }
+}
+```
+
+失敗時も、画面側で扱いやすいように<Term>JSON</Term>で返します。
+
+```json
+{
+  "ok": false,
+  "action": "create",
+  "error": "エラーメッセージ"
+}
+```
+
+## 再利用するときのチェックリスト
+
+別案件でこの構成を使う場合は、次の順番で確認すると安全です。
+
+1. スプレッドシートにDB用シートとログシートを作る
+2. 1行目にヘッダーを入れる
+3. Apps Scriptへ `Code.gs` を貼り付ける
+4. `SPREADSHEET_ID` とシート名を実際の値に変える
+5. スクリプトプロパティに `API_TOKEN` を設定する
+6. GASをWebアプリとしてデプロイする
+7. Webアプリ側サーバーの `.env` にGAS URLとAPI_TOKENを設定する
+8. `list`、`create`、`update`、`delete` を順に確認する
+9. ログシートに成功、失敗の履歴が残るか確認する
+10. 個人情報や案件固有データを公開資料へ載せていないか確認する
+
+## 注意点
+
+GoogleスプレッドシートDBは便利ですが、本格DBではありません。
+
+特に、次の条件が出てきたら早めに移行先を検討します。
+
+- レコード数が数千件から数万件へ増える
+- 検索条件が複雑になる
+- 同時書き込みが多くなる
+- ユーザー別の細かい権限管理が必要になる
+- 個人情報や契約情報を厳密に管理する必要がある
+- 履歴、承認、ロールバックなどの業務要件が増える
+
+ただし、最初のMVPや社内向けの小さな業務改善では、スプレッドシートをDB代わりにする構成はかなり有効です。管理者がデータを直接確認でき、サーバーやDBを用意しなくても試せるため、現場業務の流れを素早く検証できます。
+
+## 関連記事
+
+- [Googleスプレッドシートを簡易DBとして使うMVP構成のアイデア](/articles/design-philosophy/google-sheets-simple-db-mvp)
+- [GASで作る工事現場向け写真付き報告書Webアプリ](/articles/gas/construction-photo-report-webapp)
+- [古物商の現場入力をスマホ化したGAS Webアプリ開発対応事例](/articles/client-work/used-goods-smartphone-input-gas)
+- [GASでCacheServiceを使って重い処理を軽くする](/articles/gas/cache-service)
+- [GASでHTML出力時に文字を安全にエスケープする](/articles/gas/html-escape)
+
+## まとめ
+
+Googleスプレッドシートを簡易DBとして使う場合でも、`id`、作成日時、更新日時、削除日時、ログを最初から持たせておくと、後から運用しやすくなります。
+
+さらに、GAS APIをブラウザから直接呼ばず、Webアプリ側サーバーで中継することで、<Term>API_TOKEN</Term>を公開せずに済みます。小規模な業務アプリを低コストで試しながら、将来は<Term>Supabase</Term>やPostgreSQLへ移行できる形として使いやすい構成です。
