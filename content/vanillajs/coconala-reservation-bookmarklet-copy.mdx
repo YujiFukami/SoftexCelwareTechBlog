@@ -1,0 +1,204 @@
+---
+title: "Chromeブックマークレットでココナラ予約枠を1クリックコピーする"
+category: "vanillajs"
+slug: "coconala-reservation-bookmarklet-copy"
+tags: ["JavaScript", "Chrome", "ブックマークレット", "クリップボード", "DOM", "業務効率化", "ココナラ予約管理"]
+description: "Chromeブックマークレットで、ココナラ予約管理カレンダーの空き枠を定型テキストに変換してクリップボードへコピーする実装例です。%やjavascript:消失など、配布時の落とし穴も整理します。"
+date: "2026-06-04"
+image: "/articles/vanillajs/coconala-reservation-bookmarklet-copy/workflow.jpg"
+---
+
+## はじめに
+
+ココナラの予約管理カレンダーで、お客さんへ案内する空き日時を毎回手で転記するのは地味に手間がかかります。
+
+この記事では、<Term>Chrome</Term>の<Term>ブックマークレット</Term>として<Term>JavaScript</Term>を登録し、表示中の予約受付枠を `6/8(月) 10:00～12:00` のような定型テキストに変換して<Term>クリップボード</Term>へコピーする方法を整理します。
+
+サーバー改修やAPI連携をせず、ブラウザ上の小さなJavaScriptだけで定型作業を軽くする実装例です。
+
+## 完成イメージ
+
+<figure>
+  <a href="/articles/vanillajs/coconala-reservation-bookmarklet-copy/workflow.jpg" target="_blank" rel="noopener noreferrer">
+    <img src="/articles/vanillajs/coconala-reservation-bookmarklet-copy/workflow.jpg" alt="ココナラ予約管理カレンダーの空き枠をブックマークレットでコピーする流れ" className="h-auto w-full" />
+  </a>
+  <figcaption>予約管理ページでブックマークレットを実行すると、予約受付枠が定型テキストになり、画面右上のパネル表示とクリップボードコピーが行われます。</figcaption>
+</figure>
+
+流れは次の通りです。
+
+1. ココナラの予約管理カレンダーを開く
+2. 登録済みのブックマークレットをクリックする
+3. 予約受付枠が日付別のテキストへ変換される
+4. クリップボードへコピーされた内容を、メッセージなどへ貼り付ける
+
+出力例は、次のような形です。
+
+```text
+6/7(日) 空き無し
+6/8(月) 10:00～12:00 13:00～16:00
+6/9(火) 13:00～16:00
+6/10(水) 13:00～16:00
+6/11(木) 10:00～12:00 13:00～16:00
+6/12(金) 10:00～12:00 13:00～16:00
+6/13(土) 空き無し
+```
+
+## ブックマークバーへドラッグして登録する
+
+下のボタンを、Chromeのブックマークバーへドラッグして登録します。
+
+<BookmarkletInstall id="coconala-reservation-copy" label="予約枠コピー ←これをブックマークバーにドラッグ" />
+
+記事ページ上でこのボタンをクリックしても実行しません。対象ページで誤動作しないよう、クリック時は何もしない作りにしています。
+
+登録後は、ココナラの予約管理カレンダーを開いた状態で、ブックマークバーに追加された「予約枠コピー」をクリックします。
+
+## コピー可能なコード
+
+ブックマークのURL欄へ手動で登録する場合は、下の **改行なし・`javascript:`付き** のコードを使います。ただし、Chromeでは貼り付け時に `javascript:` が消えることがあるため、基本は上のドラッグ登録を使うほうが安定します。
+
+<CopyCode language="text" filename="ブックマークレットURL（改行なし・javascript:付き）" src="/articles/vanillajs/coconala-reservation-bookmarklet-copy/reservation-bookmarklet-url.txt" />
+
+処理内容を確認したい場合は、下の改行ありコードを見ます。読みやすさを優先した確認用なので、登録には上の改行なし版を使います。
+
+<CopyCode language="javascript" filename="処理確認用コード（改行あり）" src="/articles/vanillajs/coconala-reservation-bookmarklet-copy/reservation-bookmarklet-readable.js" />
+
+実際に登録する前に、コード内で外部サイトへ送信する処理がないことを確認してください。今回のコードは、表示中ページの予約枠を読み取り、文字列化してクリップボードへコピーする処理に限定しています。
+
+## ブックマークレットとは
+
+ブックマークレットは、通常のURLではなく `javascript:` から始まるコードをブックマークに登録し、現在開いているページ上で実行する仕組みです。
+
+ページに小さな処理を足すような感覚で使えるため、表示中データの整形、入力補助、定型文作成などに向いています。
+
+今回のような用途では、予約管理画面で手作業で見えている空き枠を、メッセージ用の文字列に整える補助として使います。
+
+## 実装で一番ハマったこと: `%` が壊れる
+
+ブックマークレットのコードでは、`%` をそのまま使うと壊れることがあります。
+
+ブラウザは `javascript:` URLを実行するときにURLデコードを行います。そのため、たとえば `m % 60` のような剰余計算が、文字の並びとしては `%60` を含むことになり、バッククォートに変換されて構文エラーになることがあります。
+
+```javascript
+// NG: ブックマークレット内では %60 がURLデコードで壊れることがある
+function formatTime(m) {
+  var h = Math.floor(m / 60);
+  var x = m % 60;
+  return h + ":" + (x < 10 ? "0" + x : x);
+}
+```
+
+今回のコードでは、剰余演算を使わずに次のように書き換えています。
+
+```javascript
+// OK: % を使わずに余りを求める
+function F(m) {
+  var h = Math.floor(m / 60);
+  var x = m - h * 60;
+  return h + ":" + (x < 10 ? "0" + x : x);
+}
+```
+
+コンソールに貼ると動くのに、ブックマークレットにすると `Unexpected end of input` になる場合は、このURLデコード由来の破損を疑う価値があります。
+
+## `javascript:` が貼り付け時に消える問題
+
+Chromeでは、ブックマークのURL欄へコードを貼り付けると、先頭の `javascript:` が自動で削除されることがあります。安全対策としての挙動ですが、ブックマークレットを作る側から見ると「貼ったのに動かない」原因になります。
+
+そこで、この記事では `<a href="javascript:...">` のリンクをブックマークバーへドラッグして登録する方式にしています。ドラッグ登録なら、`javascript:` を含むリンク先を保ったまま登録しやすくなります。
+
+WordPressなどのCMSに載せる場合は、`href` が無害化されることがあります。その場合は、カスタムHTMLブロックや静的HTMLページとして設置する必要があります。
+
+## `alert()` ではなくページ内パネルで結果を出す
+
+最初は、処理結果を `alert()` で表示したくなります。しかし、Chromeではダイアログを連続表示すると「このページで今後ダイアログを表示しない」が効き、以後 `alert()` が無言で抑制されることがあります。
+
+今回の実装では、ページ右上に固定表示のパネルを作り、コピー結果を表示しています。
+
+```javascript
+var panel = document.createElement("div");
+panel.style.cssText =
+  "position:fixed;top:20px;right:20px;z-index:2147483647;background:#fff";
+panel.textContent = outputText;
+document.body.appendChild(panel);
+```
+
+これなら、コピーに失敗した場合でも、パネル内の文字列を手動で選択してコピーできます。
+
+## カレンダーの時刻は座標ではなくCSS変数から読む
+
+予約枠の時刻を取得するとき、画面上の矩形の位置から `getBoundingClientRect()` で逆算したくなります。ただ、ピクセル座標から時刻へ変換する方法は、拡大率やレイアウト変更に弱くなります。
+
+今回の画面では、予約枠の要素に次のようなインラインCSS変数が入っていました。
+
+```html
+style="--reservation-frame-cell-top: 20; --reservation-frame-cell-unit: 4;"
+```
+
+この場合、1単位を30分として、開始時刻と長さを直接計算できます。
+
+```javascript
+var top = parseFloat(frame.style.getPropertyValue("--reservation-frame-cell-top"));
+var unit = parseFloat(frame.style.getPropertyValue("--reservation-frame-cell-unit"));
+var start = top * 30;
+var end = (top + unit) * 30;
+```
+
+既存ページを読むときは、幾何計算へ進む前に、対象要素の `style` 属性や `data-*` 属性を確認すると安定した値が見つかることがあります。
+
+## 日付は「今日」ではなく見出しと列ヘッダーから計算する
+
+カレンダーの日付は、「今日マークが付いている列」を基準に計算すると、別の週を表示したときに破綻します。今日マークは、表示週によって存在しないことがあるためです。
+
+今回の実装では、見出しの `2026年6月` のような年月と、各列の日番号から日付を作っています。日番号が `31` から `1` へ戻った場合は月を繰り上げ、`12月` から `1月` へ戻った場合は年も繰り上げます。
+
+```javascript
+var yearMonth = titleText.match(/(\d{4})年(\d{1,2})月/);
+var year = parseInt(yearMonth[1], 10);
+var month = parseInt(yearMonth[2], 10);
+
+if (previousDay !== -1 && day < previousDay) {
+  month++;
+  if (month > 12) {
+    month = 1;
+    year++;
+  }
+}
+```
+
+このようにすると、過去週、未来週、月またぎ、年またぎでも崩れにくくなります。
+
+## DevToolsで確認するときの注意
+
+Chromeの開発者ツールのコンソールでは、貼り付け保護が働くことがあります。その場合は、コンソールに `allow pasting` と手入力してから貼り付けます。
+
+また、複数行のコードを貼っただけでは実行確定されないことがあります。動作確認用コードは、最後まで貼り付けたあとにEnterで実行できる形にしておくと確認しやすくなります。
+
+## 注意点
+
+ブックマークレットは、現在開いているページ上でJavaScriptを実行する仕組みです。内容を理解できないコードや、出所が不明なコードは登録しないでください。
+
+今回のようなログイン済みページで使う処理では、次の点に注意します。
+
+- 自分が管理している画面の、手作業で見えている情報を扱う用途に限定する
+- 対象サービスの利用規約や自動取得に関するルールを確認する
+- 高頻度の自動実行や、サーバーへ負荷をかける使い方をしない
+- アカウント名、通知、顧客名、実予約データを公開画像に含めない
+- 保存したHTMLファイルやログイン済みページのソースを公開しない
+- クリップボードの内容は上書きされるため、直前にコピーしていた内容が消えることを理解して使う
+
+## 関連記事
+
+- [Chromeブックマークレットでココナラ分析グラフの数値をExcel用にコピーする](/articles/vanillajs/coconala-analytics-bookmarklet-copy)
+- [UIと計算ロジックを分離する純粋関数パターン](/articles/vanillajs/pure-function-calculation-logic)
+- [静的サイトに検索機能を追加する](/articles/nextjs/static-site-search)
+- [文字列をクリップボードへ格納するExcel VBA汎用プロシージャ ClipText](/articles/vba/cliptext)
+
+## まとめ
+
+ブックマークレットを使うと、既存のWebサービス画面に小さなJavaScript処理を追加する感覚で、手作業の転記を減らせます。
+
+今回の例では、予約管理カレンダーの空き枠を目で見て写すのではなく、ページ上の予約枠要素から時刻を読み取り、メッセージへ貼り付けやすい定型テキストとしてクリップボードへコピーしました。
+
+大がかりなシステム化までは不要でも、日々の案内文作成や確認作業を少し楽にしたい場面では、ブラウザ上の小さな自動化テクニックとして役立ちます。
