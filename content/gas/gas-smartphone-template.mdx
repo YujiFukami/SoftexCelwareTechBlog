@@ -3,8 +3,8 @@ title: "GAS Webアプリのスマホ余白を抑えるHTMLテンプレート"
 category: "gas"
 slug: "gas-smartphone-template"
 tags: ["GAS", "Webアプリ", "スマホ対応", "HTML", "CSS"]
-description: "Google Apps ScriptのWebアプリで、スマホ表示時の余白やフォント拡大を抑えるためのHTMLテンプレートを紹介します。"
-date: "2026-05-20"
+description: "Google Apps ScriptのWebアプリで、スマホ表示時の余白やフォント拡大を抑えるためのHTMLテンプレートと、doGetでのviewport設定の必須ポイントを紹介します。"
+date: "2026-06-03"
 ---
 
 ## はじめに
@@ -14,6 +14,26 @@ date: "2026-05-20"
 特にGASのWebアプリはiframe内で表示されるため、通常のHTMLページよりも余白の出方を意識しておく必要があります。
 
 この記事では、GAS Webアプリの最初のHTMLとして使える、スマホ向けの余白リセット込みテンプレートを紹介します。
+
+## 最重要：viewportは`doGet`の`addMetaTag`で設定する
+
+先に結論を書きます。**HTMLの`<head>`に`<meta name="viewport">`を書くだけでは、スマホの余白は消えません。**
+
+GAS Webアプリは「外側のラッパーページ」の中に、あなたのHTMLが**サンドボックスiframe**として埋め込まれる二重構造になっています。HTMLの`<head>`に書いた`<meta viewport>`はiframeの**内側**に入るため、モバイル表示を制御する**外側ページ**には届かず、効きません。
+
+外側ページにviewportを効かせるには、サーバ側の`doGet`で`HtmlOutput`に対して`.addMetaTag('viewport', ...)`を呼ぶ必要があります。これが無いと、CSSで`html, body { margin: 0 }`を完璧に書いても、スマホで左右に余白が出て画面幅にフィットしません。
+
+```javascript
+function doGet() {
+  return HtmlService.createTemplateFromFile('Index')
+    .evaluate()
+    .setTitle('アプリ名')
+    // ★この1行が無いとスマホ余白は消えない
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
+}
+```
+
+`createHtmlOutputFromFile`を使う場合も、同じHtmlOutputに`.addMetaTag(...)`を呼びます。HTML側の`<meta viewport>`は害は無いので残しても構いませんが、実際に効いているのは`addMetaTag`の方だと理解しておきましょう。
 
 ## こんな場面で使えます
 
@@ -33,7 +53,10 @@ GASのHTMLファイルに、次の形で配置します。
 <html>
 <head>
   <base target="_top">
+  <!-- このmeta自体はiframe内なので決め手にはなりません。本命はdoGetのaddMetaTagです。 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <style>
+    /* GAS iframe余白リセット */
     html,
     body {
       margin: 0 !important;
@@ -74,19 +97,33 @@ GASのHTMLファイルに、次の形で配置します。
   </div>
 
   <script>
+    // 親要素の余白除去（補助）。サイドバー表示など同一オリジン時に有効。
+    // 標準のWebアプリ直開き（/exec）は外側ページが別オリジンのため弾かれることが多く、
+    // 余白対策の本命はあくまで doGet の addMetaTag('viewport')。
     (function() {
-      try {
-        var style = document.createElement('style');
-        style.textContent = 'body, div.script-application-sidebar { margin:0!important; padding:0!important; }';
-        (parent.document || document).head.appendChild(style);
-      } catch (e) {
-        // 親要素へアクセスできない場合は無視します。
+      var css = 'html,body{margin:0!important;padding:0!important;width:100%!important;}'
+              + 'body,div.script-application-sidebar{margin:0!important;padding:0!important;}'
+              + 'iframe{border:0!important;}';
+      var w = window;
+      for (var i = 0; i < 5; i++) {
+        try {
+          var d = w.document;
+          if (d && d.head) {
+            var style = d.createElement('style');
+            style.textContent = css;
+            d.head.appendChild(style);
+          }
+        } catch (e) { break; } // クロスオリジンの階層に達したら終了
+        if (w === w.parent) break;
+        w = w.parent;
       }
     })();
   </script>
 </body>
 </html>
 ```
+
+そして、サーバ側の`doGet`で`addMetaTag('viewport')`を必ず呼びます（前述）。HTMLとサーバ側はセットで考えてください。
 
 ## 設計のポイント
 
@@ -98,10 +135,12 @@ GASのHTMLファイルに、次の形で配置します。
 
 ## 注意点
 
-- 親要素の余白除去スクリプトは、環境によってはクロスオリジン制約で効かない場合があります
+- **余白が消えない時はまず`doGet`の`addMetaTag('viewport')`を疑う**。CSSやHTMLの`<meta viewport>`をいくら直しても、ここが抜けているとスマホ余白は消えません（実際にこれが原因で数回デプロイし直しても直らなかった事例があります）
+- 親要素の余白除去スクリプトは補助であり、Webアプリ直開き（`/exec`）ではクロスオリジン制約で効かないことが多いです
 - `!important`は土台の余白リセットに限定し、個別の部品では乱用しない方が保守しやすくなります
 - 大きな表をそのまま置くと、このテンプレートだけでは横スクロールを防げません
 - 入力途中の保護が必要なフォームでは、`beforeunload`や下書き保存も検討します
+- DevToolsのスマホエミュレーションはGASの入れ子iframeを実機と同じには描画しないことがあるため、最終確認は実機の`/exec`で行うのが確実です
 
 ## 関連記事
 
