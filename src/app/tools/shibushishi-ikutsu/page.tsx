@@ -3,6 +3,7 @@ import Link from "next/link";
 
 const appUrl = "https://shibushishi-ikutsu.vercel.app/";
 const githubUrl = "https://github.com/YujiFukami/shibushishi-ikutsu";
+const spreadsheetDbArticleUrl = "/articles/gas/spreadsheet-db-api-external-webapp";
 const shibushiOfficialUrl = "https://www.city.shibushi.lg.jp/";
 const ogImage = "/tools/shibushishi-ikutsu/images/board-20x20.png";
 
@@ -102,6 +103,12 @@ export default function ShibushishiIkutsuPage() {
           >
             GitHubを見る
           </a>
+          <Link
+            href={spreadsheetDbArticleUrl}
+            className="rounded border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            ランキングDB構成を見る
+          </Link>
           <a
             href={shibushiOfficialUrl}
             target="_blank"
@@ -261,6 +268,31 @@ export default function ShibushishiIkutsuPage() {
               見つけた場所が盤面上で残るため、進捗と答え合わせが分かりやすくなります。
             </p>
           </div>
+        </div>
+      </section>
+
+      <section className="mb-10 rounded-lg border border-gray-200 p-6">
+        <h2 className="mb-4 text-2xl font-bold text-gray-900">
+          ランキング機能の拡張構想
+        </h2>
+        <div className="space-y-4 text-sm leading-7 text-gray-700">
+          <p>
+            今後、クリアタイムを登録して盤面サイズ別のランキングを表示する場合は、
+            Googleスプレッドシートを簡易DBとして使う構成を想定しています。
+            プレイヤー名、盤面サイズ、クリアタイム、登録日時だけを保存し、
+            個人情報を持たない軽いランキングDBとして扱う方針です。
+          </p>
+          <p>
+            実装時は、ブラウザから直接GASを呼び出さず、Webアプリ側APIで中継して
+            API_TOKENを隠す構成にします。詳しい設計は
+            <Link
+              href={spreadsheetDbArticleUrl}
+              className="mx-1 font-medium text-blue-600 hover:text-blue-700"
+            >
+              GASでGoogleスプレッドシートを簡易DB化し外部WebアプリからCRUDする構成
+            </Link>
+            にまとめています。
+          </p>
         </div>
       </section>
 
