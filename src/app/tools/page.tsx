@@ -48,6 +48,14 @@ const tools = [
       "球面リサージュ曲面と内トロコイド曲面をブラウザ上で3D可視化し、パラメータ調整とSTL出力まで確認できる学習・検証用Webアプリです。",
     tags: ["Vanilla JS", "Three.js", "3D", "STL出力"],
   },
+  {
+    href: "/tools/shibushishi-ikutsu",
+    title: "志布志市いくつ？",
+    category: "地名タイムアタックWebゲーム",
+    description:
+      "鹿児島県志布志市のユニークな地名を題材に、盤面の中から「志→布→志→市」を探すブラウザゲームです。",
+    tags: ["Vanilla JS", "Webゲーム", "SVG", "タイムアタック"],
+  },
 ];
 
 export default function ToolsPage() {
