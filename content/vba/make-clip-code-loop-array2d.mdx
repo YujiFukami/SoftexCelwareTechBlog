@@ -1,0 +1,195 @@
+---
+title: "二次元配列の二重ループ雛形を生成するExcel VBA汎用プロシージャ MCCLoopArray2D"
+category: "vba"
+slug: "make-clip-code-loop-array2d"
+tags: ["Excel VBA", "汎用プロシージャ", "2次元配列", "配列", "ループ", "クリップボード", "コード生成"]
+description: "クリップボードにコピーした2次元配列の変数名から、UBoundを使った二重ループのVBAコードを自動生成する汎用プロシージャです。配列処理の定型コードを素早く作成できます。"
+date: "2026-06-04"
+image: "/articles/vba/make-clip-code-loop-array2d/workflow.jpg"
+---
+
+## 概要
+
+`MCCLoopArray2D`は、<Term>クリップボード</Term>に入っている2次元配列の変数名をもとに、二重ループの<Term>Excel VBA</Term>コードを自動生成する汎用プロシージャです。
+
+たとえば、`Array2D`という変数名だけをコピーしてから、<Term>イミディエイトウィンドウ</Term>で`MCCLoopArray2D`を実行すると、次のようなコードが生成され、クリップボードにも格納されます。
+
+```vba
+    Dim I As Long
+    Dim J As Long
+    Dim N As Long: N = UBound(Array2D, 1)
+    Dim M As Long: M = UBound(Array2D, 2)
+    For I = 1 To N
+        For J = 1 To M
+            Array2D(I, J)
+        Next
+    Next
+```
+
+1次元配列用の[MCCLoopArray1D](/articles/vba/make-clip-code-loop-array1d)と同じ発想で、2次元配列の定型的な`For I`、`For J`の雛形を素早く作るための開発補助マクロです。
+
+## 使う場面
+
+- 2次元配列を処理するたびに、同じ二重ループを書く手間を減らしたい
+- `UBound(配列名, 1)`と`UBound(配列名, 2)`の書き間違いを減らしたい
+- 配列名だけコピーして、VBE上ですぐループ雛形を作りたい
+- コード生成、クリップボード格納、コードウィンドウ復帰までを一連の操作にしたい
+- 1D版と2D版のコード生成補助をセットで持っておきたい
+
+2次元配列は、シート範囲を配列へ読み込んだ処理や、行列形式のデータを加工する処理でよく使います。毎回二重ループを手入力すると小さなミスが出やすいため、雛形だけでも自動生成できると開発が軽くなります。
+
+## 処理イメージ図
+
+<figure>
+  <a href="/articles/vba/make-clip-code-loop-array2d/workflow.jpg" target="_blank" rel="noopener noreferrer">
+    <img src="/articles/vba/make-clip-code-loop-array2d/workflow.jpg" alt="MCCLoopArray2Dで2次元配列名から二重ループコードを生成して貼り付ける流れ" className="h-auto w-full" />
+  </a>
+  <figcaption>配列変数名をコピーし、イミディエイトウィンドウで`MCCLoopArray2D`を実行すると、二重ループのコードが生成されてクリップボードに入ります。</figcaption>
+</figure>
+
+処理の流れは次の通りです。
+
+```text
+2次元配列の変数名をコピー
+  ↓
+MCCLoopArray2Dを実行
+  ↓
+GetClipTextで変数名を取得
+  ↓
+MakeClipCodeLoopArray2Dで二重ループ文字列を組み立てる
+  ↓
+ClipTextで生成コードをクリップボードへ格納
+  ↓
+ShowCodeWindowDelayでコードウィンドウへ戻りやすくする
+```
+
+## 動作デモ
+
+実際の操作では、配列名をコピーしてから`MCCLoopArray2D`を実行し、生成されたコードを任意の位置へ貼り付けます。
+
+<video controls preload="metadata" className="my-6 w-full rounded-lg border border-gray-200 bg-black">
+  <source src="/articles/vba/make-clip-code-loop-array2d/demo.mp4" type="video/mp4" />
+</video>
+
+## 使用例
+
+次のような2次元配列があるとします。ここでは`Array2D`という変数名だけをコピーしてから、イミディエイトウィンドウで`MCCLoopArray2D`を実行します。
+
+<CopyCode language="vba" filename="使用例" src="/articles/vba/make-clip-code-loop-array2d/usage.bas" />
+
+生成されるコードは次の形です。
+
+```vba
+    Dim I As Long
+    Dim J As Long
+    Dim N As Long: N = UBound(Array2D, 1)
+    Dim M As Long: M = UBound(Array2D, 2)
+    For I = 1 To N
+        For J = 1 To M
+            Array2D(I, J)
+        Next
+    Next
+```
+
+貼り付け後は、`Array2D(I, J)`の行に実際の処理を書き足します。たとえば各要素を確認したい場合は、次のように変更します。
+
+```vba
+Debug.Print Array2D(I, J)
+```
+
+## サンプルブック
+
+動作確認用のマクロ有効ブックも用意しています。手元で動きを確認したい場合に使えます。
+
+<p>
+  <a href="/downloads/vba/make-clip-code-loop-array2d-sample.xlsm" download style={{ display: "inline-block", padding: "0.75rem 1rem", borderRadius: "8px", background: "#0f766e", color: "#fff", fontWeight: 700, textDecoration: "none" }}>
+    MCCLoopArray2Dサンプルブックをダウンロード
+  </a>
+</p>
+
+`.xlsm`形式のため、Excelで開くときはマクロの有効化、保護ビュー、ダウンロードファイルのブロック解除を確認してください。
+
+## コピー可能な実装コード
+
+下のコードは、`MCCLoopArray2D`、`MakeClipCodeLoopArray2D`、`ClipText`、`GetClipText`、`ShowCodeWindowDelay`、`ShowCodeWindow`を1つにまとめた貼り付け用パッケージです。
+
+<CopyCode language="vba" filename="MCCLoopArray2D.bas" src="/articles/vba/make-clip-code-loop-array2d/MCCLoopArray2D.bas" />
+
+## 初心者向けコード解説
+
+`MCCLoopArray2D`は、長い名前の`MakeClipCodeLoopArray2D`を呼び出すための短縮プロシージャです。イミディエイトウィンドウから実行する前提では、短い名前にしておくと入力が速くなります。
+
+```vba
+Public Sub MCCLoopArray2D()
+    Call MakeClipCodeLoopArray2D
+End Sub
+```
+
+中心処理の`MakeClipCodeLoopArray2D`では、まず`GetClipText`でクリップボード内の文字列を取得します。空文字の場合は`Beep`と`Debug.Print`で知らせ、配列名がない状態で不完全なコードを生成しないようにしています。
+
+```vba
+Dim Text As String: Text = GetClipText
+If Text = "" Then
+    Call Beep
+    Debug.Print "クリップボード格納に文字列が格納されていません"
+    Exit Sub
+End If
+```
+
+取得した文字列には、コピー操作の都合で改行が混ざることがあります。そのため、`vbLf`と`vbCr`を削除して、1行の変数名として扱います。
+
+```vba
+Text = Replace(Text, vbLf, "")
+Text = Replace(Text, vbCr, "")
+```
+
+二重ループのコードは、`Str`へ1行ずつ連結して作ります。`UBound(配列名, 1)`は1次元目、`UBound(配列名, 2)`は2次元目の最大インデックスを取得します。
+
+```vba
+Str = Str & "    Dim N As Long: N = UBound(" & Text & ", 1)" & vbLf
+Str = Str & "    Dim M As Long: M = UBound(" & Text & ", 2)" & vbLf
+```
+
+外側の`For I = 1 To N`で1次元目を回し、内側の`For J = 1 To M`で2次元目を回します。内側のループで`配列名(I, J)`を参照する形です。
+
+```vba
+Str = Str & "    For I = 1 To N" & vbLf
+Str = Str & "        For J = 1 To M" & vbLf
+Str = Str & "            " & Text & "(I, J)" & vbLf
+Str = Str & "        Next" & vbLf
+Str = Str & "    Next"
+```
+
+最後に`ClipText(Str)`で生成コードをクリップボードへ格納し、`Debug.Print Str`でイミディエイトウィンドウにも出力します。`ShowCodeWindowDelay`は、コードウィンドウへ戻りやすくする補助処理です。
+
+```vba
+Call ClipText(Str)
+Debug.Print Str
+Call ShowCodeWindowDelay
+```
+
+## 注意点
+
+- 生成コードは`For I = 1 To N`、`For J = 1 To M`のため、1始まりの2次元配列を前提にしています。
+- `0 To 1`のような0始まり配列に使う場合は、生成後に開始値を修正してください。
+- クリップボードに入れる文字列は、基本的に`Array2D`のような配列変数名だけにします。
+- 複数行のコードや余計な文字列をコピーしていると、その文字列がそのまま生成コードへ埋め込まれる可能性があります。
+- `GetClipText`では<Term>DataObject</Term>を使うため、VBEの「ツール」→「参照設定」で`Microsoft Forms 2.0 Object Library`が必要になる場合があります。
+- `ShowCodeWindow`は`Application.VBE.Windows`を参照するため、環境によっては「VBAプロジェクト オブジェクトモデルへのアクセスを信頼する」の設定や、VBE Extensibility系の参照設定が関係する場合があります。
+- 生成されたコードは雛形です。貼り付け後に`Array2D(I, J)`の行へ実際の処理を書き足してください。
+
+## 関連記事
+
+- [一次元配列ループの雛形を生成するMCCLoopArray1D](/articles/vba/make-clip-code-loop-array1d)
+- [クリップボードの文字列を取得するGetClipText](/articles/vba/getcliptext)
+- [文字列をクリップボードへ格納するClipText](/articles/vba/cliptext)
+- [コードウィンドウへ戻るShowCodeWindowDelay](/articles/vba/show-code-window-delay)
+- [0始まり配列を1始まりへ変換するConvArray1D_Start1](/articles/vba/conv-array1d-start1)
+- [一次元配列から値の位置を取得するGetNumFromArray1D](/articles/vba/get-num-from-array1d)
+- [イミディエイトウィンドウをCUIのように使ってプロシージャコードを半自動生成する](/articles/vba/immediate-window-cui-procedure-generator)
+
+## 軽いまとめ
+
+`MCCLoopArray2D`を用意しておくと、2次元配列の二重ループ雛形を毎回手入力せず、配列名のコピーとイミディエイトウィンドウ実行だけで生成できます。
+
+1D版の`MCCLoopArray1D`とあわせて持っておくと、VBA開発で繰り返し書く配列処理の土台を素早く作れるようになります。小さな補助マクロですが、定型コードの入力ミスを減らし、実際の処理内容を書くことに集中しやすくなります。
