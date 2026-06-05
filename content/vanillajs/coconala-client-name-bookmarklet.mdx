@@ -1,0 +1,128 @@
+---
+title: "Chromeブックマークレットでココナラ依頼者名を返信欄へ自動入力する"
+category: "vanillajs"
+slug: "coconala-client-name-bookmarklet"
+tags: ["JavaScript", "Chrome", "ブックマークレット", "DOM", "Vue", "業務効率化", "ココナラメッセージ"]
+description: "ココナラのメッセージ詳細ページやトークルームで、相手の名前を返信入力欄へ1クリックで差し込むChromeブックマークレットの実装例です。様なし版と様あり版を使い分けます。"
+date: "2026-06-05"
+---
+
+## はじめに
+
+ココナラでメッセージ返信をするとき、毎回相手の名前を確認して、返信欄の先頭へ入力する作業があります。小さな作業ですが、やり取りの件数が増えると意外と手間になります。
+
+この記事では、<Term>Chrome</Term>の<Term>ブックマークレット</Term>として<Term>JavaScript</Term>を登録し、ココナラのメッセージ詳細ページまたはトークルーム上で、依頼者名を返信入力欄へ自動入力する実装例を整理します。
+
+用意するブックマークレットは2種類です。
+
+- 様なし: 相手の名前だけを入力する
+- 様あり: `相手名 + "様" + 改行` を入力する
+
+## 動作イメージ
+
+メッセージページを開いた状態で登録済みのブックマークレットをクリックすると、ページ上の相手名を読み取り、返信欄へ差し込みます。
+
+<video controls preload="metadata" className="my-6 w-full rounded-lg border border-gray-200 bg-black">
+  <source src="/articles/vanillajs/coconala-client-name-bookmarklet/demo.mp4" type="video/mp4" />
+</video>
+
+実際の運用では、返信文を書く前の先頭入力補助として使います。名前をコピーして貼り付けるだけの処理なので、外部サーバーへデータを送信する処理は入れていません。
+
+## ドラッグして登録する
+
+下のボタンをクリックするのではなく、Chromeのブックマークバーへドラッグして登録します。返信文の書き方に合わせて、様なし版と様あり版を使い分けます。
+
+<div className="grid gap-4 md:grid-cols-2">
+  <BookmarkletInstall id="coconala-client-name" label="依頼者名入力（様なし） ←これをブックマークバーにドラッグ" />
+  <BookmarkletInstall id="coconala-client-name-sama" label="依頼者名入力（様あり） ←これをブックマークバーにドラッグ" />
+</div>
+
+登録後は、ココナラのメッセージ詳細ページまたはトークルームを開き、ブックマークバーの登録名をクリックします。
+
+## 手動で設定する場合
+
+ドラッグ登録がうまくいかない場合は、ブックマークを手動で作成し、URL欄に `javascript:` から始まるコードを貼り付けます。
+
+<figure>
+  <a href="/articles/vanillajs/coconala-client-name-bookmarklet/manual-install.jpg" target="_blank" rel="noopener noreferrer">
+    <img src="/articles/vanillajs/coconala-client-name-bookmarklet/manual-install.jpg" alt="Chromeのブックマーク編集画面に依頼者名入力ブックマークレットのコードを貼り付ける手順" className="h-auto w-full rounded-lg border border-gray-200" />
+  </a>
+  <figcaption>ブックマークバーで右クリックし、ページを追加して、名前とURL欄のJavaScriptコードを設定します。</figcaption>
+</figure>
+
+Chromeでは、貼り付け時に先頭の `javascript:` が消えることがあります。保存前に、URL欄が必ず `javascript:` から始まっているか確認してください。
+
+## コピー可能なコード
+
+ブックマークのURL欄へ貼り付ける場合は、改行なしの登録用コードを使います。処理の中身を確認したい場合は、改行ありの解説用コードを見ると読みやすくなります。
+
+### 様なし版
+
+<CopyCode language="text" filename="様なし 登録用コード（改行なし・javascript:付き）" src="/articles/vanillajs/coconala-client-name-bookmarklet/client-name-without-sama-url.txt" />
+
+<CopyCode language="javascript" filename="様なし 解説用コード（改行あり）" src="/articles/vanillajs/coconala-client-name-bookmarklet/client-name-without-sama-readable.js" />
+
+### 様あり版
+
+<CopyCode language="text" filename="様あり 登録用コード（改行なし・javascript:付き）" src="/articles/vanillajs/coconala-client-name-bookmarklet/client-name-with-sama-url.txt" />
+
+<CopyCode language="javascript" filename="様あり 解説用コード（改行あり）" src="/articles/vanillajs/coconala-client-name-bookmarklet/client-name-with-sama-readable.js" />
+
+## 新旧ページを分岐して扱う
+
+ココナラ側の画面には、旧来のメッセージ詳細ページと、新しいトークルーム画面があります。どちらでも動くように、まず旧ページの入力欄を探し、見つからなければトークルーム用の要素を探す構成にしています。
+
+| 対象画面 | 名前の取得元 | 入力欄の取得元 |
+| --- | --- | --- |
+| メッセージ詳細ページ | `.threadParticipants a` または `.data-message` の `dataset.clientName` | `#DirectMessageBody` または `textarea[name="data[DirectMessage][body]"]` |
+| トークルーム | `.d-userInfo_name` | `.js-talkroomMessageArea textarea`、`.d-messageForm textarea`、`textarea.input.textarea` |
+
+このように<Term>DOM</Term>の候補を複数持たせると、ページ構造が少し違っていても同じブックマークレットで吸収しやすくなります。
+
+## Vue系の入力欄ではvalue代入だけでは足りない
+
+単純に `textarea.value = name` と書くだけでも、画面上の文字は変わることがあります。ただし、Vueなどのフレームワークで管理されている入力欄では、内部状態や送信ボタンの有効判定が更新されないことがあります。
+
+そのため、実装ではネイティブのvalue setterを呼び出したあと、`input` と `change` イベントを発火しています。
+
+```javascript
+const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
+setter.call(el, val);
+el.dispatchEvent(new Event("input", { bubbles: true }));
+el.dispatchEvent(new Event("change", { bubbles: true }));
+```
+
+この形にすると、画面上の入力値だけでなく、フレームワーク側の状態更新にも伝わりやすくなります。
+
+## JavaScriptでは文字列連結に+を使う
+
+様あり版では、名前の後ろに `様` と改行を付けます。このとき、<Term>JavaScript</Term>では文字列連結に `+` を使います。
+
+```javascript
+const text = name + "様\n";
+```
+
+VBAの感覚で `name & "様"` のように書くと、JavaScriptでは意図した文字列連結になりません。VBAとJavaScriptを行き来していると間違えやすいので、ブックマークレット化する前にブラウザのコンソールなどで軽く確認しておくと安全です。
+
+## 注意点
+
+ブックマークレットは、現在開いているページ上でJavaScriptを実行する仕組みです。便利ですが、内容を理解できないコードや、出所が不明なコードは登録しないでください。
+
+今回のコードは、表示中ページから相手名と入力欄を探し、返信欄へ文字列を入れる処理に限定しています。外部サーバーへ送信する処理は入れていません。
+
+公開記事や説明画像にする場合は、アカウント名、通知、顧客名、実際の相談内容などが写り込まないように必ず確認します。業務補助用の小さな自動化でも、画面キャプチャの扱いは慎重にする必要があります。
+
+また、ココナラ側の画面構造やクラス名が変わると、取得対象のセレクタが合わなくなる可能性があります。その場合は、現在の画面構造に合わせてセレクタを見直します。
+
+## 関連記事
+
+- [Chromeブックマークレットでココナラ予約枠をクリックコピーする](/articles/vanillajs/coconala-reservation-bookmarklet-copy)
+- [Chromeブックマークレットでココナラ分析グラフの数値をExcel用にコピーする](/articles/vanillajs/coconala-analytics-bookmarklet-copy)
+- [Chromeブックマークレットでココナラ販売金額を1クリック合計する](/articles/vanillajs/coconala-sales-total-bookmarklet)
+- [UIと計算ロジックを分離する純粋関数パターン](/articles/vanillajs/pure-function-calculation-logic)
+
+## まとめ
+
+ブックマークレットを使うと、既存のWebサービス画面に小さな入力補助を足す感覚で、日々の作業を軽くできます。
+
+今回の依頼者名自動入力は、名前を探す、入力欄を探す、フレームワーク側へ入力変更を伝える、という処理を組み合わせたものです。大きなシステム改修ではなくても、毎回の手入力を減らす小さな自動化として役立ちます。
