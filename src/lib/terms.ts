@@ -81,6 +81,38 @@ export const terms: TermEntry[] = [
     googleQuery: "認知バイアス とは",
   },
   {
+    slug: "comparative-estimate",
+    title: "相見積もり",
+    category: "開発相談",
+    aliases: ["あいみつ", "相見積", "複数見積もり"],
+    summary: "複数の開発者や会社に相談し、費用、納期、対応範囲、進め方を比較する発注前の検討方法です。",
+    description: [
+      "相見積もりは、依頼者が複数の選択肢を比較するための一般的な相談・発注活動です。",
+      "ただし、見積相談中に開発者が作成した要件定義書、提案資料、画面案、設計案などを他社やAIへ流用する場合は、利用範囲や権利関係の確認が必要になることがあります。",
+    ],
+    useCases: ["開発相談の比較", "費用と納期の検討", "要件整理の依頼範囲確認"],
+    related: ["requirements-definition", "copyright", "generative-ai"],
+    googleQuery: "相見積もり 開発 注意点",
+  },
+  {
+    slug: "copyright",
+    title: "著作権",
+    category: "権利・公開",
+    aliases: ["著作権法", "Copyright"],
+    summary: "文章、画像、コード、資料などの創作的な表現を保護する権利です。",
+    description: [
+      "著作権は、アイデアそのものではなく、文章化、図解化、コード化などによって表現された創作物に関係する権利です。",
+      "開発相談では、要件定義書、提案資料、画面案、コード案などが誰の成果物なのか、どの範囲で利用できるのかを確認しておくとトラブルを避けやすくなります。",
+    ],
+    useCases: ["提案資料の利用範囲確認", "AIへの資料入力時の注意", "公開記事や画像素材の確認"],
+    related: ["comparative-estimate", "requirements-definition", "generative-ai"],
+    googleQuery: "著作権 とは",
+    references: [
+      { title: "文化庁 - AIと著作権について", url: "https://www.bunka.go.jp/seisaku/chosakuken/aiandcopyright.html" },
+      { title: "e-Gov法令検索 - 著作権法", url: "https://elaws.e-gov.go.jp/document?lawid=345AC0000000048" },
+    ],
+  },
+  {
     slug: "legacy-system",
     title: "レガシーシステム",
     category: "業務システム",
