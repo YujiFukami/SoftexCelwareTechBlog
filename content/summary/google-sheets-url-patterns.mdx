@@ -1,0 +1,220 @@
+---
+title: "GoogleスプレッドシートのURL変更パターンまとめ: /copy・/preview・/export・gid・rangeの使い分け"
+category: "summary"
+slug: "google-sheets-url-patterns"
+tags: ["Googleスプレッドシート", "Google Apps Script", "Google Drive", "URL", "PDF出力", "CSV出力", "テンプレート配布"]
+description: "GoogleスプレッドシートのURLを少し変えるだけで、コピー作成画面、プレビュー、PDF・Excel・CSV出力、シートやセル位置指定を行う方法を整理します。/copyの権限や保存先制御の注意点も解説します。"
+date: "2026-06-08"
+image: "/articles/summary/google-sheets-url-patterns/cover.png"
+---
+
+<Term>Googleスプレッドシート</Term>は、画面上で編集するだけでなく、URLの一部を変えることで開き方や出力方法を切り替えられます。
+
+たとえば、テンプレートとして配布したいときは`/copy`、見た目だけ確認させたいときは`/preview`、PDFやExcel形式で出力したいときは`/export`を使えます。帳票テンプレート、入力フォーム、業務改善ツールを作るときに覚えておくと便利な小技です。
+
+<figure>
+  <a href="/articles/summary/google-sheets-url-patterns/cover.png" target="_blank" rel="noreferrer">
+    <img src="/articles/summary/google-sheets-url-patterns/cover.png" alt="GoogleスプレッドシートのURL変更パターンをまとめた解説図" />
+  </a>
+  <figcaption>配布は /copy、確認は /preview、出力は /export、移動は gid と range で切り替えます。</figcaption>
+</figure>
+
+## 基本のURL構造
+
+Googleスプレッドシートの通常URLは、おおむね次の形です。
+
+```text
+https://docs.google.com/spreadsheets/d/スプレッドシートID/edit#gid=0
+```
+
+主な構成は次の通りです。
+
+| 部分 | 役割 |
+| --- | --- |
+| `スプレッドシートID` | ファイルを識別するID |
+| `/edit` | 編集画面を開く指定 |
+| `#gid=0` | 開くシートタブを指定するID |
+
+この`/edit`や`#gid=`の部分を変えることで、コピー作成画面、プレビュー、PDF出力、CSV取得などに切り替えられます。
+
+## /copy でコピー作成画面を開く
+
+テンプレートを配布したい場合は、URL末尾の`/edit`を`/copy`に変えます。
+
+```text
+https://docs.google.com/spreadsheets/d/スプレッドシートID/edit
+```
+
+```text
+https://docs.google.com/spreadsheets/d/スプレッドシートID/copy
+```
+
+このURLを開くと、利用者側に「コピーを作成」画面が表示されます。元のスプレッドシートを直接編集させず、利用者ごとに複製して使ってもらいたい場合に向いています。
+
+ただし、`/copy`は共有権限を回避する方法ではありません。元ファイルへアクセスできないユーザーには、コピー作成画面も開けません。テンプレート配布で使う場合は、閲覧権限やリンク共有の設定も合わせて確認します。
+
+## /preview でプレビュー表示する
+
+編集画面を見せずに、表示確認だけさせたい場合は`/preview`を使います。
+
+```text
+https://docs.google.com/spreadsheets/d/スプレッドシートID/preview
+```
+
+編集用のメニューやツールバーをできるだけ見せず、帳票や表の見た目を確認してもらいたい場合に使いやすい形式です。
+
+社内共有や確認依頼では、編集画面のURLを送るよりも、プレビューURLを送った方が「何を見ればよいか」が伝わりやすくなることがあります。
+
+## /export でPDFやExcel形式に出力する
+
+`/export`を使うと、スプレッドシートを別形式で出力できます。
+
+PDFとして出力する例です。
+
+```text
+https://docs.google.com/spreadsheets/d/スプレッドシートID/export?format=pdf
+```
+
+Excel形式で出力する例です。
+
+```text
+https://docs.google.com/spreadsheets/d/スプレッドシートID/export?format=xlsx
+```
+
+帳票PDF、見積書、報告書、社内配布用ファイルなどを作るときに使います。<Term>Google Apps Script</Term>からPDFを取得する場合も、基本的にはこのエクスポートURLを組み立てて使います。
+
+よく使うPDF出力パラメータの例です。
+
+```text
+https://docs.google.com/spreadsheets/d/スプレッドシートID/export?format=pdf&gid=0&size=A4&portrait=true&fitw=true&gridlines=false
+```
+
+| パラメータ | 意味 |
+| --- | --- |
+| `format=pdf` | PDF形式で出力 |
+| `format=xlsx` | Excel形式で出力 |
+| `gid=0` | 出力対象のシートを指定 |
+| `size=A4` | 用紙サイズを指定 |
+| `portrait=true` | 縦向きで出力 |
+| `fitw=true` | 幅をページに合わせる |
+| `gridlines=false` | グリッド線を非表示 |
+
+## CSVとして取得する
+
+データ連携用にCSVで取得したい場合は、`gviz/tq`形式のURLを使えます。
+
+```text
+https://docs.google.com/spreadsheets/d/スプレッドシートID/gviz/tq?tqx=out:csv&gid=0
+```
+
+CSVは、<Term>Excel</Term>、Webアプリ、分析ツール、外部システムとの連携で使いやすい形式です。シートを簡易的なデータソースとして扱う場合にも利用できます。
+
+ただし、CSV取得も権限設定の影響を受けます。公開されていないシートを外部から取得する場合は、認証や共有設定を前提に設計する必要があります。
+
+## #gid= で開くシートを指定する
+
+URL末尾の`#gid=`は、どのシートタブを開くかを指定する部分です。
+
+```text
+https://docs.google.com/spreadsheets/d/スプレッドシートID/edit#gid=123456789
+```
+
+複数シートがあるファイルで、特定の入力シート、設定シート、帳票シートを直接開かせたい場合に使います。
+
+たとえば、利用者には「入力シート」を開いてほしいが、管理者用の「設定シート」も同じファイル内にある場合、案内URLに`gid`を付けておくと迷いにくくなります。
+
+## range= で特定セル付近を開く
+
+`range=`を付けると、特定セル付近を開きやすくできます。
+
+```text
+https://docs.google.com/spreadsheets/d/スプレッドシートID/edit#gid=0&range=A1
+```
+
+入力開始位置、確認してほしい表、設定値のセルなどへ誘導したい場合に便利です。
+
+ただし、画面サイズやブラウザ表示によって見え方は変わります。重要な案内では、URLだけに頼らず、シート内の見出しや色分けも合わせて整えておくと安全です。
+
+## URL変更でできること・できないこと
+
+URL変更でできるのは、主に「開き方」「表示方法」「出力形式」「開く位置」の切り替えです。
+
+| できること | 例 |
+| --- | --- |
+| コピー作成画面を開く | `/copy` |
+| プレビュー表示する | `/preview` |
+| PDFやExcelとして出力する | `/export?format=pdf` |
+| CSVとして取得する | `/gviz/tq?tqx=out:csv` |
+| 開くシートを指定する | `#gid=` |
+| 開くセル位置を指定する | `range=` |
+
+一方で、次のようなことはURL変更だけではできません。
+
+- 共有権限そのものを変更する
+- アクセス権がないユーザーにファイルを見せる
+- `/copy`で作成されるコピー先フォルダを指定する
+- 保存先やファイル名を業務ルールに合わせて完全制御する
+
+特に`/copy`は便利ですが、コピー先フォルダの指定まではできません。保存先を制御したい場合は、<Term>Google Apps Script</Term>と<Term>DriveApp</Term>を使う設計に切り替えます。
+
+## GASで保存先フォルダを制御する考え方
+
+テンプレート配布では`/copy`で十分なこともありますが、業務システムとして使う場合は「作成したファイルをどのフォルダへ保存するか」まで決めたくなります。
+
+その場合は、URL変更ではなく、<Term>Google Apps Script</Term>側で<Term>Google Drive</Term>の保存先を制御します。
+
+```javascript
+function getOutputFolder_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const folderIdRange = ss.getRangeByName('出力先フォルダID');
+  const folderId = folderIdRange ? String(folderIdRange.getValue()).trim() : '';
+
+  if (folderId) {
+    return DriveApp.getFolderById(folderId);
+  }
+
+  const file = DriveApp.getFileById(ss.getId());
+  const parents = file.getParents();
+
+  if (parents.hasNext()) {
+    return parents.next();
+  }
+
+  return DriveApp.getRootFolder();
+}
+```
+
+この例では、名前付き範囲`出力先フォルダID`にフォルダIDが入っていれば、そのフォルダを保存先にします。空欄なら、スプレッドシート本体が置かれている親フォルダを使います。
+
+このようにしておくと、テンプレートをコピーした後でも、保存先フォルダをシート上の設定値として変更できます。帳票PDF、画像、ログファイルなどを扱うGASツールでは、URL変更とGAS側の保存制御を使い分けると運用しやすくなります。
+
+## 実務での使い分け
+
+| やりたいこと | 使うURLパターン |
+| --- | --- |
+| テンプレートとして配布する | `/copy` |
+| 編集画面を見せずに確認してもらう | `/preview` |
+| PDFで出力する | `/export?format=pdf` |
+| Excel形式で出力する | `/export?format=xlsx` |
+| CSVで取得する | `/gviz/tq?tqx=out:csv&gid=0` |
+| 特定シートを開く | `#gid=シートID` |
+| 特定セル付近を開く | `#gid=シートID&range=A1` |
+| 保存先フォルダまで制御する | GASとDriveAppを使う |
+
+小さな業務改善では、URLを少し変えるだけで十分な場合があります。一方で、ファイル保存、PDF作成、データ連携、権限管理まで含める場合は、<Term>Google Apps Script</Term>で処理を組む方が安全です。
+
+## 関連記事
+
+- [Googleスプレッドシートを簡易DBにするアイデア](/articles/design-philosophy/google-sheets-simple-db-mvp)
+- [外部WebアプリからGAS API経由でスプレッドシートDBを扱う実装パターン](/articles/gas/spreadsheet-db-api-external-webapp)
+- [GASでテンプレートシートを複製して複数ページPDFを作る方法](/articles/gas/template-sheet-multi-page-pdf)
+- [GASで送信ごとにGoogle Drive専用フォルダへ保存する方法](/articles/gas/drive-submission-folder)
+- [GASでスマホ写真付きレポートをPDF出力する方法](/articles/gas/image-function-photo-pdf-report)
+
+## まとめ
+
+Googleスプレッドシートは、URLの一部を変えるだけで使い方が広がります。
+
+配布なら`/copy`、確認なら`/preview`、PDFやExcel出力なら`/export`、CSV取得なら`gviz/tq`、シートやセル位置の指定なら`gid`と`range`を使います。
+
+ただし、URL変更で制御できるのは開き方や出力方法までです。権限、保存先、ファイル管理まで含める場合は、Google Apps ScriptやDriveAppを使って処理として設計する方が安定します。
