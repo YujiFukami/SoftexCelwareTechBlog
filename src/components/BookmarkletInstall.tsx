@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
 type BookmarkletId =
   | "coconala-reservation-copy"
   | "coconala-sales-total"
@@ -19,12 +21,24 @@ type BookmarkletInstallProps = {
 };
 
 export default function BookmarkletInstall({ id, label }: BookmarkletInstallProps) {
+  const bookmarklet = bookmarklets[id];
+  const anchorRef = useRef<HTMLAnchorElement>(null);
+
+  useEffect(() => {
+    anchorRef.current?.setAttribute("href", bookmarklet);
+  }, [bookmarklet]);
+
   return (
     <div className="my-6 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
       <a
+        ref={anchorRef}
         className="inline-flex cursor-grab items-center justify-center rounded-md bg-emerald-600 px-5 py-3 text-sm font-bold text-white no-underline shadow-sm transition hover:bg-emerald-700 active:cursor-grabbing"
-        href={bookmarklets[id]}
+        href="#"
         onClick={(event) => event.preventDefault()}
+        onDragStart={(event) => {
+          event.dataTransfer.setData("text/uri-list", bookmarklet);
+          event.dataTransfer.setData("text/plain", bookmarklet);
+        }}
         draggable
       >
         {label}
