@@ -1,0 +1,181 @@
+---
+title: "Wixは外部APIでどこまで自動化できる？ CMS・ブログ・エディター操作の違い"
+category: "design-philosophy"
+slug: "wix-external-operation-automation"
+tags: ["アイデア", "Wix", "CMS", "REST API", "生成AI", "業務自動化"]
+description: "Wixを外部システムやAIから操作する場合に、CMS・ブログ・商品・予約など自動化しやすい領域と、既存Wix Editorのレイアウト編集など人間の操作が必要になりやすい領域を整理します。"
+date: "2026-06-09"
+image: "/articles/design-philosophy/wix-external-operation-automation/cover.png"
+---
+
+<Term>Wix</Term>で作ったホームページを運用していると、「記事や実績の追加を自動化できないか」「<Term>生成AI</Term>から更新できないか」と考えることがあります。
+
+結論から言うと、Wixは<Term>CMS</Term>、ブログ、商品、予約、顧客情報などを外部から扱う仕組みが充実しています。一方で、既存のWix Editor上にある任意の部品を、人間のように自由配置・編集する用途とは分けて考える必要があります。
+
+本記事は、Wix公式ドキュメントをもとに外部連携の可能性を整理した**アイデア・調査段階の記事**です。利用できる機能は、契約プラン、導入済みアプリ、権限、認証方式、最新仕様によって変わるため、実装前に公式情報を確認してください。
+
+<figure>
+  <a href="/articles/design-philosophy/wix-external-operation-automation/cover.png" target="_blank" rel="noreferrer">
+    <img src="/articles/design-philosophy/wix-external-operation-automation/cover.png" alt="Wixの外部API操作とAI自動化の範囲を示した解説図" />
+  </a>
+  <figcaption>Wixの外部連携は、デザインを直接操作するよりも、CMSやブログなどのデータ更新を自動化する用途に向いています。</figcaption>
+</figure>
+
+## 先に結論: データ更新は得意、Editorの自由操作は難しい
+
+Wixを外部から操作する場合、次の2つを分けると理解しやすくなります。
+
+| 対象 | 外部操作のしやすさ | 主な方法 |
+| --- | ---: | --- |
+| お知らせ、実績、FAQ、ブログ、商品、予約、顧客情報 | 高い | CMS、各種API、Automations |
+| 固定ページのレイアウト、余白、部品配置、全体デザイン | 低い | Wix Editorで人間が調整 |
+
+つまり、Wixは**サイト内のデータや業務機能を外部連携することには強い**一方で、**既存Editorの見た目を外部APIだけで自由に作り替える用途には向いていない**、という整理になります。
+
+## Wixで外部操作しやすい情報
+
+Wixの開発者向け機能では、CMS、Blog、Stores、Bookings、Events、Members、Contacts、CRMなど、さまざまな情報を扱えます。
+
+### CMSで管理するお知らせ・実績・FAQ
+
+更新頻度の高い情報は、固定テキストではなくCMSのコレクションとして管理しておくと自動化しやすくなります。
+
+たとえば、開発請負のサイトなら次の情報が候補です。
+
+- お知らせ
+- 開発実績
+- FAQ
+- サービス一覧
+- 講座・レッスン情報
+
+外部システムがCMSへデータを追加し、Wix側の一覧・詳細ページへ反映する構成にすれば、更新のたびにEditorでページを作り直す必要を減らせます。
+
+### ブログ記事は下書き登録まで自動化する
+
+Blog APIを使えば、外部システムから記事の下書きを作成する運用を検討できます。
+
+```text
+AIで原稿を作成
+  ↓
+外部システムでタイトル・本文・タグを整形
+  ↓
+Wix Blogへ下書き登録
+  ↓
+人間が事実・画像・リンクを確認
+  ↓
+公開
+```
+
+完全自動公開よりも、下書き登録まで自動化して公開判断を人間に残す方が、誤情報、著作権、守秘義務、リンク切れを防ぎやすくなります。
+
+### 商品・予約・顧客情報も連携候補になる
+
+Wix Stores、Wix Bookings、CRMなどを利用している場合は、商品情報、在庫、予約、会員、問い合わせ情報なども連携候補になります。
+
+ただし、実際に利用できる操作は、導入済みのWixアプリ、権限、認証方式、APIの仕様によって異なります。先に「何を読み取り、何を書き換えるのか」を決めてから公式APIを確認することが重要です。
+
+## Wix Editorを外部APIで完全操作できるのか
+
+AIがWix Editorを開き、テキストボックスや画像を自由に追加し、余白やフォントを調整して公開する、といった完全自動編集を想像するかもしれません。
+
+しかし、Editor Deep Link APIは、Editorを開く導線やCustom Elementを追加する導線を作るための仕組みです。既存Editor内の任意要素を、外部APIだけで自由に配置・編集する一般用途のAPIではありません。
+
+そのため、固定ページの大枠、配色、ヘッダー、フッター、ファーストビューなどは人間がEditorで整え、頻繁に更新する情報をCMSやブログへ分離する設計が現実的です。
+
+<figure>
+  <a href="/articles/design-philosophy/wix-external-operation-automation/scope-map.png" target="_blank" rel="noreferrer">
+    <img src="/articles/design-philosophy/wix-external-operation-automation/scope-map.png" alt="Wixを外部操作してできることと難しいことを整理した図" />
+  </a>
+  <figcaption>図の外部連携は、WixのAPIやデータを操作する流れを示しています。Editor上の任意要素を自由操作できるという意味ではありません。</figcaption>
+</figure>
+
+## Automations・Velo・REST APIの役割
+
+外部連携の方法は、目的ごとに使い分けます。
+
+| 方法 | 向いていること |
+| --- | --- |
+| Wix Automations | フォーム送信後の通知など、Wix内の定型フロー |
+| Velo / Wix JavaScript SDK | Wixサイト内の独自処理や画面動作 |
+| <Term>REST API</Term> | 外部システムからWixのデータや業務機能を扱う |
+| CMS / Blog API | 更新コンテンツや記事の登録・管理 |
+
+外部APIを使う場合は、<Term>OAuth</Term>などの認証、権限、エラー処理、監査ログも必要になります。APIキーやトークンをブラウザや公開リポジトリへ置かないことも重要です。
+
+## Headless・Wix Vibeという別の選択肢
+
+画面そのものをコードで自由に構築し、WixのCMSや予約、会員機能をバックエンドとして利用したい場合は、<Term>Headless</Term>構成が候補になります。
+
+たとえばフロントエンドを<Term>Next.js</Term>やReactで作り、Wixをデータ・業務機能の管理基盤として使う構成です。通常のWix Editorより開発知識は必要ですが、Git管理、コード生成、CI/CD、独自UIとの相性が良くなります。
+
+Wix Vibeも、従来Editorを外部から自由操作する機能というより、AIとコード編集を前提に新しいHeadlessサイトを構築する方向性として分けて考えると分かりやすくなります。
+
+## Wix MCPでできることと注意点
+
+<Term>MCP</Term>を使うと、AIクライアントからWixのドキュメント検索や、公開されたサイトAPIの呼び出しを行いやすくなります。
+
+ただし、MCPがあればAIがWixを無制限に操作できるわけではありません。実際にできることは、提供されているツール、API、認証、権限の範囲内です。
+
+AIに操作を任せる場合も、次のような制御が必要です。
+
+- 読み取りと更新の権限を分ける
+- 削除や公開など重要操作は人間が確認する
+- 実行内容と結果をログに残す
+- 失敗時に手動運用へ戻れるようにする
+
+## 実務でおすすめする役割分担
+
+Wixを運用しながら更新作業を減らすなら、最初から人間とAI・APIの担当範囲を分けます。
+
+### 人間がEditorで整える部分
+
+- トップページの大枠と配色
+- ヘッダー・フッター
+- 固定ページと問い合わせ導線
+- 画像配置や余白などの最終調整
+
+### AI・APIで管理する部分
+
+- お知らせ、ブログ、開発実績
+- FAQ、サービス一覧
+- 商品・予約・顧客情報
+- 通知や外部サービス連携
+
+この分担なら、Wixのノーコード運用のしやすさを残しながら、更新頻度が高い部分を自動化できます。
+
+## 導入前に確認すること
+
+実装へ進む前に、少なくとも次を確認します。
+
+- 自動化したい情報がCMS化されているか
+- 利用中プランと導入済みアプリで必要な機能を使えるか
+- APIの認証方法と必要権限
+- 更新失敗時の復旧方法
+- 下書き・確認・公開の担当者
+- 個人情報や顧客情報を外部AIへ送らない設計
+- 最新の公式仕様と利用制限
+
+## まとめ
+
+Wixは外部操作ができないサービスではありません。CMS、ブログ、商品、予約、顧客管理、Automations、Headless、MCPなど、外部連携に利用できる仕組みが用意されています。
+
+一方で、Wix APIでできることと、Wix Editorで人間が行うデザイン編集は別物です。
+
+現実的な方針は、**固定ページのデザインは人間が整え、更新情報はCMS・Blog API・Automationsなどで管理すること**です。ページ生成までコードやAI中心に進めたい場合は、Headless構成やコードベースのサイトも比較対象になります。
+
+## 関連記事
+
+- [生成AIを活用した新しいシステム導入サービスの考え方](/articles/design-philosophy/generative-ai-introduction-support)
+- [Googleスプレッドシートを簡易DBとして使うMVP構成のアイデア](/articles/design-philosophy/google-sheets-simple-db-mvp)
+- [GASでGoogleスプレッドシートを簡易DB化し外部WebアプリからCRUDする構成](/articles/gas/spreadsheet-db-api-external-webapp)
+- [技術記事を公開する前のリスクチェックリスト](/articles/codex/publication-risk-checklist)
+
+## 参考資料
+
+- [Wix API Reference](https://dev.wix.com/docs/api-reference)
+- [Editor Deep Link API](https://dev.wix.com/docs/rest/app-management/editor-deep-link/about-the-editor-deep-link-api)
+- [Wix Blog Draft Posts API](https://dev.wix.com/docs/rest/business-solutions/blog/draft-posts/create-draft-post)
+- [Wix Headless](https://dev.wix.com/docs/go-headless/get-started/overview/about-wix-headless)
+- [Wix Vibe](https://dev.wix.com/docs/go-headless/wix-vibe/about-wix-vibe)
+- [Wix MCP](https://dev.wix.com/docs/sdk/articles/use-the-wix-mcp/about-the-wix-mcp)
+
