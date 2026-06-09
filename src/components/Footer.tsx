@@ -20,6 +20,18 @@ export default function Footer() {
           </div>
           <div className="flex flex-wrap items-center justify-center gap-4">
             <Link
+              href="/learn"
+              className="text-xs text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              学ぶ
+            </Link>
+            <Link
+              href="/articles"
+              className="text-xs text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              記事
+            </Link>
+            <Link
               href="/knowledge-flow"
               className="text-xs text-blue-600 hover:text-blue-700 transition-colors"
             >
@@ -37,6 +49,12 @@ export default function Footer() {
             >
               用語集
             </Link>
+            <Link
+              href="/about"
+              className="text-xs text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              About
+            </Link>
             <a
               href="https://www.softex-celware.com/"
               target="_blank"
@@ -44,14 +62,6 @@ export default function Footer() {
               className="text-xs text-blue-600 hover:text-blue-700 transition-colors"
             >
               公式サイト
-            </a>
-            <a
-              href="https://www.softex-celware.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-blue-600 hover:text-blue-700 transition-colors"
-            >
-              無料相談
             </a>
           </div>
         </div>

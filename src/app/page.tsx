@@ -23,23 +23,62 @@ export default function HomePage() {
         </p>
         <div className="mt-6 flex flex-col sm:flex-row justify-center gap-3">
           <Link
-            href="/articles"
+            href="/learn"
             className="inline-flex justify-center rounded bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
           >
-            記事を読む
+            体系的に学ぶ
+          </Link>
+          <Link
+            href="/articles"
+            className="inline-flex justify-center rounded border border-blue-200 px-5 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-50 transition-colors"
+          >
+            技術記事を調べる
           </Link>
           <Link
             href="/cases"
-            className="inline-flex justify-center rounded border border-blue-200 px-5 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-50 transition-colors"
+            className="inline-flex justify-center rounded border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
           >
             開発事例を見る
           </Link>
-          <Link
-            href="/knowledge-flow"
-            className="inline-flex justify-center rounded border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            知識資産化を見る
-          </Link>
+        </div>
+      </section>
+
+      <section className="mb-12 border-y border-gray-200 py-8">
+        <h2 className="mb-5 text-xl font-bold text-gray-900">目的から探す</h2>
+        <div className="grid gap-x-8 md:grid-cols-2">
+          {[
+            {
+              href: "/learn",
+              title: "体系的に学びたい",
+              description: "Excelなどの基礎を、順番に学べる講座です。",
+            },
+            {
+              href: "/articles",
+              title: "実装方法を調べたい",
+              description: "開発中に使える技術記事やコード例を探せます。",
+            },
+            {
+              href: "/cases",
+              title: "活用例を見たい",
+              description: "業務改善やアプリ開発の具体的な事例を確認できます。",
+            },
+            {
+              href: "/tools",
+              title: "ツールを使いたい",
+              description: "公開中のWebアプリや開発支援ツールを利用できます。",
+            },
+          ].map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="border-b border-gray-200 py-4 transition-colors hover:border-blue-300"
+            >
+              <h3 className="font-bold text-gray-900">{item.title}</h3>
+              <p className="mt-1 text-sm leading-6 text-gray-600">
+                {item.description}
+              </p>
+            </Link>
+          ))}
         </div>
       </section>
 
@@ -57,7 +96,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="mb-12 border-y border-gray-200 py-10">
+      <section className="mb-12 border-b border-gray-200 pb-10">
         <div className="grid gap-8 lg:grid-cols-[1fr_1.2fr] lg:items-center">
           <div>
             <p className="text-sm font-medium text-blue-600 mb-2">

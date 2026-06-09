@@ -5,13 +5,11 @@ import Image from "next/image";
 import { useState } from "react";
 
 const navItems = [
-  { href: "/articles", label: "記事一覧" },
-  { href: "/search", label: "検索" },
+  { href: "/learn", label: "学ぶ" },
+  { href: "/articles", label: "記事" },
   { href: "/cases", label: "開発事例" },
   { href: "/tools", label: "公開ツール" },
-  { href: "/knowledge-flow", label: "知識資産化" },
   { href: "/terms", label: "用語集" },
-  { href: "/about", label: "About" },
 ];
 
 export default function Header() {
@@ -42,6 +40,27 @@ export default function Header() {
               {item.label}
             </Link>
           ))}
+          <Link
+            href="/search"
+            className="p-1.5 text-gray-600 transition-colors hover:text-blue-600"
+            aria-label="サイト内検索"
+            title="サイト内検索"
+          >
+            <svg
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="m21 21-4.35-4.35m1.35-5.65a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z"
+              />
+            </svg>
+          </Link>
           <a
             href="https://www.softex-celware.com/"
             target="_blank"
@@ -94,6 +113,13 @@ export default function Header() {
               {item.label}
             </Link>
           ))}
+          <Link
+            href="/search"
+            className="block text-sm text-gray-600 hover:text-blue-600"
+            onClick={() => setMenuOpen(false)}
+          >
+            検索
+          </Link>
           <a
             href="https://www.softex-celware.com/"
             target="_blank"
