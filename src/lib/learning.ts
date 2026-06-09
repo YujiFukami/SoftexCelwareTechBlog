@@ -39,8 +39,8 @@ export const excelBeginnerCourse: LearningCourse = {
     {
       slug: "cell-basics",
       number: 2,
-      title: "セルに保存される情報",
-      summary: "値、数式、書式、入力規則など、セルが持つ情報を整理します。",
+      title: "セルに含まれる・関連付く情報",
+      summary: "値、数式、書式、入力規則など、セルに関連する情報を整理します。",
       status: "available",
     },
     {
