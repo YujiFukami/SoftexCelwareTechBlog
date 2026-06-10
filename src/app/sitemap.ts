@@ -43,6 +43,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.8,
     },
     {
+      url: `${BASE_URL}/learn/excel/beginner/excel-workbook-sheet-cell`,
+      lastModified: new Date(),
+      changeFrequency: "monthly",
+      priority: 0.8,
+    },
+    {
       url: `${BASE_URL}/learn/excel/beginner/cell-basics`,
       lastModified: new Date(),
       changeFrequency: "monthly",

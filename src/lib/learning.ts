@@ -34,7 +34,7 @@ export const excelBeginnerCourse: LearningCourse = {
       number: 1,
       title: "Excel・ブック・シート・セルの関係",
       summary: "Excelファイルを構成する基本単位を整理します。",
-      status: "planned",
+      status: "available",
     },
     {
       slug: "cell-basics",

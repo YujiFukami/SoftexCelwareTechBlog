@@ -54,6 +54,12 @@ const bookingSteps = [
 
 const implementationArticles = [
   {
+    href: "/articles/design-philosophy/booking-app-line-notification-idea",
+    title: "予約管理アプリからLINEで顧客へ通知する仕組みのアイデア",
+    description:
+      "メール通知を基本に残しながら、希望者へLINE通知と前日リマインドを届ける段階的な構想です。",
+  },
+  {
     href: "/articles/nextjs/nextjs-gas-spreadsheet-booking-app",
     title: "Next.jsとGASスプレッドシートDBで予約アプリを作る構成",
     description:
