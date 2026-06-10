@@ -9,6 +9,14 @@ export const metadata: Metadata = {
 
 const tools = [
   {
+    href: "/tools/imabari-excel-booking",
+    title: "今治Excel教室 予約管理アプリ",
+    category: "地域密着型 予約Webアプリ",
+    description:
+      "個別指導・グループ指導の空き枠を確認し、スマートフォンから30分単位で予約できるWebアプリです。",
+    tags: ["Next.js", "GAS", "Googleスプレッドシート", "予約管理"],
+  },
+  {
     href: "/tools/rakulog-task",
     title: "らくログタスク",
     category: "作業時間管理Webアプリ",
