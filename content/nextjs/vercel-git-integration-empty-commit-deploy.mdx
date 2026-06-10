@@ -1,0 +1,102 @@
+---
+title: "VercelのGit連携を後付けしたとき空コミットで初回デプロイする方法"
+category: "nextjs"
+slug: "vercel-git-integration-empty-commit-deploy"
+tags: ["Vercel", "GitHub", "Git", "デプロイ", "Next.js"]
+description: "Vercelへ手動デプロイした後にGitHubリポジトリを連携し、最新コミットが自動デプロイされないときの切り分け方と、空コミットで安全に初回デプロイを発火させる手順を紹介します。"
+date: "2026-06-10"
+---
+
+## はじめに
+
+<Term>Vercel</Term>へ手動またはCLIでデプロイした後、GitHubリポジトリを連携することがあります。
+
+このとき、リポジトリ連携より前にpush済みだった最新コミットは、自動デプロイのきっかけになりません。Git連携は正常でも本番が古い状態のままなので、「連携したのにデプロイされない」と見えることがあります。
+
+この記事では、Git連携の故障と勘違いしやすいこの状態を切り分け、空コミットをpushして初回の自動デプロイを発火させる方法を紹介します。
+
+## 起きる状況
+
+次の順序で設定したときに起きやすい問題です。
+
+1. <Term>Next.js</Term>アプリを手動またはCLIで<Term>Vercel</Term>へデプロイする
+2. GitHubへ最新コードをpushする
+3. 後から<Term>Vercel</Term>の「Connect Git Repository」でリポジトリを連携する
+4. Productionが古いコミットのまま更新されない
+
+Git連携は、基本的に**連携後に発生した新しいpush**をきっかけに自動デプロイします。連携前に完了していたpushは、後から自動的に再処理されません。
+
+## まず本番の反映状況を切り分ける
+
+<Term>Vercel</Term>のProductionが「Ready」でも、最新コードが公開されているとは限りません。DashboardでProductionに表示されるコミットを確認し、GitHubの最新コミットと一致しているかを見ます。
+
+さらに確実に確認するなら、最新版だけに存在する文言やHTML要素を本番URLから検索します。
+
+```bash
+curl -s https://<your-project>.vercel.app/page \
+  | grep -o '最新版にだけ出る文字列' \
+  || echo "未反映"
+```
+
+次の状態なら、Git連携自体が壊れているのではなく、連携後のpushイベントがまだない可能性があります。
+
+- Git Repositoryは接続済みになっている
+- Productionは「Ready」だが、表示コミットが古い
+- 最新版だけにある文言が本番にない
+- 連携後にはまだpushしていない
+
+## 空コミットで自動デプロイを発火させる
+
+コードを変更せずに新しいpushイベントだけを作りたい場合は、空コミットを使います。
+
+```bash
+git commit --allow-empty -m "chore: trigger Vercel deploy"
+git push origin main
+```
+
+`--allow-empty`を付けると、ファイル差分がなくてもコミットを作成できます。このコミットをpushすると、連携後の新しいpushとして<Term>Vercel</Term>が検知し、最新のリポジトリ内容でビルドとデプロイを開始します。
+
+push後は、<Term>Vercel</Term> DashboardのDeploymentsで次を確認します。
+
+1. 新しいDeploymentが作成された
+2. Sourceのコミットが空コミットになっている
+3. Productionが「Ready」になった
+4. 本番URLに最新の変更が反映された
+
+## Redeployとの違い
+
+既存Deploymentの「Redeploy」は、そのDeploymentが参照していたコミットをもう一度ビルドする操作です。
+
+古いコミットから作られたProductionをRedeployしても、同じ古いソースが再び公開されることがあります。GitHub上の最新コミットを確実に取り込ませたい場合は、連携後に新しいpushを発生させる方法が分かりやすいです。
+
+| 操作 | 対象になるソース | 向いている場面 |
+|---|---|---|
+| 既存DeploymentをRedeploy | 既存Deploymentが参照するコミット | 同じソースを再ビルドしたい |
+| 空コミットをpush | 接続ブランチの最新状態 | Git連携後の初回デプロイを発火したい |
+| 通常の修正コミットをpush | 修正後の最新状態 | コード変更とデプロイを同時に行いたい |
+
+## 環境変数を追加した場合も再デプロイする
+
+環境変数を後から追加・変更した場合も、既存のProductionへ自動的に反映されるとは限りません。特に`NEXT_PUBLIC_*`はビルド時にクライアント向けコードへ埋め込まれるため、設定後の再デプロイが必要です。
+
+環境変数の変更だけでコード差分がない場合も、空コミットを使えば最新設定でビルドを発火できます。
+
+## 注意点
+
+- 空コミットは履歴に残るため、目的が分かるコミットメッセージにする
+- `main`以外をProduction Branchに設定している場合は、対象ブランチへpushする
+- GitHub Appの権限不足やリポジトリ接続エラーがある場合、空コミットだけでは解決しない
+- Deploymentsに新規ジョブが作られない場合は、Git連携先、Production Branch、Ignored Build Stepを確認する
+- デプロイ後はDashboardの「Ready」だけでなく、本番URLの表示内容も確認する
+
+## 関連記事
+
+- [OneDrive配下のNodeビルド遅延を避け、C:\devで開発するワークフロー](/articles/powershell/onedrive-node-build-slow-c-dev-workflow)
+- [Next.js + GAS + スプレッドシート予約アプリの構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)
+- [Vercelセキュリティインシデントを受けてNext.js + Supabaseアプリの安全性を点検する](/articles/nextjs/vercel-incident-safety-check)
+
+## まとめ
+
+<Term>Vercel</Term>のGit連携を後から追加した場合、連携前にpush済みのコミットは自動デプロイのきっかけになりません。
+
+接続設定と本番のコミットを確認し、連携後のpushがまだない場合は、`git commit --allow-empty`で空コミットを作ってpushします。コードを変更せずに最新状態のビルドを発火できるため、初回のGit連携確認にも使いやすい方法です。

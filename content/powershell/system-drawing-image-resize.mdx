@@ -1,0 +1,173 @@
+---
+title: "PowerShellのSystem.DrawingでPNG画像を透過のままリサイズする"
+category: "powershell"
+slug: "system-drawing-image-resize"
+tags: ["PowerShell", "System.Drawing", "画像リサイズ", "PNG", "Windows"]
+description: "ImageMagickなどを追加インストールせず、PowerShellとSystem.DrawingでPNG画像の透過を保ちながら高品質にリサイズする方法を解説します。"
+date: "2026-06-10"
+---
+
+## はじめに
+
+ファビコン、ロゴ、OGP画像などをWebサイト用に縮小したいとき、ImageMagickやNode.jsの画像処理ライブラリを使えない環境があります。
+
+<Term>PowerShell</Term>とWindows環境で利用できる `.NET` の `System.Drawing` を使えば、追加ツールをインストールせずにPNG画像をリサイズできます。
+
+この記事では、元画像のアスペクト比と透過を保ち、同じファイルパスへ上書きするときのファイルロックも避ける実装を紹介します。
+
+## この記事で解決できること
+
+- 追加の画像変換ツールなしでPNG画像を縮小する
+- 元画像のアスペクト比を維持する
+- PNGの透過背景を保持する
+- 元画像と同じパスへ保存するときのファイルロックを避ける
+- ファビコンやロゴのファイルサイズを軽くする
+
+## 実装コード
+
+次のスクリプトでは、入力画像を幅600pxへ縮小し、高さは元画像の比率から計算します。
+
+```powershell
+Add-Type -AssemblyName System.Drawing
+
+$inputPath = "C:\path\in.png"
+$outputPath = "C:\path\out.png"
+
+$bytes = [System.IO.File]::ReadAllBytes($inputPath)
+$stream = New-Object System.IO.MemoryStream(,$bytes)
+$image = [System.Drawing.Image]::FromStream($stream)
+
+$width = 600
+$height = [int]($image.Height * $width / $image.Width)
+
+$bitmap = New-Object System.Drawing.Bitmap(
+  $width,
+  $height,
+  [System.Drawing.Imaging.PixelFormat]::Format32bppArgb
+)
+
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+$graphics.Clear([System.Drawing.Color]::Transparent)
+$graphics.InterpolationMode =
+  [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+$graphics.SmoothingMode =
+  [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+$graphics.PixelOffsetMode =
+  [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+
+$graphics.DrawImage($image, 0, 0, $width, $height)
+$bitmap.Save($outputPath, [System.Drawing.Imaging.ImageFormat]::Png)
+
+$graphics.Dispose()
+$bitmap.Dispose()
+$image.Dispose()
+$stream.Dispose()
+```
+
+`$width` を変更すれば、必要な出力幅へ調整できます。高さは元画像の縦横比から算出されるため、画像が不自然に引き伸ばされません。
+
+## ファイルロックを避ける理由
+
+`System.Drawing.Image::FromFile()` で画像を開くと、画像オブジェクトを破棄するまで元ファイルがロックされます。
+
+```powershell
+$image = [System.Drawing.Image]::FromFile($inputPath)
+```
+
+この状態で入力パスと同じ場所へ保存しようとすると、上書きに失敗することがあります。
+
+そこで、実装コードでは `ReadAllBytes()` でファイル内容をメモリへ読み込み、`MemoryStream` から画像を生成しています。
+
+```powershell
+$bytes = [System.IO.File]::ReadAllBytes($inputPath)
+$stream = New-Object System.IO.MemoryStream(,$bytes)
+$image = [System.Drawing.Image]::FromStream($stream)
+```
+
+元ファイルを直接開き続けないため、リサイズ後の画像を同じパスへ保存する処理にも使いやすくなります。
+
+## PNGの透過を保持する
+
+透過PNGをリサイズするときは、出力先のBitmapを `Format32bppArgb` で作成し、描画前に透明色でクリアします。
+
+```powershell
+$bitmap = New-Object System.Drawing.Bitmap(
+  $width,
+  $height,
+  [System.Drawing.Imaging.PixelFormat]::Format32bppArgb
+)
+
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+$graphics.Clear([System.Drawing.Color]::Transparent)
+```
+
+保存形式もPNGを指定します。
+
+```powershell
+$bitmap.Save($outputPath, [System.Drawing.Imaging.ImageFormat]::Png)
+```
+
+JPEGには透過情報を保存できません。透過が必要なロゴやアイコンは、出力拡張子と保存形式の両方をPNGにします。
+
+## 正方形サイズへリサイズする
+
+ファビコンなどを正方形へ変換する場合は、幅と高さへ同じ値を指定します。
+
+```powershell
+$size = 512
+$bitmap = New-Object System.Drawing.Bitmap(
+  $size,
+  $size,
+  [System.Drawing.Imaging.PixelFormat]::Format32bppArgb
+)
+
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+$graphics.Clear([System.Drawing.Color]::Transparent)
+$graphics.DrawImage($image, 0, 0, $size, $size)
+```
+
+元画像が正方形でない場合、このコードでは縦横比が変わります。余白を付けて正方形に収めたい場合は、元画像の比率から描画幅・描画高さ・開始位置を計算してください。
+
+## Git Bashから実行する
+
+Git BashからWindows PowerShellを呼び出す場合は、実行ファイルをフルパスで指定できます。
+
+```bash
+/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -NoProfile -Command '… PowerShellスクリプト …'
+```
+
+PowerShellコードを `-Command` へ直接渡す場合は、Bash側で `$変数` が展開されないよう、コマンド全体を単一引用符で囲みます。
+
+処理が長い場合は、`.ps1` ファイルへ保存して `-File` で呼び出す方が、引用符や文字コードの問題を減らせます。
+
+## リサイズ例
+
+実際の画像では、次のようにファイルサイズを減らせます。
+
+| 用途 | 変換前 | 変換後 |
+|---|---|---|
+| ファビコン | 1254 x 1254px / 968KB | 512 x 512px / 260KB |
+| apple-icon | 1254 x 1254px / 968KB | 180 x 180px / 31KB |
+| 横長ロゴ | 1536 x 344px / 397KB | 600 x 134px / 58KB |
+
+ロゴ画像は、実際の表示幅の2〜3倍程度を上限にすると、画質を保ちながら軽量化しやすくなります。たとえば表示幅が180pxなら、600px程度の出力幅で十分な場合があります。
+
+## 注意点
+
+- `Image::FromFile()` は元ファイルをロックするため、上書きが必要なら `ReadAllBytes()` と `MemoryStream` を使う
+- 透過を保つには `Format32bppArgb`、`Clear(Transparent)`、PNG保存を組み合わせる
+- `Graphics`、`Bitmap`、`Image`、`MemoryStream` は処理後に `Dispose()` する
+- 元画像が正方形でない状態で幅と高さを同じ値へ変換すると、画像が変形する
+- 重要な元画像へ直接上書きする前に、別の出力パスで結果を確認する
+- `System.Drawing` は主にWindows環境向けとして扱い、クロスプラットフォーム用途では別ライブラリを検討する
+
+## 関連記事
+
+- [PowerShellスクリプトとbatランチャーの文字コード・改行コード対策](/articles/powershell/bat-ps1-encoding-line-ending)
+- [Next.jsでOGP / Twitter Cardを設定してSNSリンクプレビューを整える](/articles/nextjs/ogp-twitter-card-social-preview)
+
+## まとめ
+
+PowerShellの `System.Drawing` を使えば、追加ツールをインストールできないWindows環境でもPNG画像をリサイズできます。
+
+`ReadAllBytes()` と `MemoryStream` でファイルロックを避け、`Format32bppArgb` と透明背景で透過を保つことが実装の要点です。Webサイト用のファビコンやロゴを軽量化するときに、そのまま再利用できる処理です。

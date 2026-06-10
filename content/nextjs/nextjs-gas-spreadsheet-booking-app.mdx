@@ -1,0 +1,176 @@
+---
+title: "Next.jsとGASスプレッドシートDBで予約アプリを作る構成"
+category: "nextjs"
+slug: "nextjs-gas-spreadsheet-booking-app"
+tags: ["Next.js", "Google Apps Script", "スプレッドシート", "予約システム", "Vercel"]
+description: "Next.jsを画面と中継サーバー、GAS Web APIとGoogleスプレッドシートをデータ層に使う、小規模予約アプリの構成と実装ポイントを解説します。"
+date: "2026-06-10"
+---
+
+## はじめに
+
+小規模な教室や個人サービスの予約システムでは、本格的なデータベースよりも「管理者が使い慣れたGoogleスプレッドシートで予約を確認・修正できること」が重要な場合があります。
+
+この記事では、<Term>Next.js</Term> App Routerを画面と中継サーバーにし、<Term>Google Apps Script</Term>のWeb APIとGoogleスプレッドシートをデータ層にする構成を紹介します。
+
+実際の適用例はこちらです。
+
+- [今治Excel教室 予約管理アプリ（公開アプリ）](https://imabari-excel-yoyaku.vercel.app)
+- [GitHubリポジトリ](https://github.com/YujiFukami/imabari-excel-yoyaku)
+
+## この構成が向いている場面
+
+- 管理者が1人または少人数である
+- 予約件数が小規模から中規模である
+- 管理者がスプレッドシートでもデータを確認したい
+- 初期費用を抑えて予約用の<Term>Webアプリ</Term>を公開したい
+- 将来のデータベース移行を見据え、画面とデータ処理を分離したい
+
+数万件規模の検索、複雑な権限管理、高頻度な同時更新が必要なら、最初から本格的なデータベースを検討したほうが安全です。
+
+## 全体構成
+
+```text
+受講者・講師のブラウザ
+  ↓ fetch
+Next.jsサーバー
+  Route Handler / Server Component
+  入力検証・認証・GASへの中継
+  ↓ POST + サーバー専用トークン
+GAS Web API
+  actionでlist/create/update/deleteを分岐
+  予約ルールを再検証
+  ↓
+Googleスプレッドシート
+  予約枠 / 予約 / 場所候補 / ログ
+```
+
+重要なのは、**ブラウザからGAS Web APIを直接呼ばないこと**です。GASへ接続するトークンをNext.jsサーバーの環境変数に置き、利用者のブラウザへ公開しない構成にします。
+
+## Next.jsからGASを呼ぶ
+
+GAS呼び出しを `lib/gas.ts` に集約すると、各画面やRoute Handlerは「予約一覧を取得する」「予約を作成する」といった目的だけを書けます。
+
+```typescript
+import "server-only"
+
+type GasResponse<T> = {
+  ok: boolean
+  result?: T
+  error?: string
+}
+
+async function callGas<T>(
+  payload: Record<string, unknown>,
+): Promise<T> {
+  const url = process.env.GAS_API_URL
+  const token = process.env.GAS_API_TOKEN
+
+  if (!url || !token) {
+    throw new Error("GAS接続用の環境変数が未設定です")
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain;charset=utf-8",
+    },
+    body: JSON.stringify({ token, ...payload }),
+    cache: "no-store",
+  })
+
+  const data = (await response.json()) as GasResponse<T>
+
+  if (!data.ok || data.result === undefined) {
+    throw new Error(data.error || "GAS APIでエラーが発生しました")
+  }
+
+  return data.result
+}
+
+export const listSlots = () =>
+  callGas({ sheet: "slots", action: "list" })
+```
+
+`server-only` を付けることで、このモジュールを誤ってクライアントコンポーネントから読み込んだときに気づきやすくなります。`GAS_API_TOKEN` に `NEXT_PUBLIC_` を付けてはいけません。
+
+## 読み取りと書き込みを分ける
+
+読み取りはServer Componentから実行し、常に最新の予約状況が必要なら `cache: "no-store"` を使います。書き込みはRoute HandlerまたはServer Actionへ集約し、入力を検証してからGASへ渡します。
+
+```typescript
+import { NextResponse } from "next/server"
+import { createBooking } from "@/lib/gas"
+
+export async function POST(request: Request) {
+  const body = await request.json()
+
+  if (!body.date || !body.startMinutes || !body.name) {
+    return NextResponse.json(
+      { ok: false, error: "必須項目が不足しています" },
+      { status: 400 },
+    )
+  }
+
+  const booking = await createBooking(body)
+  return NextResponse.json({ ok: true, booking })
+}
+```
+
+ブラウザ側の入力チェックは使いやすさのために必要ですが、改ざんされる可能性があります。予約枠内か、30分単位か、既存予約と重複しないかは、GAS側でも必ず再検証します。
+
+## GAS側の実装ポイント
+
+GAS側では、リクエストの `action` に応じて処理を分岐します。列番号をコードに直書きせず、1行目のヘッダー名から列位置を特定すると、スプレッドシートへ列を追加しやすくなります。
+
+```javascript
+function doPost(e) {
+  const request = JSON.parse(e.postData.contents)
+
+  if (request.token !== PropertiesService.getScriptProperties().getProperty("API_TOKEN")) {
+    return jsonResponse({ ok: false, error: "認証に失敗しました" })
+  }
+
+  switch (request.action) {
+    case "list":
+      return jsonResponse({ ok: true, result: listRows(request.sheet) })
+    case "create":
+      return createBookingWithLock(request)
+    default:
+      return jsonResponse({ ok: false, error: "未対応の操作です" })
+  }
+}
+```
+
+同じ枠へ同時に予約が入る可能性があるため、作成処理では `LockService` を使い、ロック取得後に重複を再確認してから書き込みます。
+
+## 個別実装へ分けて考える
+
+予約アプリ全体を一度に作ると複雑になります。次の単位へ分けると、問題の原因と責務が明確になります。
+
+- [単独管理者向けの軽量HMAC Cookie認証](/articles/nextjs/hmac-cookie-admin-auth)
+- [mutation後のrouter.refreshで条件分岐ビューが反転する問題](/articles/nextjs/router-refresh-after-mutation)
+- [30分コマの週グリッド予約UI](/articles/nextjs/weekly-booking-grid-30-minute-slots)
+
+## 注意点
+
+- GAS接続用URLとトークンはサーバー専用環境変数に置く
+- ブラウザからGASを直接呼ばない
+- クライアント側だけでなくGAS側でも予約条件を再検証する
+- 同時予約対策として `LockService` を使う
+- 日時を扱う場合は、Next.js、GAS、スプレッドシートのタイムゾーンを揃える
+- 高度な検索や複数ロールが必要になったら、本格データベースへの移行を検討する
+
+## 関連リンク
+
+- [今治Excel教室 予約管理アプリ](https://imabari-excel-yoyaku.vercel.app)
+- [GitHub: YujiFukami/imabari-excel-yoyaku](https://github.com/YujiFukami/imabari-excel-yoyaku)
+- [Next.js公式ドキュメント](https://nextjs.org/docs)
+- [Google Apps Script Web Apps](https://developers.google.com/apps-script/guides/web)
+- [Google Apps Script LockService](https://developers.google.com/apps-script/reference/lock/lock-service)
+
+## まとめ
+
+<Term>Next.js</Term>と<Term>Google Apps Script</Term>を組み合わせると、画面の使いやすさとスプレッドシート運用の手軽さを両立できます。
+
+Next.jsを安全な中継層にし、GAS側で予約ルールと同時実行を管理することが、この構成を安定させるポイントです。

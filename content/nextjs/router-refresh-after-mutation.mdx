@@ -1,0 +1,157 @@
+---
+title: "mutation後のrouter.refreshで条件分岐ビューが反転する問題と対策"
+category: "nextjs"
+slug: "router-refresh-after-mutation"
+tags: ["Next.js", "App Router", "router.refresh", "Server Component", "画面遷移"]
+description: "Next.js App Routerで書き込み後にrouter.refreshを実行すると、サーバー側の条件分岐が変わり成功画面が消える問題と、安全な遷移方法を解説します。"
+date: "2026-06-10"
+---
+
+## はじめに
+
+<Term>Next.js</Term> App Routerでは、データを書き込んだあとに `router.refresh()` を呼ぶと、Server Componentが最新データで再描画されます。
+
+一覧の更新には便利ですが、現在のデータによって表示内容を分岐しているページでは、書き込み結果によって分岐が反転し、意図しない画面へ切り替わることがあります。
+
+この記事では、予約フォームで実際に起きた問題を例に、原因と安全な対策を説明します。
+
+## 起きた問題
+
+予約詳細ページのServer Componentが、対象時間を予約できるか判定していたとします。
+
+```tsx
+export default async function BookingPage({ params }) {
+  const slot = await getSlot(params.id)
+
+  if (!isBookable(slot)) {
+    return <UnavailableNotice />
+  }
+
+  return <BookingForm slot={slot} />
+}
+```
+
+予約フォーム側では、予約成功後に成功状態をセットし、最新データを反映するため `router.refresh()` を実行していました。
+
+```typescript
+setDone(true)
+router.refresh()
+```
+
+しかし予約作成後は、たった今作成した予約自身によって `isBookable(slot)` が `false` になります。再描画されたServer Componentは `<BookingForm>` ではなく `<UnavailableNotice>` を返すため、成功メッセージを持っていたフォームごと画面から消えます。
+
+## なぜ反転するのか
+
+`router.refresh()` は、表示中のページをそのまま見た目だけ更新する処理ではありません。Server Componentをサーバーから再取得し、最新データで再評価します。
+
+```text
+予約前
+isBookable = true
+→ BookingFormを表示
+
+予約作成
+→ 同じ時間帯が予約済みになる
+
+router.refresh()
+isBookable = false
+→ UnavailableNoticeへ切り替わる
+→ BookingFormのクライアント状態も消える
+```
+
+書き込み対象を条件判定に使うページでは、これは不具合ではなく自然な再評価結果です。問題は、そのページに留まったまま成功表示を続けようとした設計にあります。
+
+## 対策: 成功後は別URLへ遷移する
+
+予約完了後は同じ詳細ページを更新せず、予約一覧など別のURLへ遷移します。成功した文脈はクエリパラメータで遷移先へ渡します。
+
+```typescript
+import { useRouter } from "next/navigation"
+
+const router = useRouter()
+
+async function submitBooking(input: BookingInput) {
+  const response = await fetch("/api/bookings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    setError("予約を登録できませんでした")
+    return
+  }
+
+  router.replace("/booking?booked=1")
+}
+```
+
+`replace` を使うと、ブラウザの戻るボタンで送信済みフォームへ戻りにくくなります。再送信を避けたい完了フローと相性がよい方法です。
+
+## 遷移先で成功メッセージを表示する
+
+成功表示をクライアントの一時的なstateだけに置かず、遷移先のURLから表示します。
+
+```tsx
+type BookingListPageProps = {
+  searchParams: Promise<{ booked?: string }>
+}
+
+export default async function BookingListPage({
+  searchParams,
+}: BookingListPageProps) {
+  const params = await searchParams
+  const bookings = await listBookings()
+
+  return (
+    <>
+      {params.booked === "1" && (
+        <div role="status">
+          ご予約を受け付けました。確認メールをご確認ください。
+        </div>
+      )}
+      <BookingList bookings={bookings} />
+    </>
+  )
+}
+```
+
+遷移先は最新データで描画されるため、新しい予約も一覧へ自然に反映されます。ページを再描画しても、URLにクエリがある間は成功メッセージが消えません。
+
+## router.refreshを使ってよい場面
+
+`router.refresh()` 自体を避ける必要はありません。書き込み後もページの主要な表示分岐が変わらず、同じ画面で作業を続ける場合には有効です。
+
+```typescript
+await updateProfile(input)
+router.refresh()
+```
+
+たとえばプロフィール編集後に最新の表示名を反映するケースでは、フォーム自体が消えないなら問題ありません。
+
+判断するときは、次を確認します。
+
+1. mutationしたデータが、現在ページのServer Componentの条件分岐に使われているか
+2. 再評価後に、フォームや成功メッセージを含むコンポーネントがunmountされないか
+3. 完了後も同じURLへ留まる必要が本当にあるか
+
+## 注意点
+
+- mutation対象を含む条件分岐ページで、無条件に `router.refresh()` しない
+- 成功後に別作業へ移るなら、一覧や完了ページへ遷移する
+- 完了フローでは、戻る履歴を増やす `push` と置き換える `replace` を使い分ける
+- 成功表示を一時的なクライアントstateだけに依存させない
+- クエリパラメータに個人情報や秘密情報を入れない
+
+## 関連記事・外部リンク
+
+- [Next.jsとGASスプレッドシートDBで予約アプリを作る構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)
+- [30分コマの週グリッド予約UI](/articles/nextjs/weekly-booking-grid-30-minute-slots)
+- [単独管理者向けの軽量HMAC Cookie認証](/articles/nextjs/hmac-cookie-admin-auth)
+- [Next.js useRouter](https://nextjs.org/docs/app/api-reference/functions/use-router)
+- [Next.js Server Components](https://nextjs.org/docs/app/building-your-application/rendering/server-components)
+
+## まとめ
+
+`router.refresh()` は、最新データでServer Componentを再評価します。そのため、書き込みによって条件分岐が変わるページでは、フォームや成功表示が別ビューへ置き換わることがあります。
+
+完了後に同じ画面へ留まる必要がなければ、別URLへ遷移して成功の文脈を渡す設計が分かりやすく、安全です。

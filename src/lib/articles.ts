@@ -85,7 +85,7 @@ export function getArticlesByCategory(category: string): ArticleMeta[] {
 
 export const categoryLabels: Record<string, string> = {
   gas: "Google Apps Script",
-  nextjs: "Next.js + Supabase",
+  nextjs: "Next.js Webアプリ",
   vanillajs: "バニラJS Webアプリ",
   electron: "Electron デスクトップアプリ",
   "python-windows": "Python + Windows配布",

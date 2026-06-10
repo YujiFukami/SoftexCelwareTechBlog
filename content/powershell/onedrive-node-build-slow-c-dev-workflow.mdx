@@ -1,0 +1,148 @@
+---
+title: "OneDrive配下のNodeビルド遅延を避け、C:\\devで開発するワークフロー"
+category: "powershell"
+slug: "onedrive-node-build-slow-c-dev-workflow"
+tags: ["OneDrive", "Node.js", "Next.js", "PowerShell", "Windows"]
+description: "OneDrive同期フォルダ配下でnpm installやNext.jsビルドが遅いときに、実体をC:\\devへ移し、OneDrive側には.lnkショートカットだけを残すWindows開発ワークフローを紹介します。"
+date: "2026-06-10"
+---
+
+## はじめに
+
+Node.jsや<Term>Next.js</Term>のプロジェクトをOneDrive同期フォルダ配下で開発すると、`npm install`や`npm run build`が極端に遅くなり、処理が固まったように見えることがあります。
+
+原因になりやすいのは、`node_modules`や`.next`へ大量のファイルを書き込む処理と、OneDriveの同期、Windows Defenderのリアルタイムスキャンが同時に動くことです。
+
+この記事では、プロジェクトの実体をOneDrive外の`C:\dev`へ置き、OneDrive側にはクリック用の`.lnk`ショートカットだけを残すワークフローを紹介します。
+
+## OneDrive配下でビルドが遅くなる理由
+
+Node.jsプロジェクトでは、依存関係のインストールやビルド時に多数の小さなファイルを作成・更新します。
+
+- `npm install`は`node_modules`へ数千から数万のファイルを作る
+- <Term>Next.js</Term>のビルドは`.next`へキャッシュや生成物を書き込む
+- OneDriveは変更されたファイルを同期対象として監視する
+- Windows Defenderは新しく作られたファイルをスキャンする
+
+この処理が重なると、ファイルI/Oの競合やリトライが発生し、CPUやネットワークに余裕があってもビルドが進みにくくなります。
+
+## 実測例
+
+同一の<Term>Next.js</Term> 14プロジェクトで、OneDrive配下とローカルの`C:\dev`を比較した例です。
+
+| 処理 | OneDrive配下 | ローカル `C:\dev` |
+|---|---:|---:|
+| `npm install` | 約1分 | 約12秒 |
+| `npm run build` | 固まる、または数分 | 約16秒 |
+| `node_modules`のファイル数 | 約9,900 | 同じ |
+
+ファイル数やソースコードが同じでも、配置場所を変えるだけで処理時間が大きく変わることがあります。
+
+## 推奨ワークフロー
+
+基本方針は、次のとおりです。
+
+```text
+C:\dev\<project>\                  プロジェクトの実体、Git管理、ビルド作業
+OneDrive\<共有資産フォルダ>\*.lnk   C:\devを開くためのクリック導線だけ
+GitHub                              ソースコードの共有と履歴管理
+```
+
+OneDriveには`.lnk`だけを置くため、共有資産フォルダから開発先へ移動しやすい状態を保ちつつ、`node_modules`や`.next`を同期対象から外せます。
+
+## ソースをC:\devへ除外コピーする
+
+既存プロジェクトを移すときは、再生成できる`node_modules`と`.next`、移動先で改めて用意する`.git`をコピー対象から外します。
+
+Git Bashの`tar`を使うと、dotfileを含めながら重いフォルダだけを除外できます。
+
+```bash
+mkdir -p /c/dev/<project>
+cd "<OneDrive上の現プロジェクト>"
+tar cf - --exclude=node_modules --exclude=.next --exclude=.git . \
+  | (cd /c/dev/<project> && tar xf -)
+```
+
+コピー後は`C:\dev\<project>`で依存関係を作り直し、ビルドを確認します。
+
+```bash
+cd /c/dev/<project>
+npm install
+npm run build
+```
+
+既存のGit履歴も引き継ぐ場合は、除外コピーではなく、移動先でリポジトリをcloneして必要な未コミットファイルだけを慎重に移す方法が安全です。
+
+## OneDrive側に.lnkショートカットを作る
+
+OneDrive側には、`C:\dev`の開発フォルダを開く`.lnk`ショートカットを置きます。`.lnk`は小さな通常ファイルとして同期され、リンク先の`node_modules`や`.next`をOneDriveが辿って同期することはありません。
+
+`.lnk`は、<Term>PowerShell</Term>から`WScript.Shell`を使って作成できます。
+
+```powershell
+$targetPath = "C:\dev\<project>"
+$shortcutPath = "C:\path\to\OneDrive\アプリ開発フォルダ(C-dev).lnk"
+
+$shell = New-Object -ComObject WScript.Shell
+$shortcut = $shell.CreateShortcut($shortcutPath)
+$shortcut.TargetPath = $targetPath
+$shortcut.WorkingDirectory = $targetPath
+$shortcut.Save()
+```
+
+日本語パスを含むコマンドをGit Bash経由で実行して文字化けする場合は、ASCIIパスで`.lnk`を作り、その後に移動します。
+
+```bash
+/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -NoProfile -Command \
+  '$s=(New-Object -ComObject WScript.Shell).CreateShortcut("C:\dev\_tmp_link.lnk"); $s.TargetPath="C:\dev\<project>"; $s.WorkingDirectory="C:\dev\<project>"; $s.Save()'
+
+mv /c/dev/_tmp_link.lnk \
+  "<OneDrive上の共有資産フォルダ>/アプリ開発フォルダ(C-dev).lnk"
+```
+
+`powershell.exe`がPATHから見つからない環境でも、Windows PowerShell 5.1は通常、次のパスから起動できます。
+
+```text
+C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+```
+
+## ジャンクションやシンボリックリンクを使わない
+
+OneDrive側から`C:\dev`への導線として、ジャンクションやシンボリックリンクを作るのは避けます。
+
+OneDriveがリンク先の実体を辿ると、同期から外したかった`node_modules`や`.next`まで監視対象になり、かえって負荷が増える可能性があります。Git Bashの`ln -s`も、環境によっては期待したシンボリックリンクではなく実体コピーになることがあります。
+
+利用者がクリックしてフォルダを開くための導線なら、ファイルシステム上のリンクではなく`.lnk`ショートカットを使います。
+
+## 補助的な対策
+
+プロジェクトをすぐに移動できない場合は、次の対策もあります。
+
+- ビルド中だけOneDriveの同期を一時停止する
+- Windows Defenderの除外対象を必要最小限で設定する
+- `.next`を削除してからビルドを再実行する
+- タスクマネージャーでOneDriveやスキャン処理の負荷を確認する
+- 新規プロジェクトは最初から`C:\dev`などOneDrive外に作る
+
+Windows Defenderの除外設定はセキュリティリスクを伴います。プロジェクト全体や広いフォルダを安易に除外せず、組織のルールに従って判断してください。
+
+## 注意点
+
+- 移動前に未コミットの変更がないか確認する
+- `.env`などGit管理外の設定ファイルを移し忘れない
+- `node_modules`と`.next`はコピーせず、移動先で再生成する
+- OneDrive側にプロジェクト実体を残したまま二重編集しない
+- `C:\dev`側のソースはGitHubなどで履歴とバックアップを管理する
+- `.lnk`のリンク先は、利用するPCごとに存在する必要がある
+
+## 関連記事
+
+- [VercelのGit連携を後付けしたとき空コミットで初回デプロイする方法](/articles/nextjs/vercel-git-integration-empty-commit-deploy)
+- [Next.js + GAS + スプレッドシート予約アプリの構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)
+- [PowerShellスクリプトとbatランチャーの文字コード・改行コード対策](/articles/powershell/bat-ps1-encoding-line-ending)
+
+## まとめ
+
+OneDrive配下でNode.jsや<Term>Next.js</Term>のビルドが遅い場合は、コードより先にプロジェクトの配置場所を確認します。
+
+実体を`C:\dev`へ置き、OneDrive側には`.lnk`ショートカットだけを残すと、共有資産からの導線を維持しながら大量ファイルの同期負荷を避けられます。ソースコードの共有とバックアップはGitHubへ任せ、OneDriveはドキュメントやショートカットの管理に使う構成が安定します。

@@ -1,0 +1,221 @@
+---
+title: "30分コマの週グリッド予約UIをNext.jsで実装する"
+category: "nextjs"
+slug: "weekly-booking-grid-30-minute-slots"
+tags: ["Next.js", "React", "予約UI", "CSS Grid", "レスポンシブデザイン"]
+description: "日付と30分コマを週グリッドで表示し、連続選択、予約済み表示、移動時間バッファ、締切、料金計算へ対応する設計を解説します。"
+date: "2026-06-10"
+---
+
+## はじめに
+
+個別指導やオンライン相談の予約画面では、利用者が「水曜日の10時から90分」のように、連続する時間枠をまとめて選べると便利です。
+
+この記事では、<Term>Next.js</Term>と<Term>React</Term>で、日付と30分コマを週単位のグリッドに表示する予約UIを設計する方法を紹介します。
+
+実装の中心は、**セルの見た目を表す状態と、利用者が選択できるかどうかを分離すること**です。
+
+## 必要な要件
+
+- 1週間分の日付を列にする
+- 30分単位の時刻を行にする
+- 空き、予約済み、移動時間バッファ、枠なしを区別する
+- 連続するコマだけを選択できる
+- 過去や予約締切後の枠は表示するが選択できない
+- 選択時間と料金をリアルタイムに表示する
+- スマートフォンでは横スクロールできる
+
+このUIは、[Next.jsとGASスプレッドシートDBで予約アプリを作る構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)の予約入力画面として利用できます。
+
+## セルの状態と選択可否を分ける
+
+`status` は見た目、`selectable` は操作可否を表します。
+
+```typescript
+export type CellStatus =
+  | "available"
+  | "booked"
+  | "buffer"
+  | "none"
+
+export interface GridCell {
+  dayKey: string
+  minutes: number
+  status: CellStatus
+  windowId?: string
+  selectable: boolean
+}
+```
+
+たとえば過去の空き枠は `status: "available"` のまま、`selectable: false` にします。これにより、「空き枠として登録されていたが、現在は選べない」ことを見た目へ反映できます。
+
+状態と操作可否を1つの値へまとめると、`past-available`、`closed-available` のような組み合わせが増え、条件分岐が複雑になります。
+
+## 表示する時刻範囲を動的に決める
+
+毎週9時から22時まで固定表示すると、予約枠が少ない週でも大きな空白が生まれます。表示中の週にある予約枠から、最も早い開始時刻と最も遅い終了時刻を求めます。
+
+```typescript
+function createTimeRows(cells: GridCell[]) {
+  const selectableCells = cells.filter(
+    (cell) => cell.status !== "none",
+  )
+
+  if (selectableCells.length === 0) return []
+
+  const minimum = Math.min(
+    ...selectableCells.map((cell) => cell.minutes),
+  )
+  const maximum = Math.max(
+    ...selectableCells.map((cell) => cell.minutes),
+  )
+
+  const rows: number[] = []
+  for (let minutes = minimum; minutes <= maximum; minutes += 30) {
+    rows.push(minutes)
+  }
+  return rows
+}
+```
+
+実際には終了時刻もデータとして持ち、最後のコマまで含まれるよう調整してください。
+
+## 連続するコマだけを選択する
+
+最初のタップを開始位置、次のタップを終了位置として扱います。選択範囲が同じ日、同じ受付枠で、途中の全セルが選択可能な場合だけ確定します。
+
+```typescript
+function rangeAllAvailable(
+  dayKey: string,
+  start: number,
+  end: number,
+  windowId: string,
+) {
+  for (let minutes = start; minutes < end; minutes += 30) {
+    const cell = cellAt(dayKey, minutes)
+
+    if (
+      !cell ||
+      !cell.selectable ||
+      cell.windowId !== windowId
+    ) {
+      return false
+    }
+  }
+
+  return true
+}
+```
+
+途中に予約済みセルがある場合や、別の受付枠をまたぐ場合は選択できません。条件を満たさないセルをタップしたときは、新しい選択開始位置として扱うと操作が分かりやすくなります。
+
+## 選択時間と料金を計算する
+
+30分を1コマとして、選択したコマ数から時間と料金を計算します。
+
+```typescript
+const SLOT_MINUTES = 30
+const PRICE_PER_SLOT = 1000
+
+const selectedSlotCount =
+  selection === null
+    ? 0
+    : (selection.end - selection.start) / SLOT_MINUTES
+
+const totalMinutes = selectedSlotCount * SLOT_MINUTES
+const totalPrice = selectedSlotCount * PRICE_PER_SLOT
+```
+
+選択のたびに「90分・3,000円」のように表示すると、確認画面へ進む前に利用者が内容を理解できます。
+
+## 予約済み区間の前後へバッファを設ける
+
+訪問型サービスでは、予約と予約の間に移動時間が必要です。予約済み区間 `[reservedStart, reservedEnd]` の前後30分も選択不可にする場合、区間の重なり判定を使えます。
+
+```typescript
+const BUFFER_MINUTES = 30
+
+function overlapsBookingBuffer(
+  cellStart: number,
+  cellEnd: number,
+  reservedStart: number,
+  reservedEnd: number,
+) {
+  return (
+    cellStart < reservedEnd + BUFFER_MINUTES &&
+    reservedStart < cellEnd + BUFFER_MINUTES
+  )
+}
+```
+
+この判定は「予約そのものとの重複」と「予約前後のバッファ」を同じ式で扱えます。
+
+## スマートフォンで表示する
+
+7日分の列をスマートフォン幅へ無理に縮めると、日付や選択ボタンが読めなくなります。グリッド全体を横スクロール可能にし、時刻列を固定します。
+
+```tsx
+<div className="overflow-x-auto">
+  <div className="min-w-[760px]">
+    <div className="grid grid-cols-[72px_repeat(7,minmax(88px,1fr))]">
+      <div className="sticky left-0 z-20 bg-white">時刻</div>
+      {days.map((day) => (
+        <div key={day.key}>{day.label}</div>
+      ))}
+
+      {timeRows.flatMap((minutes) => [
+        <div
+          key={`time-${minutes}`}
+          className="sticky left-0 z-10 bg-white"
+        >
+          {formatMinutes(minutes)}
+        </div>,
+        ...days.map((day) => (
+          <SlotButton
+            key={`${day.key}-${minutes}`}
+            cell={cellAt(day.key, minutes)}
+          />
+        )),
+      ])}
+    </div>
+  </div>
+</div>
+```
+
+前週・次週への移動ボタンも用意し、現在表示している週を見失わないように日付範囲を明示します。
+
+## クライアントとサーバーの責務
+
+クライアント側の選択制御は、使いやすさを高めるためのものです。リクエストは改ざんできるため、予約確定時にはサーバー側でも次を再検証します。
+
+- 選択範囲が受付枠内にある
+- 30分単位である
+- 既存予約と重複しない
+- 前後バッファを満たす
+- 予約締切を過ぎていない
+- 料金がサーバー計算と一致する
+
+確定後の画面遷移では、[mutation後のrouter.refreshで条件分岐ビューが反転する問題](/articles/nextjs/router-refresh-after-mutation)にも注意してください。
+
+## 注意点
+
+- 日本向け予約なら、サーバー描画でも `Asia/Tokyo` を明示する
+- 日数差による締切は、経過時間ではなくカレンダー日付で判定する
+- 選択不可セルも理由が分かる見た目にする
+- 色だけに依存せず、記号やラベルでも状態を伝える
+- 予約確定時は必ずサーバー側で再検証する
+- 週グリッドを狭い画面へ縮小しすぎず、横スクロールを許容する
+
+## 関連記事・外部リンク
+
+- [Next.jsとGASスプレッドシートDBで予約アプリを作る構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)
+- [mutation後のrouter.refreshで条件分岐ビューが反転する問題](/articles/nextjs/router-refresh-after-mutation)
+- [単独管理者向けの軽量HMAC Cookie認証](/articles/nextjs/hmac-cookie-admin-auth)
+- [MDN CSS Grid Layout](https://developer.mozilla.org/docs/Web/CSS/CSS_grid_layout)
+- [React公式ドキュメント](https://react.dev/)
+
+## まとめ
+
+30分コマの週グリッド予約UIでは、セルの状態と選択可否を分けると、過去、締切、予約済み、バッファを整理しやすくなります。
+
+連続選択や料金表示はクライアントで分かりやすく実装しつつ、予約条件はサーバー側でも再検証することが重要です。

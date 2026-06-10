@@ -1,0 +1,208 @@
+---
+title: "単独管理者向けの軽量HMAC Cookie認証をNext.jsで実装する"
+category: "nextjs"
+slug: "hmac-cookie-admin-auth"
+tags: ["Next.js", "認証", "HMAC", "Cookie", "Middleware"]
+description: "単独管理者向けの小規模アプリで、Web CryptoによるHMAC署名付きCookieとMiddlewareを使った軽量認証を実装する方法を解説します。"
+date: "2026-06-10"
+---
+
+## はじめに
+
+管理画面へ入る人が1人だけの小規模アプリでは、多機能な認証サービスが必要ない場合があります。一方、平文のパスワードをCookieへ保存する方式は、改ざんや漏えいに弱く危険です。
+
+この記事では、Web CryptoでHMAC-SHA256署名した `期限.署名` 形式のトークンをHTTP-only Cookieへ保存し、<Term>Middleware</Term>で管理画面を保護する軽量な方法を紹介します。
+
+この方式は、[Next.jsとGASスプレッドシートDBで予約アプリを作る構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)のような、単独管理者向けの小規模アプリを想定しています。
+
+## HMAC署名付きCookieの仕組み
+
+HMACは、秘密鍵とメッセージから署名を作る仕組みです。ここでは有効期限をメッセージにして署名します。
+
+```text
+保存するCookie: 期限.署名
+署名: HMAC-SHA256(AUTH_SECRET, 期限)
+```
+
+攻撃者が期限を書き換えても、秘密鍵を知らなければ正しい署名を作れません。サーバーは、有効期限と署名の両方を検証してログイン状態を判断します。
+
+## 共通の署名・検証処理
+
+`middleware.ts` はEdgeランタイムで動く場合があるため、Node.js専用の `crypto` モジュールではなく、NodeとEdgeの両方で利用できるWeb Cryptoを使います。
+
+```typescript
+// lib/auth.ts
+export const SESSION_COOKIE = "admin_session"
+
+const encoder = new TextEncoder()
+
+async function hmacHex(secret: string, message: string) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  )
+
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(message),
+  )
+
+  return [...new Uint8Array(signature)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+}
+
+export async function createSessionToken(
+  secret: string,
+  ttlMs = 7 * 24 * 60 * 60 * 1000,
+) {
+  const expiresAt = String(Date.now() + ttlMs)
+  const signature = await hmacHex(secret, expiresAt)
+  return `${expiresAt}.${signature}`
+}
+```
+
+このファイルはMiddlewareからも読み込むため、`server-only` は付けません。ただし、秘密値そのものをファイルへ書かず、関数の引数として渡します。
+
+## トークンを検証する
+
+署名比較では、最初に不一致が見つかった時点で終了せず、全文字を比較します。処理時間の差から署名の一部を推測されにくくするためです。
+
+```typescript
+export async function verifySessionToken(
+  secret?: string,
+  token?: string,
+) {
+  if (!secret || !token) return false
+
+  const [expiresAt, signature] = token.split(".")
+  if (!expiresAt || !signature) return false
+  if (Number(expiresAt) < Date.now()) return false
+
+  const expected = await hmacHex(secret, expiresAt)
+  if (signature.length !== expected.length) return false
+
+  let difference = 0
+  for (let index = 0; index < signature.length; index++) {
+    difference |=
+      signature.charCodeAt(index) ^ expected.charCodeAt(index)
+  }
+
+  return difference === 0
+}
+```
+
+## Middlewareで管理画面を保護する
+
+管理画面と管理用APIだけを対象にし、未認証なら画面はログインページへ、APIは401レスポンスへ分けます。
+
+```typescript
+// middleware.ts
+import { NextRequest, NextResponse } from "next/server"
+import {
+  SESSION_COOKIE,
+  verifySessionToken,
+} from "@/lib/auth"
+
+export const config = {
+  matcher: ["/admin/:path*", "/api/admin/:path*"],
+}
+
+export async function middleware(request: NextRequest) {
+  const token = request.cookies.get(SESSION_COOKIE)?.value
+  const authenticated = await verifySessionToken(
+    process.env.AUTH_SECRET,
+    token,
+  )
+
+  if (authenticated) {
+    return NextResponse.next()
+  }
+
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { ok: false, error: "未認証です" },
+      { status: 401 },
+    )
+  }
+
+  return NextResponse.redirect(new URL("/login", request.url))
+}
+```
+
+## ログイン時にCookieを設定する
+
+ログイン処理はServer Actionなどサーバー側で実行します。パスワードが一致したら署名付きトークンを作り、HTTP-only Cookieへ保存します。
+
+```typescript
+"use server"
+
+import { cookies } from "next/headers"
+import {
+  createSessionToken,
+  SESSION_COOKIE,
+} from "@/lib/auth"
+
+export async function login(password: string) {
+  if (password !== process.env.ADMIN_PASSWORD) {
+    return { ok: false, error: "パスワードが違います" }
+  }
+
+  const secret = process.env.AUTH_SECRET
+  if (!secret) throw new Error("AUTH_SECRETが未設定です")
+
+  const token = await createSessionToken(secret)
+  const cookieStore = await cookies()
+
+  cookieStore.set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 7 * 24 * 60 * 60,
+  })
+
+  return { ok: true }
+}
+```
+
+`httpOnly` によりブラウザのJavaScriptからCookieを読めなくし、`secure` により本番環境ではHTTPS通信だけに送信します。
+
+## この方式を使わないほうがよい場面
+
+この実装は、単独管理者向けに機能を絞った方式です。次の要件がある場合は、本格的な認証基盤を使ってください。
+
+- 複数ユーザーの登録・退会
+- 管理者、担当者、閲覧者などのロール管理
+- パスワード再設定
+- 多要素認証
+- 外部サービスのソーシャルログイン
+- セッションの強制失効や端末管理
+
+## 注意点
+
+- `ADMIN_PASSWORD` と `AUTH_SECRET` に `NEXT_PUBLIC_` を付けない
+- `AUTH_SECRET` は十分に長いランダム値にする
+- ログイン試行回数の制限を追加する
+- パスワード比較だけでなく、管理処理側でも認証を検証する
+- Cookieにはパスワードや個人情報を保存しない
+- 認証要件が増えたら、軽量実装を拡張し続けず認証サービスへ移行する
+
+## 関連記事・外部リンク
+
+- [Next.jsとGASスプレッドシートDBで予約アプリを作る構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)
+- [mutation後のrouter.refreshで条件分岐ビューが反転する問題](/articles/nextjs/router-refresh-after-mutation)
+- [30分コマの週グリッド予約UI](/articles/nextjs/weekly-booking-grid-30-minute-slots)
+- [Next.js Middleware](https://nextjs.org/docs/app/building-your-application/routing/middleware)
+- [MDN Web Crypto API](https://developer.mozilla.org/docs/Web/API/Web_Crypto_API)
+- [MDN Cookie](https://developer.mozilla.org/docs/Web/HTTP/Guides/Cookies)
+
+## まとめ
+
+単独管理者向けの小規模アプリでは、Web CryptoのHMAC署名とHTTP-only Cookieを使うことで、依存ライブラリを増やさず軽量な認証を実装できます。
+
+ただし、これは用途を限定した方式です。必要な権限や利用者が増えた時点で、本格認証へ移行する判断が重要です。

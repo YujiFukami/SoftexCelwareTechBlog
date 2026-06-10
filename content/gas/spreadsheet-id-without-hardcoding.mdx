@@ -1,0 +1,155 @@
+---
+title: "GASでスプレッドシートIDをハードコードせず安全に取得する"
+category: "gas"
+slug: "spreadsheet-id-without-hardcoding"
+tags: ["GAS", "Googleスプレッドシート", "スクリプトプロパティ", "Webアプリ"]
+description: "GASのコードへスプレッドシートIDを直書きせず、getActiveSpreadsheetとスクリプトプロパティを使い分けて対象シートを安全に取得する方法を解説します。"
+date: "2026-06-10"
+---
+
+## はじめに
+
+<Term>Google Apps Script</Term>から<Term>Googleスプレッドシート</Term>を操作するとき、次のようにスプレッドシートIDをコードへ直接書くことがあります。
+
+```javascript
+const spreadsheet = SpreadsheetApp.openById('ここにスプレッドシートIDを入れる');
+```
+
+最初は動いていても、テンプレートからコードを貼り直したり、別環境へ再デプロイしたりしたときに、実際のIDがプレースホルダーへ戻ると処理全体が止まります。
+
+```text
+Illegal spreadsheet id or key: ここにスプレッドシートIDを入れる
+```
+
+予約アプリや業務Webアプリでは、一覧取得、登録、更新など複数の処理が同じスプレッドシートを参照します。IDの設定ミスひとつで全機能が動かなくなるため、スプレッドシートの取得処理を1か所へまとめておくことが重要です。
+
+## この記事で解決できること
+
+- スプレッドシートIDの直書きをなくす
+- コードを貼り直したときのID設定漏れを防ぐ
+- コンテナバインド型とスタンドアロン型の両方へ対応する
+- 対象シートが見つからないときに分かりやすいエラーを出す
+- 既存の `openById` 呼び出しを共通関数へ置き換える
+
+## 実装コード
+
+スプレッドシートの取得を `getSpreadsheet_()`、シートの取得を `getSheet_()` にまとめます。
+
+```javascript
+function getSpreadsheet_() {
+  const id = PropertiesService
+    .getScriptProperties()
+    .getProperty('SPREADSHEET_ID');
+
+  if (id) {
+    return SpreadsheetApp.openById(id);
+  }
+
+  const active = SpreadsheetApp.getActiveSpreadsheet();
+  if (active) {
+    return active;
+  }
+
+  throw new Error('スプレッドシートを特定できません');
+}
+
+function getSheet_(name) {
+  const sheet = getSpreadsheet_().getSheetByName(name);
+
+  if (!sheet) {
+    throw new Error('シートが見つかりません: ' + name);
+  }
+
+  return sheet;
+}
+```
+
+取得処理では、最初に<Term>スクリプトプロパティ</Term>の `SPREADSHEET_ID` を確認します。値が設定されていれば、スタンドアロン型のプロジェクトとして `openById` で対象を開きます。
+
+値がなければ `getActiveSpreadsheet()` を使い、スプレッドシートにバインドされたプロジェクトの対象シートを取得します。どちらでも取得できない場合は、処理を曖昧に続行せずエラーにします。
+
+## 既存コードを置き換える
+
+既存コードに次のような取得処理がある場合は、
+
+```javascript
+const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+const sheet = spreadsheet.getSheetByName('予約');
+```
+
+共通関数を使う形へ置き換えます。
+
+```javascript
+const sheet = getSheet_('予約');
+```
+
+スプレッドシートの特定方法を `getSpreadsheet_()` に閉じ込めることで、呼び出し側はIDの管理方法を意識せずに済みます。後から構成を変更するときも、修正箇所を共通関数だけに絞れます。
+
+## コンテナバインド型とスタンドアロン型の使い分け
+
+### コンテナバインド型
+
+対象のGoogleスプレッドシートで「拡張機能」からApps Scriptを開いて作成したプロジェクトです。
+
+この構成では、`SpreadsheetApp.getActiveSpreadsheet()` でバインド先のスプレッドシートを取得できます。コードへIDを書かず、スクリプトプロパティも設定しない運用にできます。
+
+### スタンドアロン型
+
+GoogleドライブやApps Scriptの管理画面から単独で作成したプロジェクトです。
+
+特定のスプレッドシートへ自動的にバインドされていないため、スクリプトプロパティへ `SPREADSHEET_ID` を設定します。
+
+| 構成 | `SPREADSHEET_ID` | 取得方法 |
+|---|---|---|
+| コンテナバインド型 | 原則不要 | `getActiveSpreadsheet()` |
+| スタンドアロン型 | 設定する | `openById()` |
+
+## スクリプトプロパティへIDを設定する
+
+スタンドアロン型で使う場合は、Apps Scriptのプロジェクト設定からスクリプトプロパティを追加します。
+
+| プロパティ | 値 |
+|---|---|
+| `SPREADSHEET_ID` | 対象スプレッドシートのID |
+
+スプレッドシートURLが次の形式なら、`/d/` と `/edit` の間がIDです。
+
+```text
+https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit
+```
+
+`getProperty('SPREADSHEET_ID')` の引数へ渡すのは、IDそのものではなく**プロパティ名**です。URLや実際のIDを引数へ書かないように注意してください。
+
+## 動作確認
+
+取得対象を確認するため、一時的に次の関数を実行できます。
+
+```javascript
+function testGetSpreadsheet_() {
+  const spreadsheet = getSpreadsheet_();
+  console.log(spreadsheet.getName());
+  console.log(spreadsheet.getId());
+}
+```
+
+実行ログに想定したスプレッドシート名とIDが表示されれば、取得方法は正しく設定されています。確認後は、IDをログへ残し続ける必要がなければテスト関数を削除します。
+
+## 注意点
+
+- `getActiveSpreadsheet()` を使う前提なら、対象スプレッドシートから作成したコンテナバインド型プロジェクトか確認する
+- スタンドアロン型では、スクリプトプロパティの `SPREADSHEET_ID` を設定する
+- `getProperty()` の引数にはプロパティの値ではなくキー名を渡す
+- シート名の変更でも処理が止まるため、`getSheet_()` で存在確認とエラー通知を行う
+- 複数のスプレッドシートを操作する処理では、用途ごとにプロパティ名を分ける
+- スプレッドシートIDはパスワードではないが、公開コードへ不要に埋め込まない
+
+## 関連記事
+
+- [Next.js・GAS・スプレッドシートで作る予約アプリ](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)
+- [GASでGoogleスプレッドシートを簡易DB化し外部WebアプリからCRUDする構成](/articles/gas/spreadsheet-db-api-external-webapp)
+
+## まとめ
+
+GASから同じスプレッドシートを繰り返し使う場合は、IDを各処理へ直書きせず、取得方法を `getSpreadsheet_()` にまとめます。
+
+コンテナバインド型では `getActiveSpreadsheet()`、スタンドアロン型ではスクリプトプロパティの `SPREADSHEET_ID` を使うことで、コードの貼り直しや再デプロイ時にも壊れにくい構成になります。
