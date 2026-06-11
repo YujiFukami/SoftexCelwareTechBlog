@@ -119,6 +119,42 @@ const implementationArticles = [
     description:
       "予約完了後の表示を安定させるために、画面遷移と再描画の責務を整理した記事です。",
   },
+  {
+    href: "/articles/gas/reservation-number-line-account-linking",
+    title: "予約番号送信でLINEアカウントを連携する",
+    description:
+      "LIFFやLINEログインを使わず、予約番号とLINE userIdを紐づける軽量な設計です。",
+  },
+  {
+    href: "/articles/gas/gas-dopost-line-webhook-app-routing",
+    title: "GASのdoPostをLINE WebhookとアプリAPIで分岐する",
+    description:
+      "1つのGAS WebアプリURLで、予約APIとLINE WebhookのPOSTを処理する方法です。",
+  },
+  {
+    href: "/articles/gas/gas-line-webhook-constraints",
+    title: "GASをLINE Webhookに使うときの構成上の制約",
+    description:
+      "リダイレクト、署名検証、必要に応じた中継サーバーの判断基準を整理します。",
+  },
+  {
+    href: "/articles/gas/gas-log-retention-read-skip-auto-trim",
+    title: "GASログの肥大化を防ぐ",
+    description:
+      "読み取り成功を記録せず、古いログを日次で間引いて運用負荷を抑える方法です。",
+  },
+  {
+    href: "/articles/nextjs/css-grid-minmax-max-width",
+    title: "CSS Gridの列幅を可変にし、最大幅で頭打ちにする",
+    description:
+      "予約グリッドをスマートフォンでは収め、PCでは広がりすぎないように調整します。",
+  },
+  {
+    href: "/articles/nextjs/gas-script-properties-admin-settings",
+    title: "設定値をGASスクリプトプロパティと管理画面で運用する",
+    description:
+      "料金やリマインド時刻をコードへ埋めず、管理画面から安全に更新する設計です。",
+  },
 ];
 
 export default function ImabariExcelBookingToolPage() {

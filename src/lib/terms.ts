@@ -24,6 +24,48 @@ export type LinkedTermTextSegment = {
 
 export const terms: TermEntry[] = [
   {
+    slug: "line-messaging-api",
+    title: "LINE Messaging API",
+    category: "外部サービス連携",
+    aliases: ["LINE通知", "LINE Bot", "LINEボット"],
+    summary: "LINE公式アカウントから、利用者へのメッセージ送信や受信イベントの処理を行うためのAPIです。",
+    description: [
+      "LINE Messaging APIを使うと、予約受付、確定、キャンセル、リマインドなどの通知をLINEへ送信できます。",
+      "即時返信にはreply、後から送る通知にはpushを使い分け、アクセストークンや利用者IDを安全に管理する必要があります。",
+    ],
+    useCases: ["予約通知", "前日リマインド", "問い合わせBot", "業務システムからの通知"],
+    related: ["webhook", "api-token", "google-apps-script"],
+    googleQuery: "LINE Messaging API とは",
+  },
+  {
+    slug: "webhook",
+    title: "Webhook",
+    category: "Web API",
+    aliases: ["Webフック", "LINE Webhook"],
+    summary: "外部サービスでイベントが発生したときに、指定したURLへ自動的にデータを送る仕組みです。",
+    description: [
+      "Webhookを使うと、メッセージ受信、決済完了、予約変更などのイベントを、定期確認せずに受け取れます。",
+      "受信側では、送信元の検証、入力値検証、重複イベントへの対処、処理ログの保存を検討します。",
+    ],
+    useCases: ["LINEメッセージ受信", "決済完了通知", "外部サービス連携"],
+    related: ["line-messaging-api", "rest-api", "google-apps-script"],
+    googleQuery: "Webhook とは",
+  },
+  {
+    slug: "css-grid",
+    title: "CSS Grid",
+    category: "Web開発",
+    aliases: ["CSSグリッド", "Grid Layout", "CSS Grid Layout"],
+    summary: "行と列を定義し、Web画面の要素を二次元に配置するためのCSSレイアウト機能です。",
+    description: [
+      "CSS Gridは、表形式の画面、カード一覧、予約カレンダーなど、行と列の位置関係が重要なUIに向いています。",
+      "minmaxやrepeatを組み合わせると、最小幅を保ちながら利用可能な幅へ列を伸縮させられます。",
+    ],
+    useCases: ["予約グリッド", "カード一覧", "ダッシュボード", "レスポンシブレイアウト"],
+    related: ["responsive-design"],
+    googleQuery: "CSS Grid とは",
+  },
+  {
     slug: "wix",
     title: "Wix",
     category: "Web開発",

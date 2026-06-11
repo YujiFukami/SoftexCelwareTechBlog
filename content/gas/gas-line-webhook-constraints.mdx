@@ -1,0 +1,117 @@
+---
+title: "GASをLINE Webhookに使うときの構成上の制約"
+category: "gas"
+slug: "gas-line-webhook-constraints"
+tags: ["GAS", "LINE", "Webhook", "署名検証", "セキュリティ"]
+description: "GAS WebアプリをLINE Webhookの受信先にするときに確認したい、リダイレクトによる検証失敗と署名検証の制約、代替構成を解説します。"
+date: "2026-06-11"
+---
+
+<Term>Google Apps Script</Term>のWebアプリは、小さな業務アプリの<Term>Webhook</Term>受信先としても使えます。ただし、LINE Messaging APIのWebhookをGASで直接受ける構成には、事前に理解しておきたい制約があります。
+
+この記事では、GASが必ず使えないと断定するのではなく、**検証方法とセキュリティ要件によっては中継サーバーが必要になる**という判断基準を整理します。
+
+## 制約1：リダイレクトによりWebhook検証が失敗する場合がある
+
+GAS Webアプリの `/exec` URLは、処理の過程で別のGoogle配信URLへリダイレクトされることがあります。Webhookを送る側がそのリダイレクトを許可・追従しない場合、最終処理へ到達する前に検証失敗と判定される可能性があります。
+
+```text
+LINE側の検証リクエスト
+  ↓
+GAS /exec
+  ↓ リダイレクトが発生する場合がある
+Google側の配信URL
+  ↓
+doPost
+```
+
+実際の結果は、GASのデプロイ状態、LINE側の現在の仕様、リクエストの種類によって変わる可能性があります。「検証ボタンが失敗しても必ず実配信は動く」とは判断せず、実際のイベント送信とGAS側ログの両方で確認します。
+
+## 制約2：GASのdoPostでは署名検証に必要なヘッダーを扱いにくい
+
+LINE Messaging APIでは、受信したリクエストがLINEから送られたことを確認するため、`X-Line-Signature` ヘッダーを使った署名検証が推奨されます。
+
+しかし、GAS Webアプリの `doPost(e)` では、一般的なWebサーバーのように任意のHTTPリクエストヘッダーを取得できません。そのため、GASを直接の受信口にすると、LINEが推奨する形の署名検証をGAS内だけで完結させるのは困難です。
+
+本文の `events` の有無を確認する処理は、[GASのdoPostをLINE WebhookとアプリAPIで分岐する](/articles/gas/gas-dopost-line-webhook-app-routing)ためには役立ちますが、送信元の正当性を証明する署名検証の代わりにはなりません。
+
+## 代替案：署名検証できる中継サーバーを置く
+
+受信元の検証が必要な場合は、<Term>Next.js</Term>、Vercel Functions、Cloud Runなど、HTTPヘッダーを取得できる受信口をLINEとGASの間に置きます。
+
+```text
+LINE Messaging API
+  ↓ X-Line-Signatureを検証
+Next.js / Vercel Functions / Cloud Run
+  ↓ 検証済みの必要データだけ送信
+GAS Web API
+  ↓
+Googleスプレッドシート
+```
+
+この構成なら、中継サーバーで署名を検証してから、GASへ必要な情報だけを渡せます。GAS側のURLや認証情報も、サーバー側の環境変数で管理できます。
+
+## GAS直接受信を採用する場合の安全策
+
+試作や限定運用でGASを直接受信口にする場合でも、次の対策を組み合わせます。
+
+- 予約番号などの照合キーを推測困難な値にする
+- 連携済みの予約番号を別のLINE userIdで上書きしない
+- 受信本文の形式と値を厳格に検証する
+- 同一イベントの重複処理を防ぐ
+- 個人情報をLINEメッセージへ必要以上に含めない
+- 処理結果とエラーをログへ残す
+- 重要処理は管理者確認や別の本人確認と組み合わせる
+
+予約番号を使った軽量な連携方法は、[予約番号送信でLINEアカウントを連携する](/articles/gas/reservation-number-line-account-linking)で解説しています。
+
+## 推測困難な予約番号の例
+
+```javascript
+function makeReservationNo_() {
+  var ymd = Utilities.formatDate(
+    new Date(),
+    'Asia/Tokyo',
+    'yyyyMMdd'
+  );
+  var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  var randomPart = '';
+
+  for (var i = 0; i < 5; i++) {
+    randomPart += chars.charAt(
+      Math.floor(Math.random() * chars.length)
+    );
+  }
+
+  return 'R-' + ymd + '-' + randomPart;
+}
+```
+
+`R-20260611-001` のような連番は推測されやすいため、本人確認の一部として使う値には向きません。ただし、ランダムな予約番号も署名検証そのものではありません。扱う情報とリスクに応じて構成を選びます。
+
+## 判断基準
+
+| 条件 | 検討しやすい構成 |
+|---|---|
+| 小規模な試作、低リスクな通知 | GAS直接受信を検証したうえで採用 |
+| 署名検証が必須 | ヘッダーを取得できる中継サーバーを使用 |
+| 個人情報・決済・重要操作を扱う | 認証基盤を含めたサーバー構成を使用 |
+| 既存Next.jsアプリがある | Next.js側で受信・検証してGASへ中継 |
+
+## 再利用判断
+
+GASをWebhook受信先として検討するときは、サービスごとに署名方式、リダイレクト対応、再送仕様を確認してください。この判断手順はLINE以外のWebhook連携でも再利用できます。
+
+[今治Excel教室 予約管理アプリ](/tools/imabari-excel-booking)へのLINE通知を考える場合も、実装前にどの情報を扱うかを整理し、直接受信か中継構成かを選ぶ必要があります。構想全体は[予約管理アプリからLINEで顧客へ通知する仕組み](/articles/design-philosophy/booking-app-line-notification-idea)を参照してください。
+
+## 関連記事
+
+- [GASのdoPostをLINE WebhookとアプリAPIで分岐する](/articles/gas/gas-dopost-line-webhook-app-routing)
+- [予約番号送信でLINEアカウントを連携する](/articles/gas/reservation-number-line-account-linking)
+- [Next.jsとGASスプレッドシートDBで予約アプリを作る構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)
+
+## まとめ
+
+GASはLINE Webhookの受信処理を小さく試せる一方、リダイレクトとHTTPヘッダー取得の制約があります。特に署名検証が必要な構成では、GASだけで完結させず、中継サーバーを置く方が明確です。
+
+検証画面の結果だけで判断せず、最新仕様、実際のイベント送信、ログ、扱う情報の重要度を確認して構成を決めます。

@@ -1,0 +1,197 @@
+---
+title: "予約番号送信でLINEアカウントを連携する軽量設計"
+category: "gas"
+slug: "reservation-number-line-account-linking"
+tags: ["GAS", "LINE", "予約管理", "Webhook", "Messaging API"]
+description: "LIFFやLINEログインを使わず、利用者が予約番号をトークへ送信することで予約データとLINE userIdを紐づける軽量な連携方法を解説します。"
+date: "2026-06-11"
+---
+
+予約管理アプリから利用者本人のLINEへ通知するには、予約データとLINEの `userId` を紐づける必要があります。
+
+本格的なLINEログインやLIFFを導入する方法もありますが、小規模な予約システムでは実装と運用が重くなることがあります。そこで、最初の連携だけ利用者に予約番号を送ってもらう軽量な方法を使います。
+
+## 課題
+
+LINE公式アカウントを友だち追加してもらっただけでは、届いた `userId` が予約表のどの利用者なのか判断できません。
+
+一方、予約完了時には、予約管理アプリ側で予約番号を発行できます。その予約番号をLINEのトークへ送ってもらえば、Webhookで受信した `userId` と予約レコードを紐づけられます。
+
+## 連携の流れ
+
+```text
+1. 予約完了画面とメールに予約番号を表示
+2. 利用者がLINE公式アカウントを友だち追加
+3. トークへ予約番号を送信
+4. LINE WebhookをGASで受信
+5. 予約番号を検索し、lineUserIdを保存
+6. 以後の予約通知をLINEでも送信
+```
+
+この方法は、初回だけ利用者の操作が必要ですが、会員登録機能を作らずに始められます。
+
+## Webhook処理の実装例
+
+```javascript
+function handleLineLinkMessage_(replyToken, userId, text) {
+  var reservationNo = String(text || '').trim().toUpperCase();
+
+  if (!/^R-\d{8}-[A-Z2-9]{5}$/.test(reservationNo)) {
+    replyLine_(replyToken, '予約番号を確認できませんでした。');
+    return;
+  }
+
+  var reservation = listRecords_('reservations').find(function (item) {
+    return item.reservationNo === reservationNo;
+  });
+
+  if (!reservation) {
+    replyLine_(replyToken, '該当する予約を確認できませんでした。');
+    return;
+  }
+
+  if (
+    reservation.lineUserId &&
+    reservation.lineUserId !== userId
+  ) {
+    replyLine_(
+      replyToken,
+      'この予約番号は既に別のLINEアカウントと連携済みです。'
+    );
+    return;
+  }
+
+  updateRecord_('reservations', reservation.id, {
+    lineUserId: userId,
+    lineLinkedAt: new Date(),
+    lineNotifyEnabled: true,
+    lineLinkStatus: '連携済み'
+  });
+
+  replyLine_(replyToken, 'LINE通知の連携が完了しました。');
+}
+```
+
+予約番号の形式を最初に確認し、該当する予約があるかを検索します。すでに別の `userId` と連携済みの場合は上書きせず、横取りを防ぎます。
+
+## 即時返信はreply、後日の通知はpush
+
+予約番号を受け取った直後の返答には、Webhookイベントに含まれる `replyToken` を使います。予約確定や前日リマインドなど、後で送る通知には保存した `userId` を使います。
+
+```javascript
+function replyLine_(replyToken, text) {
+  var token = PropertiesService
+    .getScriptProperties()
+    .getProperty('LINE_CHANNEL_TOKEN');
+
+  UrlFetchApp.fetch(
+    'https://api.line.me/v2/bot/message/reply',
+    {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + token },
+      payload: JSON.stringify({
+        replyToken: replyToken,
+        messages: [{ type: 'text', text: text }]
+      }),
+      muteHttpExceptions: true
+    }
+  );
+}
+
+function pushLineToUser_(userId, text) {
+  var token = PropertiesService
+    .getScriptProperties()
+    .getProperty('LINE_CHANNEL_TOKEN');
+
+  UrlFetchApp.fetch(
+    'https://api.line.me/v2/bot/message/push',
+    {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + token },
+      payload: JSON.stringify({
+        to: userId,
+        messages: [{ type: 'text', text: text }]
+      }),
+      muteHttpExceptions: true
+    }
+  );
+}
+```
+
+送信には<Term>UrlFetchApp</Term>を使います。チャネルアクセストークンはコードへ直書きせず、スクリプトプロパティへ保存します。送信結果のステータスコードと本文もログへ残すと、通知失敗を確認しやすくなります。
+
+## 2回目以降の連携を軽くする
+
+同じ利用者が繰り返し予約する場合、毎回予約番号を送ってもらうと負担になります。運用ルールと本人確認の条件を決めたうえで、以前連携したメールアドレスと一致する新規予約へ `lineUserId` を引き継ぐ方法があります。
+
+```javascript
+function findLineUserByEmail_(email) {
+  var normalizedEmail = String(email || '')
+    .trim()
+    .toLowerCase();
+
+  var linked = listRecords_('reservations')
+    .filter(function (reservation) {
+      return (
+        reservation.lineUserId &&
+        reservation.lineNotifyEnabled === true &&
+        String(reservation.email || '').trim().toLowerCase() ===
+          normalizedEmail
+      );
+    })
+    .sort(function (a, b) {
+      return String(b.lineLinkedAt).localeCompare(
+        String(a.lineLinkedAt)
+      );
+    });
+
+  return linked.length > 0 ? linked[0].lineUserId : '';
+}
+```
+
+メールアドレスだけでの自動継承が適切かは、サービスの性質によって異なります。共有メールアドレスや入力間違いが想定される場合は、再確認の手順を入れます。
+
+## 保存する列
+
+予約データには、次の列を追加すると管理しやすくなります。
+
+| 列名 | 用途 |
+|---|---|
+| `lineUserId` | LINE通知の送信先 |
+| `lineLinkedAt` | 連携日時 |
+| `lineNotifyEnabled` | 通知を送るか |
+| `lineLastNotifyAt` | 最後に通知した日時 |
+| `lineLinkStatus` | 未連携・連携済み・解除など |
+| `lineLinkMemo` | 管理者向けメモ |
+
+## 注意点
+
+- 予約番号は連番ではなく、推測困難な値にします
+- 連携済みの予約番号を別の `userId` で上書きしません
+- LINE通知の停止・連携解除方法を用意します
+- LINEメッセージへ住所や電話番号などを必要以上に載せません
+- メール通知を残し、LINE送信失敗時にも予約を確認できるようにします
+- GASでLINE Webhookを直接受ける構成の制約も確認します
+
+[GASをLINE Webhookに使うときの構成上の制約](/articles/gas/gas-line-webhook-constraints)では、署名検証やリダイレクトを含む判断ポイントを整理しています。
+
+## 再利用判断
+
+予約番号、受付番号、申込番号など、利用者だけが確認できる照合キーがある小規模システムで再利用できます。重要な契約、決済、機密情報を扱う場合は、この軽量方式だけに頼らず、正式な認証方法を採用してください。
+
+この仕組みは、[今治Excel教室 予約管理アプリ](/tools/imabari-excel-booking)へ希望者向けLINE通知を追加する場合の実装候補です。全体構想は[予約管理アプリからLINEで顧客へ通知する仕組み](/articles/design-philosophy/booking-app-line-notification-idea)で確認できます。
+
+## 関連記事
+
+- [GASのdoPostをLINE WebhookとアプリAPIで分岐する](/articles/gas/gas-dopost-line-webhook-app-routing)
+- [GASをLINE Webhookに使うときの構成上の制約](/articles/gas/gas-line-webhook-constraints)
+- [GASログの肥大化を防ぐ](/articles/gas/gas-log-retention-read-skip-auto-trim)
+- [Next.jsとGASスプレッドシートDBで予約アプリを作る構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)
+
+## まとめ
+
+予約番号をLINEのトークへ送ってもらう方式なら、LIFFやLINEログインを導入せず、予約データとLINE userIdを紐づけられます。
+
+軽く始められる一方、予約番号の推測対策、上書き防止、通知解除、Webhook受信構成の確認が必要です。まず初回連携を小さく実装し、運用を確認してから自動連携へ広げます。

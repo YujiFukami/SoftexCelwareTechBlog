@@ -1,0 +1,144 @@
+---
+title: "GASのdoPostをLINE WebhookとアプリAPIで分岐する"
+category: "gas"
+slug: "gas-dopost-line-webhook-app-routing"
+tags: ["GAS", "LINE", "Webhook", "Web API", "doPost"]
+description: "1つのGAS WebアプリURLで、LINE Webhookと既存アプリAPIから届くPOSTを本文の形で判定し、安全に処理を振り分ける実装パターンを解説します。"
+date: "2026-06-11"
+---
+
+<Term>Google Apps Script</Term>を外部Webアプリ用のAPIとして使っていると、同じGASプロジェクトでLINE公式アカウントから届く<Term>Webhook</Term>も受け取りたくなることがあります。
+
+どちらもGASの `doPost(e)` に届きますが、送られてくる<Term>JSON</Term>の形は異なります。そこで、入口で本文の形を判定し、LINE用処理と既存アプリAPI用処理へ振り分けます。
+
+## 課題
+
+既存の予約アプリから届くリクエストは、次のような形です。
+
+```json
+{
+  "token": "APP_API_TOKEN",
+  "action": "createReservation",
+  "data": {}
+}
+```
+
+一方、LINE Messaging APIのWebhookには `events` 配列があります。
+
+```json
+{
+  "events": [
+    {
+      "type": "message",
+      "message": { "type": "text", "text": "予約番号" }
+    }
+  ]
+}
+```
+
+分岐を入れずに既存APIの認証処理へ渡すと、LINE側のリクエストをアプリAPIとして扱い、エラーにしてしまいます。
+
+## 解決方針
+
+`doPost` では最初にPOST本文をJSONとして読み取ります。`events` が配列ならLINE用ハンドラーへ、それ以外なら既存のアプリAPI用ハンドラーへ渡します。
+
+```text
+POST /exec
+  ↓
+doPost
+  ├─ body.events が配列 → LINE Webhook処理
+  └─ それ以外          → 既存アプリAPI処理
+```
+
+この分岐により、既存アプリの<Term>API_TOKEN</Term>認証を壊さずにLINE連携を追加できます。
+
+## 実装例
+
+```javascript
+function doPost(e) {
+  var body = parsePostBody_(e);
+
+  if (Array.isArray(body.events)) {
+    return handleLineWebhook_(body);
+  }
+
+  return handleAppRequest_(e, body);
+}
+
+function parsePostBody_(e) {
+  var contents =
+    e && e.postData && e.postData.contents
+      ? e.postData.contents
+      : '{}';
+
+  try {
+    return JSON.parse(contents);
+  } catch (error) {
+    return {};
+  }
+}
+
+function handleLineWebhook_(body) {
+  try {
+    body.events.forEach(function (event) {
+      if (
+        event.type === 'message' &&
+        event.message &&
+        event.message.type === 'text'
+      ) {
+        handleLineTextMessage_(
+          event.replyToken,
+          event.source && event.source.userId,
+          event.message.text
+        );
+      }
+    });
+  } catch (error) {
+    console.error('LINE Webhook processing failed', error);
+  }
+
+  return ContentService.createTextOutput('OK');
+}
+
+function handleAppRequest_(e, body) {
+  // 既存のAPI_TOKEN確認とaction別処理をここで行う
+  return ContentService
+    .createTextOutput(JSON.stringify({ ok: true }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+```
+
+## 初心者向けコード解説
+
+`parsePostBody_` を独立させることで、本文の読み取りと業務処理を分離しています。本文が空、またはJSONとして壊れている場合も、空オブジェクトを返すため、`doPost` 自体がすぐに停止しません。
+
+`Array.isArray(body.events)` は、単に `events` という名前があるかだけでなく、配列として届いているかを確認します。LINE用ハンドラーでは、イベントの種類とメッセージ形式を確認してから本文を使います。
+
+## 注意点
+
+- アプリAPIのトークンとLINEのチャネルアクセストークンは別物です
+- 本文の形だけによる分岐は、Webhookの送信元を保証する認証ではありません
+- LINE側の処理で例外が起きても、受信口全体を止めないようにログを残します
+- 同じイベントが再送される可能性を考え、更新処理は重複実行に耐えられるようにします
+- LINE WebhookをGASで直接受ける際の検証・署名には構成上の制約があります
+
+詳しくは、[GASをLINE Webhookに使うときの構成上の制約](/articles/gas/gas-line-webhook-constraints)を確認してください。
+
+## 再利用判断
+
+この分岐パターンは、1つのGAS Webアプリで複数種類のPOSTを扱う場合に再利用できます。ただし、送信元ごとの認証方法、エラー応答、処理時間は別々に設計してください。
+
+[今治Excel教室 予約管理アプリ](/tools/imabari-excel-booking)のように、既存の予約APIへLINE通知を追加する場合にも使える構成です。全体の構想は[予約管理アプリからLINEで顧客へ通知する仕組み](/articles/design-philosophy/booking-app-line-notification-idea)で整理しています。
+
+## 関連記事
+
+- [予約番号送信でLINEアカウントを連携する](/articles/gas/reservation-number-line-account-linking)
+- [GASをLINE Webhookに使うときの構成上の制約](/articles/gas/gas-line-webhook-constraints)
+- [GASログの肥大化を防ぐ](/articles/gas/gas-log-retention-read-skip-auto-trim)
+- [Next.jsとGASスプレッドシートDBで予約アプリを作る構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)
+
+## まとめ
+
+`doPost` の入口でPOST本文を読み取り、`events` 配列の有無でLINE Webhookと既存アプリAPIを分けると、1つのGAS WebアプリURLで両方を扱えます。
+
+ただし、分岐と認証は別の問題です。既存APIの認証を維持しながら、LINE側の入力検証、重複対策、ログ、Webhook受信構成も合わせて設計します。

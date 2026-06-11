@@ -1,0 +1,166 @@
+---
+title: "GASログの肥大化を防ぐ：読み取り非記録と自動間引き"
+category: "gas"
+slug: "gas-log-retention-read-skip-auto-trim"
+tags: ["GAS", "Googleスプレッドシート", "ログ", "トリガー", "保守"]
+description: "GASとGoogleスプレッドシートで作る業務アプリのログ肥大化を、読み取り成功の非記録と日次の自動間引きで抑える方法を解説します。"
+date: "2026-06-11"
+---
+
+<Term>Google Apps Script</Term>と<Term>Googleスプレッドシート</Term>で業務アプリを作ると、APIの実行履歴を「ログ」シートへ記録したくなります。
+
+しかし、一覧表示のたびに `list`、詳細表示のたびに `get` を記録すると、利用者が画面を見るだけでログが増え続けます。ログが本来の業務データより大きくなり、シートの読み書きが重くなる原因になります。
+
+## 課題
+
+すべての成功操作を記録する設計では、特に読み取り処理が大量に発生します。
+
+```text
+ページを開く       → list成功ログ
+詳細を表示する     → get成功ログ
+画面を再読み込み   → list成功ログ
+設定を読み込む     → getSettings成功ログ
+```
+
+読み取りの成功は件数が多い一方、通常運用では確認する機会が少ない情報です。重要な変更履歴やエラーが、読み取りログの中に埋もれてしまいます。
+
+## 解決方針
+
+対策は2段階です。
+
+1. 読み取り処理の成功は記録しない
+2. 古いログと上限超過分を日次処理で削除する
+
+変更操作の成功と、すべてのエラーは残します。
+
+| 操作 | 成功時 | エラー時 |
+|---|---|---|
+| `list` / `get` / `getSettings` | 記録しない | 記録する |
+| `create` / `update` / `delete` | 記録する | 記録する |
+| 予約・変更・キャンセル | 記録する | 記録する |
+
+## 読み取り成功を記録しない
+
+```javascript
+function shouldLogAction_(action) {
+  return (
+    action !== 'list' &&
+    action !== 'get' &&
+    action !== 'getSettings'
+  );
+}
+
+function handleAction_(action, sheetKey, targetId) {
+  try {
+    var result = executeAction_(action);
+
+    if (shouldLogAction_(action)) {
+      writeLog_(action, sheetKey, targetId, 'success', '');
+    }
+
+    return result;
+  } catch (error) {
+    writeLog_(
+      action,
+      sheetKey,
+      targetId,
+      'error',
+      error.message || String(error)
+    );
+    throw error;
+  }
+}
+```
+
+読み取り処理でも、エラー時は必ず記録します。成功時のノイズだけを減らし、障害調査に必要な情報は残す考え方です。
+
+## 古いログを日次で自動間引きする
+
+メンテナンス処理は本体の `Code.gs` へ混ぜず、`LogMaintenance.gs` のような別ファイルへ分けると管理しやすくなります。
+
+```javascript
+var LOG_RETENTION_DAYS = 30;
+var LOG_MAX_ROWS = 5000;
+
+function setupLogTrimTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (trigger.getHandlerFunction() === 'trimLogsDaily') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  ScriptApp
+    .newTrigger('trimLogsDaily')
+    .timeBased()
+    .everyDays(1)
+    .atHour(3)
+    .create();
+}
+
+function trimLogsDaily() {
+  var sheet = getSpreadsheet_().getSheetByName('ログ');
+  var dataRows = sheet.getLastRow() - 1;
+  if (dataRows <= 0) return;
+
+  var times = sheet.getRange(2, 1, dataRows, 1).getValues();
+  var cutoff =
+    Date.now() - LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  var deleteCount = 0;
+
+  for (var i = 0; i < dataRows; i++) {
+    var value = times[i][0];
+    var loggedAt = value instanceof Date ? value : new Date(value);
+
+    if (!isNaN(loggedAt) && loggedAt.getTime() < cutoff) {
+      deleteCount++;
+    } else {
+      break;
+    }
+  }
+
+  var remainingRows = dataRows - deleteCount;
+  if (remainingRows > LOG_MAX_ROWS) {
+    deleteCount += remainingRows - LOG_MAX_ROWS;
+  }
+
+  if (deleteCount > 0) {
+    sheet.deleteRows(2, deleteCount);
+  }
+}
+```
+
+`setupLogTrimTrigger` は初回に1回だけ手動実行します。既存の同名トリガーを削除してから作り直すため、設定時にトリガーが重複しにくくなります。
+
+## 初心者向けコード解説
+
+`LOG_RETENTION_DAYS` はログを残す日数、`LOG_MAX_ROWS` は最大行数です。どちらかの条件を超えた古い行を、2行目からまとめて削除します。
+
+このコードは、ログが末尾へ時系列順に追記され、先頭側ほど古いことを前提にしています。並び順を手動で変更する運用では、そのまま使用できません。
+
+## 注意点
+
+- ログシートと業務データシートを分けます
+- ログの先頭列には、日付として判定できる記録日時を保存します
+- ログの並び順を変更する場合は、削除ロジックも見直します
+- 法令、契約、監査で保存期間が決まっているログは勝手に削除しません
+- 削除前の退避が必要なら、別スプレッドシートや外部保存先へ移します
+- `setupLogTrimTrigger` は権限を持つ管理者が実行します
+
+## 再利用判断
+
+小規模な予約管理、問い合わせ管理、現場入力など、スプレッドシートを簡易DBとして使うアプリで再利用できます。読み取り成功の記録が本当に必要なシステムでは、省略せず専用のログ基盤を検討してください。
+
+[今治Excel教室 予約管理アプリ](/tools/imabari-excel-booking)のように、予約一覧の表示回数が変更操作より多いアプリでは、ログ方針を先に決めておくと保守しやすくなります。
+
+## 関連記事
+
+- [GASでGoogleスプレッドシートを簡易DB化し外部WebアプリからCRUDする構成](/articles/gas/spreadsheet-db-api-external-webapp)
+- [GASのdoPostをLINE WebhookとアプリAPIで分岐する](/articles/gas/gas-dopost-line-webhook-app-routing)
+- [予約番号送信でLINEアカウントを連携する](/articles/gas/reservation-number-line-account-linking)
+- [Next.jsとGASスプレッドシートDBで予約アプリを作る構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)
+
+## まとめ
+
+GASアプリのログは、すべて残すほど安全になるとは限りません。読み取り成功のような件数の多い記録を省き、変更操作とエラーを優先して残すと、確認しやすいログになります。
+
+さらに、保存日数と最大行数を決め、日次トリガーで古い行を自動間引きすると、スプレッドシートの肥大化を継続的に抑えられます。

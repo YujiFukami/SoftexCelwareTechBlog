@@ -1,0 +1,273 @@
+---
+title: "設定値をGASスクリプトプロパティとNext.js管理画面で運用する"
+category: "nextjs"
+slug: "gas-script-properties-admin-settings"
+tags: ["Next.js", "Google Apps Script", "スクリプトプロパティ", "管理画面", "設定管理"]
+description: "料金や通知時刻をコードへ埋め込まず、GASスクリプトプロパティを保存元にしてNext.js管理画面から安全に更新する設計を解説します。"
+date: "2026-06-11"
+---
+
+## はじめに
+
+料金、予約締切、リマインド通知の時刻などは、運用開始後も変更される設定値です。これらをコードへ直接書くと、値を変えるたびに開発者による修正や再デプロイが必要になります。
+
+この記事では、<Term>Google Apps Script</Term>の<Term>スクリプトプロパティ</Term>を設定値の保存元にし、<Term>Next.js</Term>の管理画面から読み書きする方法を紹介します。
+
+設定値を1か所で管理することで、公開画面、管理画面、メールやLINEなどの通知処理で、同じ値を参照できるようになります。
+
+## 課題
+
+変更される値をコードやスプレッドシートへ直接書くと、次の問題が起きます。
+
+- コードを書けない運用者が設定を変更できない
+- 値を変えるたびに再デプロイが必要になる
+- スプレッドシートの業務データとシステム設定が混ざる
+- 公開画面と通知文面で、料金や時刻の表示がずれる
+- 入力できる値の範囲を利用者へ分かりやすく案内しにくい
+
+設定値をどこへ保存し、誰が、どの画面から変更するかを決める必要があります。
+
+## 解決方針
+
+設定値はGASのスクリプトプロパティへ保存し、GASに取得・更新用の処理を用意します。Next.js側には管理画面と<Term>Route Handler</Term>を作り、認証済みの管理者だけが設定を変更できるようにします。
+
+```text
+管理者
+  ↓ 設定画面で変更
+Next.js管理画面
+  ↓ 認証済みRoute Handler
+GAS Web API
+  ↓ getProperty / setProperty
+スクリプトプロパティ
+
+公開画面・メール・通知処理
+  ↑ 同じ設定値を参照
+```
+
+この構成では、GASのスクリプトプロパティを設定値の**唯一の正しい保存元**として扱います。
+
+## GAS側で設定を読み書きする
+
+まず、設定をまとめて取得する関数を作ります。未設定時の初期値もGAS側で決めておくと、呼び出し側ごとに値が変わることを防げます。
+
+```javascript
+function getSettings_() {
+  const properties = PropertiesService.getScriptProperties()
+
+  return {
+    pricePer30Min: Number(
+      properties.getProperty("PRICE_PER_30MIN") || "1000",
+    ),
+    reminderHour: Number(
+      properties.getProperty("REMINDER_HOUR") || "18",
+    ),
+  }
+}
+```
+
+更新時は、保存前に値を検証します。
+
+```javascript
+function setSettings_(data) {
+  const properties = PropertiesService.getScriptProperties()
+
+  if (data.pricePer30Min !== undefined) {
+    const price = Math.round(Number(data.pricePer30Min))
+
+    if (!Number.isFinite(price) || price <= 0) {
+      throw new Error("30分料金は正の数で入力してください")
+    }
+
+    properties.setProperty("PRICE_PER_30MIN", String(price))
+  }
+
+  if (data.reminderHour !== undefined) {
+    const hour = Math.floor(Number(data.reminderHour))
+
+    if (!Number.isFinite(hour) || hour < 0 || hour > 23) {
+      throw new Error("通知時刻は0から23で入力してください")
+    }
+
+    properties.setProperty("REMINDER_HOUR", String(hour))
+  }
+
+  return getSettings_()
+}
+```
+
+GAS Web APIの処理分岐へ、設定取得と更新を追加します。
+
+```javascript
+switch (request.action) {
+  case "getSettings":
+    return jsonResponse({ ok: true, result: getSettings_() })
+  case "setSettings":
+    return jsonResponse({
+      ok: true,
+      result: setSettings_(request.data || {}),
+    })
+}
+```
+
+## Next.jsから設定を取得する
+
+GASとの通信はサーバー専用モジュールへ集約します。ブラウザからGASを直接呼ばず、接続用トークンを公開しない構成にします。
+
+```typescript
+import "server-only"
+
+export type AppSettings = {
+  pricePer30Min: number
+  reminderHour: number
+}
+
+export function getSettings() {
+  return callGas<AppSettings>({
+    action: "getSettings",
+  })
+}
+
+export function updateSettings(input: AppSettings) {
+  return callGas<AppSettings>({
+    action: "setSettings",
+    data: input,
+  })
+}
+```
+
+公開画面では<Term>Server Component</Term>から取得し、必要なコンポーネントへ値を渡します。
+
+```tsx
+export default async function BookingPage() {
+  const settings = await getSettings().catch(() => ({
+    pricePer30Min: 1000,
+    reminderHour: 18,
+  }))
+
+  return (
+    <BookingForm pricePer30Min={settings.pricePer30Min} />
+  )
+}
+```
+
+通信失敗時のフォールバック値を用意する場合は、通常時の初期値と一致させてください。複数箇所へ同じ初期値を書く場合は、共通定数として管理します。
+
+## 管理画面から更新する
+
+管理画面は現在値をフォームへ表示し、更新時に管理者向けAPIへ送信します。
+
+```tsx
+"use client"
+
+import { useState } from "react"
+
+export function SettingsForm({
+  initialSettings,
+}: {
+  initialSettings: AppSettings
+}) {
+  const [settings, setSettings] = useState(initialSettings)
+
+  async function saveSettings() {
+    const response = await fetch("/api/admin/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
+    })
+
+    if (!response.ok) {
+      throw new Error("設定を保存できませんでした")
+    }
+  }
+
+  return (
+    <form action={saveSettings}>
+      <label>
+        30分料金
+        <input
+          type="number"
+          min="1"
+          value={settings.pricePer30Min}
+          onChange={(event) =>
+            setSettings({
+              ...settings,
+              pricePer30Min: Number(event.target.value),
+            })
+          }
+        />
+      </label>
+
+      <button type="submit">設定を保存</button>
+    </form>
+  )
+}
+```
+
+Route Handlerでは、認証確認、入力検証、GASへの更新、関連ページの再検証を行います。
+
+```typescript
+import { revalidatePath } from "next/cache"
+import { NextResponse } from "next/server"
+import { updateSettings } from "@/lib/gas"
+
+export async function PUT(request: Request) {
+  const input = await request.json()
+  const settings = await updateSettings(input)
+
+  revalidatePath("/")
+  revalidatePath("/booking")
+
+  return NextResponse.json({ ok: true, settings })
+}
+```
+
+実際には、このRoute Handlerへ管理者認証を必ず設定してください。
+
+## 通知時刻を運用中に変更する
+
+通知時刻を変えるたびに時間主導トリガーを登録し直すと、運用が複雑になります。毎時実行するトリガーを用意し、現在時刻が設定値と一致するときだけ通知する方法があります。
+
+```javascript
+function sendReminderByConfiguredHour() {
+  const settings = getSettings_()
+  const currentHour = Number(
+    Utilities.formatDate(new Date(), "Asia/Tokyo", "H"),
+  )
+
+  if (currentHour !== settings.reminderHour) return
+
+  sendBookingReminders_()
+}
+```
+
+これにより、管理画面で通知時刻を変更したあと、トリガーを作り直さずに新しい時刻を反映できます。
+
+## 注意点
+
+- スクリプトプロパティへAPIキーや内部設定を保存できても、管理画面へ秘密情報を表示しない
+- 設定更新用のRoute Handlerには管理者認証を必ず設定する
+- ブラウザ側の検証だけでなく、GAS側でも値を検証する
+- 初期値とフォールバック値を複数箇所で食い違わせない
+- 設定値の変更履歴が必要なら、別途監査ログを残す
+- 複雑な設定や大量の設定を扱う場合は、専用テーブルやデータベースも検討する
+
+## 再利用判断
+
+この構成は、料金、通知時刻、予約締切、表示メッセージなど、**件数が少なく、管理者がときどき変更する設定値**に向いています。
+
+一方、利用者ごとに異なる設定、大量の検索対象、複雑な履歴管理が必要な場合は、スクリプトプロパティではなくデータベースへ保存するほうが適しています。
+
+## 関連記事
+
+- [この設定管理を利用した「今治Excel教室 予約管理アプリ」](/tools/imabari-excel-booking)
+- [Next.jsとGASスプレッドシートDBで予約アプリを作る構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)
+- [30分コマの週グリッド予約UIをNext.jsで実装する](/articles/nextjs/weekly-booking-grid-30-minute-slots)
+- [CSS Gridのminmaxとmax-widthで列幅を可変にする](/articles/nextjs/css-grid-minmax-max-width)
+- [Google Apps Script PropertiesService](https://developers.google.com/apps-script/reference/properties/properties-service)
+- [Next.js Route Handlers](https://nextjs.org/docs/app/building-your-application/routing/route-handlers)
+
+## まとめ
+
+変更される設定値をGASのスクリプトプロパティへ集約し、Next.jsの管理画面から更新できるようにすると、コードを触らずに運用を調整できます。
+
+公開画面、メール、通知処理が同じ設定値を参照する構成にし、管理画面とGASの両方で入力を検証することが、設定の食い違いや誤操作を防ぐポイントです。

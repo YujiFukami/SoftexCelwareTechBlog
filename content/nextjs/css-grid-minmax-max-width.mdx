@@ -1,0 +1,169 @@
+---
+title: "CSS Gridのminmaxとmax-widthで列幅を可変にし、最大幅で頭打ちにする"
+category: "nextjs"
+slug: "css-grid-minmax-max-width"
+tags: ["Next.js", "CSS Grid", "レスポンシブデザイン", "予約UI", "minmax"]
+description: "CSS Gridのminmaxで列の最小幅を守りながら均等に伸縮させ、コンテナのmax-widthで広い画面の最大幅を制御する方法を解説します。"
+date: "2026-06-11"
+---
+
+## はじめに
+
+日付と時刻を並べる予約画面では、スマートフォンでは列を狭くして全体を見せたい一方、PCでは列や外枠が必要以上に広がらないようにしたいことがあります。
+
+この記事では、<Term>Next.js</Term>と<Term>CSS Grid</Term>で作った週単位の予約グリッドを例に、`minmax()`と`max-width`を組み合わせて、**狭い画面では縮み、広い画面では一定幅で止まるレイアウト**を実装する方法を紹介します。
+
+この方法は、[30分コマの週グリッド予約UI](/articles/nextjs/weekly-booking-grid-30-minute-slots)を、端末幅に合わせて見やすくするために利用できます。
+
+## 課題
+
+時刻列と7日分の日付列を並べると、端末幅によって次の問題が起きます。
+
+- 列幅を固定すると、スマートフォンで横スクロールが必要になる
+- 列を `1fr` だけで均等配置すると、PCで各列が広がりすぎる
+- グリッドだけ最大幅を制限すると、上部ナビや凡例の右端とずれる
+- 極端に狭い画面では、日付やボタンが読めないほど縮む
+
+必要なのは、列の最小幅、利用できる余白、全体の最大幅を別々に制御する設計です。
+
+## 解決方針
+
+各日付列には `minmax(最小幅, 1fr)` を指定し、利用できる幅に応じて伸縮させます。グリッド全体には `maxWidth` を指定し、広い画面での最大幅を頭打ちにします。
+
+```text
+狭い画面
+各日付列が最小幅まで縮む
+
+通常のスマートフォン
+残り幅を7列で均等に分ける
+
+広い画面
+コンテナが最大幅で止まり、列もそれ以上広がらない
+```
+
+グリッドだけでなく、週移動ナビ、凡例、補足表示も同じ最大幅のコンテナへ入れると、左右の端がそろいます。
+
+## 実装例
+
+最初に、時刻列、日付列の最小幅、日付列の最大幅を定数として定義します。
+
+```tsx
+const TIME_COLUMN_PX = 48
+const DAY_COLUMN_MIN_PX = 38
+const DAY_COLUMN_MAX_PX = 72
+
+const GRID_COLUMNS =
+  `${TIME_COLUMN_PX}px repeat(7, minmax(${DAY_COLUMN_MIN_PX}px, 1fr))`
+
+const GRID_MAX_WIDTH =
+  TIME_COLUMN_PX + 7 * DAY_COLUMN_MAX_PX
+```
+
+`GRID_MAX_WIDTH`は、時刻列と7日分の日付列が最大幅になったときの合計です。列数を変える可能性がある場合は、日数も定数へ切り出します。
+
+次に、ナビから凡例までを同じ最大幅のコンテナへまとめます。
+
+```tsx
+<div style={{ maxWidth: GRID_MAX_WIDTH }}>
+  <div className="mb-3 flex items-center justify-between">
+    <button type="button">前の週</button>
+    <p>6月8日 - 6月14日</p>
+    <button type="button">次の週</button>
+  </div>
+
+  <div className="overflow-x-auto">
+    <div
+      className="grid w-full rounded-lg border"
+      style={{
+        gridTemplateColumns: GRID_COLUMNS,
+        maxWidth: GRID_MAX_WIDTH,
+      }}
+    >
+      <div className="sticky left-0 z-20 bg-white">時刻</div>
+      {days.map((day) => (
+        <div key={day.key}>{day.label}</div>
+      ))}
+
+      {timeRows.map((minutes) => (
+        <React.Fragment key={minutes}>
+          <div className="sticky left-0 z-10 bg-white">
+            {formatMinutes(minutes)}
+          </div>
+          {days.map((day) => (
+            <SlotButton
+              key={`${day.key}-${minutes}`}
+              cell={cellAt(day.key, minutes)}
+            />
+          ))}
+        </React.Fragment>
+      ))}
+    </div>
+  </div>
+
+  <div className="mt-3 flex flex-wrap gap-3">
+    <span>空き</span>
+    <span>予約済み</span>
+    <span>選択中</span>
+  </div>
+</div>
+```
+
+## minmaxとmax-widthの役割
+
+`minmax(38px, 1fr)`では、日付列は38pxより小さくならず、余白があれば均等に広がります。
+
+```css
+grid-template-columns: 48px repeat(7, minmax(38px, 1fr));
+```
+
+一方、`1fr`には列自身の最大幅を指定していません。親コンテナが画面いっぱいに広がると、列も広がり続けます。そのため、グリッド全体へ `max-width` を指定して上限を設けます。
+
+```css
+max-width: 552px; /* 48 + 7 × 72 */
+```
+
+この2つを組み合わせることで、列の下限とレイアウト全体の上限を両立できます。
+
+## 画面幅ごとの動き
+
+### 広い画面
+
+コンテナが最大幅で止まるため、予約グリッドが画面いっぱいに伸びません。週ナビと凡例も同じ幅で止まり、右端がそろいます。
+
+### 一般的なスマートフォン
+
+たとえば表示幅が392pxなら、時刻列48pxを引いた残り344pxを7列で分けます。1列は約49pxになり、最小幅38pxを守りながら全体を画面内へ収められます。
+
+### 極端に狭い画面
+
+日付列は最小幅38pxで止まります。合計幅が画面へ収まらない場合だけ、`overflow-x-auto`による横スクロールが有効になります。
+
+## 注意点
+
+- 時刻列を固定する場合は、背景色と `z-index` も指定する
+- グリッド、ナビ、凡例を別々の最大幅にしない
+- 日付列の最小幅は、曜日や操作ボタンが読める幅を実機で確認する
+- `maxWidth`の計算値と、列の最大幅として想定する値を一致させる
+- 横スクロールを完全に禁止せず、極端に狭い画面の逃げ道として残す
+- 1行分の時刻セルと日付セルは、<Term>React</Term>の `Fragment` で連続して配置する
+
+## 再利用判断
+
+この方法は、日付表、時間割、座席表、工程表など、**列数は決まっているが画面幅に応じて列幅を調整したいUI**へ再利用できます。
+
+反対に、列数が非常に多い一覧や、各列に長い文章を表示する表では、無理に全列を画面内へ収めず、横スクロールやカード表示を選ぶほうが読みやすくなります。
+
+## 関連記事
+
+- [このレイアウトを利用した「今治Excel教室 予約管理アプリ」](/tools/imabari-excel-booking)
+- [30分コマの週グリッド予約UIをNext.jsで実装する](/articles/nextjs/weekly-booking-grid-30-minute-slots)
+- [Next.jsとGASスプレッドシートDBで予約アプリを作る構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)
+- [設定値をスクリプトプロパティと管理画面で運用する](/articles/nextjs/gas-script-properties-admin-settings)
+- [MDN: minmax()](https://developer.mozilla.org/docs/Web/CSS/minmax)
+- [MDN: CSS Grid Layout](https://developer.mozilla.org/docs/Web/CSS/CSS_grid_layout)
+
+## まとめ
+
+`minmax(最小幅, 1fr)`は、狭い画面で列の読みやすさを守りながら、利用できる幅を均等に使うために役立ちます。
+
+さらにコンテナの `max-width` で全体幅を頭打ちにすると、PCで外枠や列が伸びすぎる問題も防げます。ナビや凡例まで同じコンテナにまとめることが、整った予約UIにするポイントです。
