@@ -1,18 +1,23 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import ZoomableImage from "@/components/ZoomableImage";
 
 const appUrl = "https://imabari-excel-yoyaku.vercel.app";
 const githubUrl = "https://github.com/YujiFukami/imabari-excel-yoyaku";
-const lpImage = "/tools/imabari-excel-booking/images/lp.png";
+const lineUrl = "https://line.me/R/ti/p/%40283qcrpx";
+const lpImage =
+  "/tools/imabari-excel-booking/images/lp-system-overview.png";
+const architectureImage =
+  "/tools/imabari-excel-booking/images/system-architecture.png";
 
 export const metadata: Metadata = {
   title: "今治Excel教室 予約管理アプリ",
   description:
-    "今治Excel教室の個別指導・グループ指導を、スマートフォンから空き枠を確認して予約できるWebアプリの紹介ページです。",
+    "個別・グループ指導の予約受付、予約枠管理、メール・LINE通知を一元化した、今治Excel教室の予約管理Webアプリです。",
   openGraph: {
     title: "今治Excel教室 予約管理アプリ",
     description:
-      "30分単位の予約グリッド、料金の即時計算、移動時間バッファ、管理画面を備えた地域密着型の予約Webアプリです。",
+      "スマホからの予約、講師側の予約管理、メール・LINE通知を一つにまとめた地域密着型の予約管理Webアプリです。",
     type: "website",
     url: "/tools/imabari-excel-booking",
     images: [lpImage],
@@ -21,43 +26,74 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "今治Excel教室 予約管理アプリ",
     description:
-      "空き枠を見て、30分単位で選び、スマートフォンから予約できるWebアプリです。",
+      "個別・グループ指導の予約受付、予約枠管理、メール・LINE通知を一元化しています。",
     images: [lpImage],
   },
 };
 
-const features = [
+const userBenefits = [
   {
-    title: "30分単位の予約グリッド",
-    body: "向こう1週間の空き状況を一覧表示し、連続する時間帯を選択できます。スマートフォンでは横スクロールと固定時刻列で確認できます。",
+    title: "スマホ・PCから簡単予約",
+    body: "ログインせずに空き状況を確認し、個別指導またはグループ指導を予約できます。",
   },
   {
-    title: "料金をその場で確認",
-    body: "選択したコマ数から合計時間と料金を即時計算します。予約フォームへ進む前に内容を把握できます。",
+    title: "メールとLINEで通知",
+    body: "予約受付・確定・キャンセル通知に加え、連携した利用者へ前日リマインドを送信します。",
+  },
+  {
+    title: "予約内容を自分で確認・キャンセル",
+    body: "確認メールに記載された専用URLから、ログインせずに予約をキャンセルできます。",
+  },
+];
+
+const systemFeatures = [
+  {
+    title: "個別指導の30分予約グリッド",
+    body: "向こう1週間の空き枠を確認し、開始・終了時刻を選択します。連続する時間帯と料金をその場で確認できます。",
+  },
+  {
+    title: "グループ指導の残席表示",
+    body: "月カレンダーと日程一覧から開催日と残席を確認し、空きのある回へ申し込めます。",
   },
   {
     title: "準備・移動時間を自動確保",
-    body: "予約の前後30分を準備中として自動的に選択不可にし、対面指導や移動を含む運用を支援します。",
+    body: "個別予約の前後30分を「準備中」として自動的に予約不可にし、連続予約による運用負荷を抑えます。",
   },
   {
-    title: "講師側の管理も一元化",
-    body: "受付枠の追加、繰り返し設定、予約一覧、ステータス、場所候補を管理画面から確認できます。",
+    title: "予約枠・料金・場所候補を管理",
+    body: "講師側の管理画面から、受付枠の追加・繰り返し設定、料金、対面時の場所候補を管理できます。",
+  },
+  {
+    title: "予約ステータスを一覧管理",
+    body: "申込、確定、完了、キャンセルを一覧で確認し、ステータス変更に合わせて通知を送ります。",
+  },
+  {
+    title: "Googleスプレッドシート連携",
+    body: "予約枠、予約、場所候補、ログ、LINE連携情報を、運営者が確認しやすいスプレッドシートへ保存します。",
   },
 ];
 
 const bookingSteps = [
-  "週グリッドから予約可能な日時を選ぶ",
-  "連続する30分コマを選び、時間と料金を確認する",
-  "氏名、連絡先、相談内容、オンライン・対面などを入力する",
-  "予約を確定し、届いた確認メールで内容を確認する",
+  "個別指導またはグループ指導を選ぶ",
+  "空き枠から希望日時を選び、時間と料金を確認する",
+  "氏名、連絡先、相談内容、受講方法などを入力する",
+  "予約完了画面と確認メールで予約番号・内容を確認する",
+  "希望者はLINE公式アカウントと連携し、通知を受け取る",
+];
+
+const notifications = [
+  "予約受付・確定・キャンセルの確認メール",
+  "講師グループへの新規予約・キャンセル通知",
+  "連携済み利用者への予約受付・確定・キャンセル通知",
+  "予約前日のLINEリマインド",
 ];
 
 const implementationArticles = [
   {
     href: "/articles/design-philosophy/booking-app-line-notification-idea",
-    title: "予約管理アプリからLINEで顧客へ通知する仕組みのアイデア",
+    title: "予約管理アプリからLINEで顧客へ通知する仕組み",
     description:
-      "メール通知を基本に残しながら、希望者へLINE通知と前日リマインドを届ける段階的な構想です。",
+      "メールを基本通知として残しながら、LINE連携と前日リマインドを段階的に追加する設計です。",
   },
   {
     href: "/articles/nextjs/nextjs-gas-spreadsheet-booking-app",
@@ -100,15 +136,15 @@ export default function ImabariExcelBookingToolPage() {
 
       <header className="mb-8">
         <p className="mb-2 text-sm font-medium text-emerald-700">
-          地域密着型 予約Webアプリ
+          予約受付・管理・LINE通知を一つに
         </p>
         <h1 className="mb-4 text-3xl font-bold text-gray-900 md:text-4xl">
           今治Excel教室 予約管理アプリ
         </h1>
         <p className="max-w-3xl text-base leading-8 text-gray-700">
-          今治Excel教室の個別指導・グループ指導を、空き枠から手軽に予約できるWebアプリです。
-          スマートフォンで予約可能な時間を確認し、30分単位で選択して申し込めます。
-          講師側では受付枠と予約状況を一元管理できます。
+          今治Excel教室の個別指導・グループ指導を、スマートフォンから予約できるWebアプリです。
+          受講者は空き枠を見て申し込み、講師は予約枠・予約状況・通知を一元管理できます。
+          メールに加えてLINE公式アカウントとも連携し、予約通知や前日リマインドを届けます。
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
           <a
@@ -118,6 +154,14 @@ export default function ImabariExcelBookingToolPage() {
             className="rounded bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-800"
           >
             予約アプリを開く
+          </a>
+          <a
+            href={lineUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded border border-emerald-300 px-5 py-2.5 text-sm font-medium text-emerald-800 hover:bg-emerald-50"
+          >
+            LINE公式アカウント
           </a>
           <a
             href={githubUrl}
@@ -131,25 +175,28 @@ export default function ImabariExcelBookingToolPage() {
       </header>
 
       <section className="mb-10">
-        <a href={lpImage} target="_blank" rel="noopener noreferrer">
-          <img
-            src={lpImage}
-            alt="今治Excel教室 予約管理アプリの機能と予約の流れ"
-            className="h-auto w-full rounded-lg border border-gray-200"
-          />
-        </a>
+        <ZoomableImage
+          src={lpImage}
+          alt="今治Excel教室 予約管理アプリの予約画面、管理画面、LINE通知、技術構成"
+          className="border border-gray-200"
+        />
         <p className="mt-2 text-sm leading-6 text-gray-500">
-          画像をクリックすると、予約の流れと主要機能を大きく確認できます。
+          画像をクリックすると、予約受付・管理・通知の全体像を大きく確認できます。
         </p>
       </section>
 
-      <section className="mb-10 grid gap-4 md:grid-cols-2">
-        {features.map((feature) => (
-          <div key={feature.title} className="rounded-lg border border-gray-200 p-5">
-            <h2 className="text-lg font-bold text-gray-900">{feature.title}</h2>
-            <p className="mt-3 text-sm leading-7 text-gray-700">{feature.body}</p>
-          </div>
-        ))}
+      <section className="mb-10">
+        <h2 className="mb-4 text-2xl font-bold text-gray-900">
+          受講者が使いやすい予約体験
+        </h2>
+        <div className="grid gap-4 md:grid-cols-3">
+          {userBenefits.map((benefit) => (
+            <div key={benefit.title} className="rounded-lg border border-gray-200 p-5">
+              <h3 className="font-bold text-emerald-800">{benefit.title}</h3>
+              <p className="mt-3 text-sm leading-7 text-gray-700">{benefit.body}</p>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="mb-10 rounded-lg border border-emerald-100 bg-emerald-50 p-6">
@@ -166,25 +213,55 @@ export default function ImabariExcelBookingToolPage() {
         </ol>
       </section>
 
-      <section className="mb-10 rounded-lg border border-gray-200 p-6">
-        <h2 className="mb-3 text-2xl font-bold text-gray-900">
-          個別指導とグループ指導
-        </h2>
-        <div className="grid gap-5 md:grid-cols-2">
-          <div>
-            <h3 className="font-bold text-emerald-800">個別指導</h3>
-            <p className="mt-2 text-sm leading-7 text-gray-700">
-              1対1でじっくり相談できます。オンライン、教室・指定場所での対面、
-              自宅や事務所への訪問など、相談内容に応じた受講方法を予約時に選択できます。
-            </p>
-          </div>
-          <div>
-            <h3 className="font-bold text-amber-700">グループ指導</h3>
-            <p className="mt-2 text-sm leading-7 text-gray-700">
-              少人数でExcelやパソコンの基礎を学ぶ形式です。予約画面では定員と残席を確認できます。
-            </p>
-          </div>
+      <section className="mb-10">
+        <h2 className="mb-4 text-2xl font-bold text-gray-900">主な機能</h2>
+        <div className="grid gap-4 md:grid-cols-2">
+          {systemFeatures.map((feature) => (
+            <div key={feature.title} className="rounded-lg border border-gray-200 p-5">
+              <h3 className="text-lg font-bold text-gray-900">{feature.title}</h3>
+              <p className="mt-3 text-sm leading-7 text-gray-700">{feature.body}</p>
+            </div>
+          ))}
         </div>
+      </section>
+
+      <section className="mb-10 grid gap-6 md:grid-cols-2">
+        <div className="rounded-lg border border-gray-200 p-6">
+          <h2 className="mb-3 text-xl font-bold text-gray-900">
+            個別指導とグループ指導に対応
+          </h2>
+          <p className="text-sm leading-7 text-gray-700">
+            個別指導では30分単位で連続する空き時間を選択できます。グループ指導では、
+            開催日と残席を確認して申し込めます。料金や受講方法は予約画面で確認できます。
+          </p>
+        </div>
+        <div className="rounded-lg border border-gray-200 p-6">
+          <h2 className="mb-3 text-xl font-bold text-gray-900">
+            管理者向けの一元管理
+          </h2>
+          <p className="text-sm leading-7 text-gray-700">
+            予約枠カレンダー、予約一覧、場所候補、料金、リマインド時刻を管理画面から設定できます。
+            予約の変更操作とエラーはログへ記録し、日々の運用を確認しやすくしています。
+          </p>
+        </div>
+      </section>
+
+      <section className="mb-10 rounded-lg border border-green-200 bg-green-50 p-6">
+        <h2 className="mb-4 text-2xl font-bold text-gray-900">
+          メール・LINE通知
+        </h2>
+        <p className="mb-4 text-sm leading-7 text-gray-700">
+          メールを基本の予約控えとして残しながら、LINE公式アカウントと連携した受講者へも通知します。
+          予約番号をLINEへ送信すると予約情報と連携され、同じメールアドレスでの次回予約にも連携情報を引き継ぎます。
+        </p>
+        <ul className="grid gap-2 text-sm leading-7 text-gray-700 md:grid-cols-2">
+          {notifications.map((notification) => (
+            <li key={notification} className="flex gap-2">
+              <span className="text-emerald-700">✓</span>
+              <span>{notification}</span>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section className="mb-10">
@@ -210,12 +287,28 @@ export default function ImabariExcelBookingToolPage() {
         </div>
       </section>
 
-      <section className="rounded-lg border border-gray-200 bg-gray-50 p-6">
+      <section className="mb-10 rounded-lg border border-gray-200 bg-gray-50 p-6">
         <h2 className="mb-3 text-xl font-bold text-gray-900">技術構成</h2>
         <p className="text-sm leading-7 text-gray-700">
-          画面はNext.js App Router、TypeScript、Tailwind CSSで構築し、Vercelで公開しています。
-          予約データはGoogleスプレッドシートへ保存し、Google Apps ScriptのWeb APIを経由して操作します。
-          小規模な予約管理で、運営者がデータを直接確認・修正しやすい構成です。
+          画面・入力・管理者認証はNext.js App Router、TypeScript、Tailwind CSSで構築し、
+          Vercelで公開しています。GAS Web APIが予約ロジック、メール・LINE通知、
+          Googleスプレッドシートへのデータ保存を担当します。APIトークンやLINEトークンは
+          ブラウザへ公開せず、サーバー側で管理しています。
+        </p>
+      </section>
+
+      <section>
+        <h2 className="mb-4 text-2xl font-bold text-gray-900">
+          予約システムの構成図
+        </h2>
+        <ZoomableImage
+          src={architectureImage}
+          alt="利用者と講師、Next.js、GAS Web API、Googleスプレッドシート、LINE、メールをつなぐ今治Excel教室予約管理アプリの技術構成図"
+          className="border border-gray-200"
+        />
+        <p className="mt-3 text-sm leading-6 text-gray-500">
+          受講者・講師の操作から、予約処理、データ保存、メール・LINE通知までの流れを示しています。
+          画像をクリックすると拡大できます。
         </p>
       </section>
     </div>
