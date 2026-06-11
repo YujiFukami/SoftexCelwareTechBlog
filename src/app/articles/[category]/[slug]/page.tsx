@@ -128,6 +128,26 @@ export default async function ArticlePage({ params }: Props) {
         />
       </article>
 
+      {meta.category === "vba" &&
+        (meta.tags.includes("汎用プロシージャ") ||
+          meta.slug === "immediate-window-cui-procedure-generator") && (
+          <aside className="mt-10 border-y border-blue-100 bg-blue-50/60 px-5 py-5">
+            <p className="text-xs font-medium text-blue-600">Excel VBA Parts</p>
+            <h2 className="mt-1 text-lg font-bold text-gray-900">
+              関連するVBA部品を探す
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-gray-600">
+              VBA部品集では、汎用プロシージャ・関数を用途別に整理しています。
+            </p>
+            <Link
+              href="/vba-parts"
+              className="mt-4 inline-flex rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              Excel VBA 部品集へ戻る
+            </Link>
+          </aside>
+        )}
+
       {/* CTA */}
       <CTA />
     </div>

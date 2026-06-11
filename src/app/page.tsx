@@ -58,6 +58,11 @@ export default function HomePage() {
               description: "開発中に使える技術記事やコード例を探せます。",
             },
             {
+              href: "/vba-parts",
+              title: "Excel VBAの部品を探したい",
+              description: "汎用プロシージャ・関数を目的別に探して再利用できます。",
+            },
+            {
               href: "/cases",
               title: "活用例を見たい",
               description: "業務改善やアプリ開発の具体的な事例を確認できます。",
