@@ -11,14 +11,36 @@ export const metadata: Metadata = {
 
 const apiRows = [
   ["Reanalyze()", "読み込み / 更新相当の再解析を実行"],
+  ["IsAnalyzed()", "解析済みかを確認"],
   ["ShowWindow()", "階層化フォームのウィンドウを表示"],
   ["ShowWindowAndLoad()", "表示してから再解析"],
   ["HideWindow()", "ウィンドウを隠す"],
+  ["IsWindowVisible()", "ウィンドウが表示中かを確認"],
   ["SearchProcedures(query, includeBody)", "プロシージャを検索"],
   ["SearchDeclarations(query)", "宣言メンバーを検索"],
   ["SearchAll(query, includeBody)", "プロシージャと宣言メンバーをまとめて検索"],
   ["GetExternalReferenceCopyText(targetProject)", "外部参照コードをコピー用文字列として取得"],
   ["ImportRelatedFormClassModules(targetProject)", "関連Class / UserFormモジュールを取り込み"],
+  ["ListProcedures(projectName)", "プロシージャ一覧を取得"],
+  ["ListModules(projectName)", "モジュール一覧を取得"],
+  ["GetProcedureCode(proj, mod, proc)", "指定プロシージャのコードを取得"],
+  ["GetProcedureCodeWithRelated(proj, mod, proc)", "指定プロシージャと関連コードを取得"],
+  ["GetModuleCode(proj, mod)", "指定モジュール全体のコードを取得"],
+  ["GetModuleCodeWithRelated(proj, mod)", "指定モジュールと関連コードを取得"],
+];
+
+const wrapperRows = [
+  ['?ks("検索語")', "プロシージャを本文込みで検索"],
+  ['?ks("検索語", False)', "プロシージャ名のみ検索"],
+  ['?ksd("検索語")', "宣言メンバーを検索"],
+  ['?ksa("検索語")', "プロシージャと宣言メンバーをまとめて検索"],
+  ["OpenKaiso", "アドインウィンドウを開いて再解析"],
+  ["TidyExternalReferences", "外部参照を一括コピーし、関連Class / Formを取り込み"],
+  ['?kls("VBAProject")', "プロシージャ一覧を取得"],
+  ['?klm("VBAProject")', "モジュール一覧を取得"],
+  ['?kcode("VBAProject", "Mod01", "Main")', "指定プロシージャのコードを取得"],
+  ['?kcode("VBAProject", "Mod01", "Main", True)', "関連コードを含めて取得"],
+  ['?kmodcode("VBAProject", "Mod01")', "指定モジュール全体を取得"],
 ];
 
 export default function KaisoVbaApiPage() {
@@ -48,7 +70,7 @@ export default function KaisoVbaApiPage() {
       <section className="mb-10 rounded-lg border border-blue-100 bg-blue-50 p-5">
         <h2 className="mb-3 text-xl font-bold text-gray-900">サンプルコード</h2>
         <p className="mb-4 text-sm leading-7 text-gray-700">
-          次のサンプル `.bas` をVBEへインポートすると、`?ks("検索語")` のような短い呼び出しで検索できます。
+          次のサンプル `.bas` をVBEへインポートすると、短い呼び出しで検索、一覧取得、コード取得を実行できます。
         </p>
         <a
           href="/downloads/tools/kaiso/IkiKaiso_VBA_Sample.bas"
@@ -64,7 +86,7 @@ export default function KaisoVbaApiPage() {
         <ol className="list-decimal space-y-2 pl-5 text-sm leading-7 text-gray-700">
           <li>VBEで「ファイル」から `IkiKaiso_VBA_Sample.bas` をインポートします。</li>
           <li>イミディエイトウィンドウを開きます。</li>
-          <li>`?ks("ArrayCopy")` のように入力して検索を試します。</li>
+          <li><code>?ks(&quot;ArrayCopy&quot;)</code> のように入力して検索を試します。</li>
         </ol>
       </section>
 
@@ -79,15 +101,27 @@ export default function KaisoVbaApiPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              <tr><td className="px-4 py-3 font-mono">?ks("検索語")</td><td className="px-4 py-3">プロシージャを本文込みで検索</td></tr>
-              <tr><td className="px-4 py-3 font-mono">?ks("検索語", False)</td><td className="px-4 py-3">プロシージャ名のみ検索</td></tr>
-              <tr><td className="px-4 py-3 font-mono">?ksd("検索語")</td><td className="px-4 py-3">宣言メンバーを検索</td></tr>
-              <tr><td className="px-4 py-3 font-mono">?ksa("検索語")</td><td className="px-4 py-3">プロシージャと宣言メンバーをまとめて検索</td></tr>
-              <tr><td className="px-4 py-3 font-mono">OpenKaiso</td><td className="px-4 py-3">アドインウィンドウを開いて再解析</td></tr>
-              <tr><td className="px-4 py-3 font-mono">TidyExternalReferences</td><td className="px-4 py-3">外部参照を一括コピーし、関連Class / Formを取り込み</td></tr>
+              {wrapperRows.map(([name, description]) => (
+                <tr key={name}>
+                  <td className="px-4 py-3 font-mono">{name}</td>
+                  <td className="px-4 py-3">{description}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="mb-10 rounded-lg border border-amber-200 bg-amber-50 p-5">
+        <h2 className="mb-3 text-xl font-bold text-gray-900">バージョンと利用時の注意</h2>
+        <ul className="list-disc space-y-2 pl-5 text-sm leading-7 text-gray-700">
+          <li>Automation API全般はv3.1.0.42以降、一覧・コード取得APIはv3.1.0.56以降が必要です。</li>
+          <li>`projectName`にはブック名ではなく、VBEに表示されるプロジェクト名を指定します。</li>
+          <li>複数ブックが同じ`VBAProject`名の場合は、対象を取り違えないようプロジェクト名を変更してください。</li>
+          <li>`ImportRelatedFormClassModules`は対象プロジェクトを書き換えるため、事前にバックアップしてください。</li>
+          <li>`WithRelated`版で取得したコードも、外部参照やDocumentモジュールがある場合は貼り付け後にコンパイル確認が必要です。</li>
+          <li>VBEへインポートする`.bas`はCP932形式を維持してください。</li>
+        </ul>
       </section>
 
       <section className="mb-10">
@@ -117,7 +151,16 @@ export default function KaisoVbaApiPage() {
 End Sub`}
         />
       </section>
+
+      <section className="mt-10 border-t border-gray-200 pt-8">
+        <h2 className="mb-3 text-2xl font-bold text-gray-900">関連ページ</h2>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Link href="/tools/kaiso/features/search" className="rounded border border-gray-200 p-4 text-sm font-medium text-blue-700 hover:border-blue-300 hover:bg-blue-50">検索機能の使い方</Link>
+          <Link href="/tools/kaiso/features/external-ref" className="rounded border border-gray-200 p-4 text-sm font-medium text-blue-700 hover:border-blue-300 hover:bg-blue-50">外部参照整理の使い方</Link>
+          <Link href="/tools/kaiso/troubleshoot" className="rounded border border-gray-200 p-4 text-sm font-medium text-blue-700 hover:border-blue-300 hover:bg-blue-50">VBA連携のトラブル対応</Link>
+          <a href="https://github.com/YujiFukami/IKI-Kaiso-VSTO/releases" target="_blank" rel="noopener noreferrer" className="rounded border border-gray-200 p-4 text-sm font-medium text-blue-700 hover:border-blue-300 hover:bg-blue-50">GitHub Releasesを見る</a>
+        </div>
+      </section>
     </div>
   );
 }
-

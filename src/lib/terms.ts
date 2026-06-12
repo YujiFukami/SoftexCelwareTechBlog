@@ -1285,6 +1285,21 @@ export const terms: TermEntry[] = [
     references: [{ title: "Microsoft Learn - COM", url: "https://learn.microsoft.com/en-us/windows/win32/com/component-object-model--com--portal" }],
   },
   {
+    slug: "rcw",
+    title: "RCW",
+    category: ".NET / COM",
+    aliases: ["Runtime Callable Wrapper", "ランタイム呼び出し可能ラッパー"],
+    summary: ".NETコードからCOMオブジェクトを操作するときに、COM参照を包んで橋渡しするオブジェクトです。",
+    description: [
+      "RCWはRuntime Callable Wrapperの略です。",
+      ".NETからOfficeやVBEなどのCOMオブジェクトへアクセスすると作られ、COM参照の呼び出しと寿命管理を橋渡しします。",
+    ],
+    useCases: ["VSTOからVBEを操作する", "Office COM参照の解放を確認する", "Excel終了後のプロセス残留を調査する"],
+    related: ["com", "vsto", "vbide"],
+    googleQuery: "Runtime Callable Wrapper RCW とは",
+    references: [{ title: "Microsoft Learn - Runtime Callable Wrapper", url: "https://learn.microsoft.com/en-us/dotnet/standard/native-interop/runtime-callable-wrapper" }],
+  },
+  {
     slug: "clickonce",
     title: "ClickOnce",
     category: "Windows配布",

@@ -131,3 +131,67 @@ Public Sub SetClipboard(text As String)
 End Sub
 
 
+
+'==============================================================================
+' [ E. 一覧・コード取得 ] v3.1.0.56 以降
+'   ?kls()                          → 全プロジェクトのプロシージャ一覧
+'   ?kls("VBAProject")              → 指定プロジェクトのプロシージャ一覧
+'   ?klm("VBAProject")              → モジュール一覧 (種別・行数・proc/decl 数)
+'   ?kcode("VBAProject", "Mod01", "Main処理")        → プロシージャ単体コード
+'   ?kcode("VBAProject", "Mod01", "Main処理", True)  → 関連込み (推移閉包、宣言先出し)
+'==============================================================================
+
+Public Function kls(Optional projectName As String = "") As String
+    Dim Kaiso As Object: Set Kaiso = KaisoAddin()
+    If Kaiso Is Nothing Then Exit Function
+    kls = Kaiso.ListProcedures(projectName)
+End Function
+
+Public Function klm(Optional projectName As String = "") As String
+    Dim Kaiso As Object: Set Kaiso = KaisoAddin()
+    If Kaiso Is Nothing Then Exit Function
+    klm = Kaiso.ListModules(projectName)
+End Function
+
+Public Function kcode(projectName As String, moduleName As String, procName As String, _
+                      Optional withRelated As Boolean = False) As String
+    Dim Kaiso As Object: Set Kaiso = KaisoAddin()
+    If Kaiso Is Nothing Then Exit Function
+    If withRelated Then
+        kcode = Kaiso.GetProcedureCodeWithRelated(projectName, moduleName, procName)
+    Else
+        kcode = Kaiso.GetProcedureCode(projectName, moduleName, procName)
+    End If
+End Function
+
+Public Function kmodcode(projectName As String, moduleName As String, _
+                         Optional withRelated As Boolean = False) As String
+    Dim Kaiso As Object: Set Kaiso = KaisoAddin()
+    If Kaiso Is Nothing Then Exit Function
+    If withRelated Then
+        kmodcode = Kaiso.GetModuleCodeWithRelated(projectName, moduleName)
+    Else
+        kmodcode = Kaiso.GetModuleCode(projectName, moduleName)
+    End If
+End Function
+
+'==============================================================================
+' [ ユースケース 4 ] プロシージャ + 関連を 1 ファイルに保存
+'   過去の汎用プロシージャを依存ごと抜き出して保管・移植する
+'==============================================================================
+Public Sub SaveProcWithRelated()
+    Dim code As String
+    code = kcode("VBAProject", "Mod01", "Main処理", True)   ' ← 対象を書き換え
+    If Len(code) = 0 Or Left$(code, 1) = "(" Then
+        Debug.Print "取得失敗: " & code
+        Exit Sub
+    End If
+
+    Dim path As String
+    path = ThisWorkbook.path & "\export_proc.bas"
+    Dim n As Integer: n = FreeFile
+    Open path For Output As #n
+    Print #n, code
+    Close #n
+    Debug.Print "保存しました: " & path
+End Sub

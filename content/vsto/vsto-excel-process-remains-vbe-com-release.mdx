@@ -1,0 +1,180 @@
+---
+title: "VSTOでExcel終了後もプロセスが残る原因とVBE COM参照の解放方法"
+category: "vsto"
+slug: "vsto-excel-process-remains-vbe-com-release"
+tags: ["VSTO", "Excel", "VBE", "VBIDE", "COM", "RCW"]
+description: "VSTOアドインでVBEを操作したあと、Excel終了後もプロセスが残る問題を切り分け、ThisAddIn_ShutdownでUIとCOM参照を解放する方法を解説します。"
+date: "2026-06-12"
+---
+
+## はじめに
+
+<Term>VSTO</Term>アドインから<Term>VBE</Term>の`VBProject`、`VBComponent`、`CodeModule`などを操作したあと、Excelを閉じても`EXCEL.EXE`が残ることがあります。
+
+次回起動時に「Excelは前回起動に失敗しました。セーフモードで起動しますか」と表示される場合もあります。本記事では、階層化フォームの開発中に確認した、<Term>VBE</Term>の<Term>COM</Term>参照が終了時まで残っていた実例をもとに、切り分けと解放方法を整理します。
+
+プロセスが残る原因はCOM参照だけとは限りません。フォーム、イベント購読、タイマー、バックグラウンド処理、別アドインなども候補になるため、順番に確認します。
+
+## 最初に確認する症状
+
+次の比較を行うと、原因の範囲を絞りやすくなります。
+
+| 確認内容 | 判断できること |
+|---|---|
+| アドイン機能を使わずにExcelを閉じる | 常時発生する問題か |
+| VBEを使う機能だけ実行して閉じる | VBE操作との関連があるか |
+| 対象COMアドインを無効化して閉じる | 対象アドインが原因か |
+| 終了後にタスクマネージャーを確認する | `EXCEL.EXE`が残っているか |
+| イベントビューアーのApplication Errorを確認する | 障害モジュールなどの追加情報があるか |
+
+修正前後で同じ操作を行い、再現条件を固定することが重要です。
+
+## 前回セッションの影響を除いて検証する
+
+次回起動時のセーフモード確認は、前回セッションの終了状態を反映します。修正直後の1回だけを見て、修正が失敗したと判断しないようにします。
+
+確認時は、次の順序でベースラインを整えます。
+
+1. Excelを起動し、警告が出た場合は通常起動して何もせず閉じる
+2. 再度Excelを起動し、警告が出ないことを確認して閉じる
+3. Excelを起動し、対象のアドイン機能を使ってから閉じる
+4. 再度Excelを起動し、警告とプロセス残留が発生しないか確認する
+
+## VBE操作後に終了できなくなる仕組み
+
+.NETから<Term>COM</Term>オブジェクトへアクセスすると、.NET側には<Term>RCW</Term>が作られます。`VBProject`や`VBComponent`を列挙した場合も、取得したCOMオブジェクトを包むRCWが一時的に残る可能性があります。
+
+たとえば、[dynamic経由でVBIDEの参照競合を避ける方法](/articles/vsto/vbide-dynamic-com)を使うと、コンパイル時の型競合は避けられます。しかし、`dynamic`にしても実行時に取得したCOM参照の寿命管理は必要です。
+
+終了時に確認する対象は、COM参照だけではありません。
+
+```text
+ThisAddIn_Shutdown
+├─ タイマー・イベント購読・バックグラウンド処理を停止
+├─ WinForms / WPF画面を実際に閉じて破棄
+├─ 自分で保持しているVBE COM参照を解放
+└─ 再現確認できた場合だけ最終手段としてGCを実行
+```
+
+## ThisAddIn_Shutdownで終了処理を集約する
+
+`ThisAddIn_Shutdown`へ、アドインが所有するリソースの終了処理を集約します。
+
+```csharp
+private void ThisAddIn_Shutdown(object sender, EventArgs e)
+{
+    try
+    {
+        // 1. タイマー、イベント購読、バックグラウンド処理を停止
+        StopBackgroundOperations();
+
+        // 2. WinForms Form + ElementHost + WPF画面を実際に閉じる
+        if (_mainForm != null)
+        {
+            _mainForm.AllowRealClose = true;
+            try { _mainForm.Close(); } catch { }
+            try { _mainForm.Dispose(); } catch { }
+            _mainForm = null;
+        }
+
+        // 3. 自分で保持しているVBE COM参照を解放
+        if (_vbeReader != null)
+        {
+            try { _vbeReader.Dispose(); } catch { }
+            _vbeReader = null;
+        }
+
+        // 4. 一時RCWが原因と確認できた場合だけ、終了時に限定して実行
+        try
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
+        catch { }
+    }
+    catch
+    {
+        // 終了処理の例外でExcel終了を妨げない
+    }
+}
+```
+
+[WinForms Form + ElementHost + WPF UserControl構成](/articles/vsto/winforms-elementhost-wpf-window)で、通常の閉じる操作を`Hide()`へ変換している場合、Excel終了時だけは実際に`Close()`と`Dispose()`を行います。
+
+## VBEアクセス層をIDisposable化する
+
+VBE参照を保持する専用クラスを用意している場合は、そのクラスを`IDisposable`化し、自分が所有する参照だけを解放します。
+
+```csharp
+public sealed class VbeReader : IVbeSourceProvider, IDisposable
+{
+    private VBIDE.VBE _vbe;
+
+    public void Dispose()
+    {
+        if (_vbe == null) return;
+
+        try
+        {
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(_vbe);
+        }
+        catch
+        {
+            // 終了を妨げない
+        }
+        finally
+        {
+            _vbe = null;
+        }
+    }
+}
+```
+
+VSTOランタイムが管理する`Excel.Application`は、アドイン側で安易に解放しません。明示解放の対象は、自分の処理で取得・保持しているCOM参照に限定します。
+
+## ReleaseComObjectと強制GCの注意点
+
+`Marshal.ReleaseComObject`は、共有されている可能性があるCOMオブジェクトへ無条件に使うものではありません。誤用すると、別処理が利用中のオブジェクトを無効化する危険があります。
+
+また、`GC.Collect()`は通常処理では避けます。本件のように、終了時の一時RCWが原因と再現確認できた場合に限り、アドインの終了処理で使う判断が必要です。
+
+- 解放対象を専用アクセス層へ閉じ込める
+- 自分が所有するCOM参照だけを解放する
+- 通常処理中に強制GCを繰り返さない
+- 終了処理の例外は個別に捕捉し、可能ならログを残す
+- 強制終了やプロセスクラッシュでは`ThisAddIn_Shutdown`が実行されない可能性も考慮する
+
+## 修正後の確認手順
+
+修正後は、次の条件を分けて確認します。
+
+1. アドイン機能を使わずにExcelを終了する
+2. VBEを使う機能を実行してExcelを終了する
+3. 対象アドインを無効化してExcelを終了する
+4. 終了後に`EXCEL.EXE`が消えることを確認する
+5. 次回起動時にセーフモード確認が出ないことを確認する
+6. F5デバッグ、ローカル配置、ClickOnce配布環境をそれぞれ確認する
+
+## 実際の活用事例
+
+この終了処理は、VBAプロジェクトを解析する公開ツール「階層化フォーム」で確認したパターンです。
+
+- [階層化フォームの使い方ガイド](/tools/kaiso)
+- [階層化フォームをVBAから呼び出す方法](/tools/kaiso/vba-api)
+- [配布・インストールページ](https://yujifukami.github.io/IKI-Kaiso-VSTO/)
+- [GitHubリポジトリ](https://github.com/YujiFukami/IKI-Kaiso-VSTO)
+
+## 関連記事
+
+- [dynamic経由でVBIDE / COM参照競合を回避する](/articles/vsto/vbide-dynamic-com)
+- [VBE ReferencesからProject種別の参照だけを抽出する](/articles/vsto/vbe-project-references)
+- [VBEの特定モジュール・行へCodePaneでジャンプする](/articles/vsto/vbe-codepane-jump)
+- [AvalonDockレイアウト保存をOnBeforeHideで防ぐ](/articles/vsto/avalondock-save-layout-on-before-hide)
+- [WinForms Form + ElementHost + WPF UserControlパターン](/articles/vsto/winforms-elementhost-wpf-window)
+
+## まとめ
+
+VSTOアドインでExcel終了後もプロセスが残る場合は、COM参照だけに絞らず、処理、イベント、画面、VBEアクセス層を所有単位で終了させます。
+
+自分で保持したVBE COM参照を専用クラスで管理し、`ThisAddIn_Shutdown`でUI破棄と参照解放を行うことで、原因を追いやすく、終了処理も保守しやすくなります。
