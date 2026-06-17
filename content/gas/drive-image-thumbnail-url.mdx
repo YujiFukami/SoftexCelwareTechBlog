@@ -1,0 +1,132 @@
+---
+title: "GASでDrive画像をthumbnail URLで表示する方法"
+category: "gas"
+slug: "drive-image-thumbnail-url"
+tags: ["GAS", "Google Drive", "DriveApp", "画像表示", "Webアプリ"]
+description: "GAS WebアプリやスプレッドシートでGoogle Drive画像を表示するとき、uc?export=viewではなくthumbnail URLを使って安定表示する方法を解説します。"
+date: "2026-06-17"
+---
+
+## はじめに
+
+<Term>Google Apps Script</Term>のWebアプリで、<Term query="Google Drive">Google Drive</Term>へ保存した写真を`<img>`で表示したい場面があります。
+
+以前は次のようなURLを`img src`へ入れて表示できることがありました。
+
+```text
+https://drive.google.com/uc?export=view&id=FILE_ID
+```
+
+ただ、近年はこのURLを直接埋め込むと、画像が割れアイコンになって表示されないことがあります。Drive画像をWebアプリやスプレッドシート上で見せる場合は、表示用のURLを分けて考えるのが安全です。
+
+## 使う場面
+
+- GAS WebアプリでDrive保存済み写真をプレビュー表示する
+- Googleスプレッドシートの管理表や帳票に写真を表示する
+- `IMAGE`関数、セル内画像、HTMLの`<img>`でDrive画像を使う
+- クリック時はフルサイズ画像を別タブで開きたい
+
+## thumbnail URLを使う
+
+インライン表示には、Driveのサムネイル用URLを使います。
+
+```text
+https://drive.google.com/thumbnail?id=FILE_ID&sz=w1000
+```
+
+`sz=w1000`は、横幅1000px相当のサムネイルを要求する指定です。一覧表示なら`w300`、帳票やプレビューなら`w1000`のように、用途に合わせて調整します。
+
+対象ファイルは、表示する側から読める共有設定になっている必要があります。GASで作成したファイルなら、保存直後に<Term>DriveApp</Term>で共有設定を付けます。
+
+```javascript
+file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+```
+
+機密写真を扱う場合は、リンクを知っている人が閲覧できる設定にしてよいかを、先に運用側で確認してください。
+
+## 表示用と開く用のURLを分ける
+
+画像を画面内に表示するURLと、クリックしてフルサイズを開くURLは分けておくと扱いやすいです。
+
+```javascript
+function buildPhotoUrls_(fileId) {
+  return {
+    thumb: 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fileId) + '&sz=w1000',
+    open: 'https://drive.google.com/file/d/' + encodeURIComponent(fileId) + '/view',
+  };
+}
+```
+
+Webアプリ側では、サムネイルを表示しつつ、クリックでDriveの表示ページを開く形にします。
+
+```html
+<a href="OPEN_URL" target="_blank" rel="noopener">
+  <img src="THUMB_URL" alt="写真" style="max-width:100%;height:auto;">
+</a>
+```
+
+この形にしておくと、一覧では軽く見せ、詳細確認は別タブで行う導線を作れます。
+
+## Drive URLからfileIdを取り出す
+
+ユーザー入力やシート保存値としてDrive URLを持っている場合は、URLからファイルIDを取り出してthumbnail URLを組み立てます。
+
+```javascript
+function driveIdFromUrl_(url) {
+  if (!url) return '';
+
+  const text = String(url);
+  const byQuery = text.match(/[?&]id=([^&]+)/);
+  if (byQuery) return decodeURIComponent(byQuery[1]);
+
+  const byPath = text.match(/\/d\/([^/]+)/);
+  if (byPath) return decodeURIComponent(byPath[1]);
+
+  return '';
+}
+```
+
+`https://drive.google.com/file/d/FILE_ID/view`形式と、`?id=FILE_ID`形式の両方を扱えるようにしておくと、後から保存形式が混ざっても対応しやすくなります。
+
+## スプレッドシートで表示する場合
+
+<Term>Googleスプレッドシート</Term>のセル内に画像を出したい場合も、`uc?export=view`ではなくthumbnail URLを使います。
+
+```javascript
+function setImageFormula_(sheet, row, col, fileId) {
+  const url = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fileId) + '&sz=w1000';
+  sheet.getRange(row, col).setFormula('=IMAGE("' + url + '")');
+}
+```
+
+クリックでフルサイズを開きたいだけなら、画像をセル内へ表示せず、リンクにする選択肢もあります。
+
+```javascript
+function setPhotoLink_(sheet, row, col, fileId) {
+  const url = 'https://drive.google.com/file/d/' + encodeURIComponent(fileId) + '/view';
+  sheet.getRange(row, col).setFormula('=HYPERLINK("' + url + '","写真を見る")');
+}
+```
+
+一覧性を優先するならリンク、セル内で見た目も確認したいなら<Term>IMAGE関数</Term>というように使い分けます。
+
+## 注意点
+
+- `uc?export=view`は`<img>`埋め込み用としては使わない
+- 表示用は`thumbnail?id=...&sz=...`、クリック用は`/file/d/.../view`に分ける
+- 保存直後はサムネイル生成が間に合わず、数秒後の再読み込みで表示されることがある
+- Driveファイルの共有設定は、機密性と運用範囲を確認してから決める
+- シートの`IMAGE`関数に使うURLもthumbnail URLにする
+
+## 関連記事
+
+- [GAS スプレッドシートのセル画像表示3方式を比較する](/articles/gas/spreadsheet-cell-image-display-options)
+- [GASで写真ファイル名を主キーにしてDriveを1フォルダ管理する方法](/articles/gas/drive-photo-primary-key-overwrite)
+- [GASでスマホ写真付きレポートをPDF出力する方法](/articles/gas/image-function-photo-pdf-report)
+- [GAS Webアプリでスマホ写真を送信前に圧縮する方法](/articles/gas/compress-smartphone-photo-before-submit)
+
+## まとめ
+
+GASでDrive画像をWebアプリやスプレッドシートに表示する場合は、`uc?export=view`ではなくthumbnail URLを使うのが安定します。
+
+表示用のサムネイルURLと、クリックで開くフルサイズURLを分けて持つと、写真一覧、管理表、帳票プレビューのどれにも転用しやすくなります。

@@ -1,0 +1,183 @@
+---
+title: "GASで写真ファイル名を主キーにしてDriveを1フォルダ管理する方法"
+category: "gas"
+slug: "drive-photo-primary-key-overwrite"
+tags: ["GAS", "Google Drive", "DriveApp", "画像管理", "Webアプリ"]
+description: "GAS Webアプリで写真をGoogle Driveへ保存するとき、管理番号などの主キーをファイル名にして1フォルダで一意管理し、撮り直し時に上書きする実装パターンを解説します。"
+date: "2026-06-17"
+---
+
+## はじめに
+
+GAS Webアプリで写真を<Term query="Google Drive">Google Drive</Term>へ保存するとき、レコードと写真の対応関係を後から追える形にしておくことが重要です。
+
+写真付き報告書のように「1回の送信で複数ファイルをまとめる」場合は、送信ごとに専用フォルダを作る方法が向いています。
+
+一方で、商品管理や受付管理のように「1レコードに1枚の写真」が対応する場合は、1つの固定フォルダに写真を集め、**ファイル名を主キーにする**ほうが分かりやすいことがあります。
+
+## 使う場面
+
+- 管理番号、受付番号、商品番号などが1件1枚の写真に対応する
+- 登録時は未撮影で、後から写真を追加する
+- 撮り直しや差し替えで同じレコードの写真を上書きしたい
+- Drive上でも、どの写真がどのレコードかすぐ分かるようにしたい
+
+この方式では、たとえば`A-0001.jpg`というファイル名が、そのまま管理番号`A-0001`の写真を表します。
+
+## フォルダ構成
+
+スプレッドシートと同じ親フォルダの下に、固定の写真フォルダを作ります。
+
+```text
+商品管理スプレッドシート
+商品写真/
+  A-0001.jpg
+  A-0002.jpg
+  A-0003.jpg
+```
+
+送信ごとのフォルダは増えません。1つの写真フォルダを見れば、登録済み写真を一覧できます。
+
+送信単位に元画像やPDFをまとめたい場合は、[GASで送信ごとにGoogle Drive専用フォルダへ保存する方法](/articles/gas/drive-submission-folder)のような構成を使います。
+
+## 写真を保存するコード
+
+以下は、主キーをファイル名にして写真を保存する例です。同名ファイルがあれば、古いファイルをゴミ箱へ移動してから新しいファイルを作ります。
+
+```javascript
+const PHOTO_FOLDER_NAME = '商品写真';
+
+function savePhoto_(primaryKey, base64, mimeType) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const parent = getSpreadsheetParentFolder_(ss);
+  const folder = getOrCreateFolder_(parent, PHOTO_FOLDER_NAME);
+
+  const ext = mimeType && mimeType.indexOf('png') >= 0 ? 'png' : 'jpg';
+  const fileName = sanitizeFileName_(primaryKey) + '.' + ext;
+
+  const existing = folder.getFilesByName(fileName);
+  while (existing.hasNext()) {
+    existing.next().setTrashed(true);
+  }
+
+  const blob = Utilities.newBlob(
+    Utilities.base64Decode(base64),
+    mimeType || 'image/jpeg',
+    fileName
+  );
+
+  const file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  return {
+    fileId: file.getId(),
+    openUrl: 'https://drive.google.com/file/d/' + file.getId() + '/view',
+    thumbUrl: 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w1000',
+  };
+}
+```
+
+`createFile()`だけを呼ぶと、Drive上では同名ファイルが増えていきます。上書きのつもりで保存する場合は、先に同名ファイルを処理する必要があります。
+
+## 親フォルダと固定フォルダを取得する
+
+スプレッドシートと同じ場所に写真フォルダを作ると、関連ファイルをまとめて管理しやすくなります。
+
+```javascript
+function getSpreadsheetParentFolder_(ss) {
+  const file = DriveApp.getFileById(ss.getId());
+  const parents = file.getParents();
+  return parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+}
+
+function getOrCreateFolder_(parent, name) {
+  const folders = parent.getFoldersByName(name);
+  if (folders.hasNext()) return folders.next();
+  return parent.createFolder(name);
+}
+```
+
+<Term>DriveApp</Term>でスプレッドシート本体の親フォルダを取得し、その配下に`商品写真`のような固定フォルダを作ります。
+
+## ファイル名を安全にする
+
+ユーザー入力や管理番号をファイル名に使う場合は、Drive上で扱いにくい文字を置換しておきます。
+
+```javascript
+function sanitizeFileName_(name) {
+  return String(name || '')
+    .trim()
+    .replace(/[\\/:*?"<>|#%{}~&]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+```
+
+主キーが空のまま保存されると、対応関係が崩れます。実際の登録処理では、保存前に管理番号などの主キーが入っているかをチェックします。
+
+## 既存写真の有無を判定する
+
+すでに写真があるレコードへ再登録する場合は、上書き前に確認を出すと安全です。
+
+シートの写真セルに`HYPERLINK`や`IMAGE`関数を入れている場合は、数式からURLを取り出せます。`CellImage`を使っている場合も考慮するなら、値からURLを取得できるか試します。
+
+```javascript
+function extractPhotoUrl_(cell) {
+  const formula = cell.getFormula();
+  if (formula) {
+    const match = formula.match(/"(https?:\/\/[^"]+)"/);
+    if (match) return match[1];
+  }
+
+  try {
+    const value = cell.getValue();
+    if (value && typeof value.getUrl === 'function') {
+      return value.getUrl() || '';
+    }
+  } catch (e) {
+    // CellImageではない値の場合は何もしない。
+  }
+
+  return '';
+}
+```
+
+Webアプリ側では、既存URLがある場合に「登録済みの写真を上書きしますか？」と確認してから保存処理へ進めると、誤操作を減らせます。
+
+## 表示用URLの考え方
+
+Drive画像を画面やセル内に表示する場合は、thumbnail URLを使います。
+
+```text
+https://drive.google.com/thumbnail?id=FILE_ID&sz=w1000
+```
+
+クリックして写真を確認するリンクには、Driveの表示ページURLを使います。
+
+```text
+https://drive.google.com/file/d/FILE_ID/view
+```
+
+Googleスプレッドシートの管理表では、セル内にサムネイルを出すなら<Term>IMAGE関数</Term>、一覧を軽くしたいなら`HYPERLINK`を使います。
+
+## 注意点
+
+- ファイル名を主キーにする場合、主キーの重複や空欄を先に防ぐ
+- `createFile()`だけでは同名ファイルが増えるため、上書き時は同名ファイルを処理する
+- `setTrashed(true)`は完全削除ではなくゴミ箱移動
+- 機密写真では`ANYONE_WITH_LINK`の共有設定を運用確認する
+- 写真を履歴として残したい業務では、上書きではなく日時付きファイル名を検討する
+
+## 関連記事
+
+- [GASでDrive画像をthumbnail URLで表示する方法](/articles/gas/drive-image-thumbnail-url)
+- [GAS スプレッドシートのセル画像表示3方式を比較する](/articles/gas/spreadsheet-cell-image-display-options)
+- [GASで送信ごとにGoogle Drive専用フォルダへ保存する方法](/articles/gas/drive-submission-folder)
+- [GAS Webアプリでスマホ写真を送信前に圧縮する方法](/articles/gas/compress-smartphone-photo-before-submit)
+
+## まとめ
+
+1レコードに1枚の写真が対応する業務では、写真ファイル名を管理番号などの主キーにして、固定フォルダへ保存すると対応関係が分かりやすくなります。
+
+撮り直しや差し替えがある場合は、同名ファイルを処理してから新しいファイルを作る上書きルールを明確にしておくと、Drive上の写真が散らかりにくくなります。

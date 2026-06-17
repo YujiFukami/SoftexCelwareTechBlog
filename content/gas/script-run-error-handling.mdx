@@ -121,6 +121,12 @@ function serverFunction(param1, param2) {
 - GASのサーバー関数には**最大6分のタイムアウト**があります。大量データを処理する場合は分割処理を検討してください
 - サーバー関数が返せるデータは**<Term>JSON</Term>互換の型のみ**です。`Date` 型はそのまま返せないので、`.toISOString()` などで文字列に変換してから返しましょう
 
+## 関連記事
+
+- [GAS Webアプリの無限ローディングをonInitで止める定石](/articles/gas/gas-webapp-infinite-loading-oninit)
+- [GASでCSSだけのローディングスピナーを実装する方法](/articles/gas/css-spinner)
+- [GASのSPA風画面遷移で画面を軽く切り替える方法](/articles/gas/spa-navigation)
+
 ## まとめ
 
 - `google.script.run` には必ず **`withSuccessHandler`** と **`withFailureHandler`** の両方を設定する

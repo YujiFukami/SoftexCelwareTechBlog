@@ -1,0 +1,126 @@
+---
+title: "GASで外部APIが使えない時はGOOGLEFINANCEと名前付き範囲で代替する"
+category: "gas"
+slug: "googlefinance-named-range-fallback"
+tags: ["GAS", "Googleスプレッドシート", "GOOGLEFINANCE", "名前付き範囲", "UrlFetchApp"]
+description: "Google Apps Scriptで外部APIが組織ポリシーにより使えない場合に、GOOGLEFINANCEセルと名前付き範囲を使って為替レートなどを取得する方法を解説します。"
+date: "2026-06-17"
+---
+
+## はじめに
+
+<Term>Google Apps Script</Term>から為替レートや株価を取得しようとして、<Term>UrlFetchApp</Term>で外部APIを呼び出すことがあります。
+
+ただし、組織や利用環境によっては外部接続がブロックされ、権限承認をしてもタイムアウトや失敗になることがあります。APIキーやスコープの設定を見直しても、管理ポリシー側で止められているとコードだけでは解決できません。
+
+為替や株価のように<Term>Googleスプレッドシート</Term>関数で取得できる値なら、外部APIを直接呼ばず、シート上の`GOOGLEFINANCE`セルをGASから読む構成が有効です。
+
+## この記事で解決できること
+
+- 外部APIへの接続がブロックされる環境で為替レートを取得する
+- `script.external_request`スコープを増やさずに済ませる
+- セル番地をコードへ直書きせず、<Term>名前付き範囲</Term>で参照する
+- `GOOGLEFINANCE`の読み込み中や取得失敗に備える
+
+## 実装の流れ
+
+外部APIを呼び出す代わりに、スプレッドシートへ数式を置きます。
+
+```text
+=GOOGLEFINANCE("CURRENCY:KRWJPY")
+```
+
+これは「1 KRW が何 JPY か」を返す例です。セルには`設定_ウォン円換算`のような名前付き範囲を付けておきます。
+
+GAS側は、その名前付き範囲を読むだけにします。
+
+```javascript
+var RATE_NAMED_RANGE = '設定_ウォン円換算';
+
+function getKrwJpyRate() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var range = ss.getRangeByName(RATE_NAMED_RANGE);
+
+  if (!range) {
+    return null;
+  }
+
+  for (var i = 0; i < 4; i++) {
+    var value = range.getCell(1, 1).getValue();
+
+    if (typeof value === 'number' && isFinite(value) && value > 0) {
+      return value;
+    }
+
+    SpreadsheetApp.flush();
+    Utilities.sleep(800);
+  }
+
+  return null;
+}
+```
+
+`GOOGLEFINANCE`は、シートを開いた直後や再計算直後に`Loading...`や`#N/A`相当の状態になることがあります。そのため、数回だけ`flush()`と短い待機を入れてから値を確認します。
+
+## 取得できない時は手入力へ戻す
+
+業務画面では、取得に失敗したときに処理全体を止めるより、手入力へ戻せるようにしておく方が実用的です。
+
+```javascript
+function getInitialData() {
+  var rate = getKrwJpyRate();
+
+  return {
+    krwJpyRate: rate,
+    rateSource: rate ? 'GOOGLEFINANCE' : 'manual'
+  };
+}
+```
+
+クライアント側では、`krwJpyRate`が`null`ならレート入力欄を空にして、利用者が手で入力できる状態にします。
+
+```javascript
+function applyRate(data) {
+  var input = document.getElementById('rate');
+
+  if (data.krwJpyRate) {
+    input.value = data.krwJpyRate;
+  } else {
+    input.value = '';
+    showToast('レートを取得できませんでした。手入力してください。', true);
+  }
+}
+```
+
+## 名前付き範囲を使う理由
+
+コードに`B2`のようなセル番地を直接書くと、設定シートの列や行を整理したときに壊れます。
+
+名前付き範囲を使うと、セルの位置が動いても、GAS側は同じ名前で参照できます。
+
+```javascript
+var range = ss.getRangeByName('設定_ウォン円換算');
+```
+
+設定値、APIキーではない公開レート、帳票テンプレートの差し込み位置など、意味で参照したいセルには名前を付けておくと保守しやすくなります。
+
+## 注意点
+
+- `GOOGLEFINANCE`は参考値であり、取引用途や厳密な会計処理の確定値には向きません
+- 値が最大20分程度遅延することがあります
+- 読み込み直後は値が取れないことがあるため、短いリトライを入れる
+- 取得できない場合は`null`を返し、手入力や前回値を使うなどのフォールバックを用意する
+- 外部APIが使える環境で最新性が重要なら、<Term>CacheService</Term>と組み合わせたAPI取得も選択肢になります
+
+## 関連記事
+
+- [GAS CacheServiceでスプレッドシートの読み込みを高速化する方法](/articles/gas/cache-service)
+- [GASでスプレッドシートIDをハードコードせず安全に取得する](/articles/gas/spreadsheet-id-without-hardcoding)
+- [GASでスプレッドシートの結合セル左上の値を取得する方法](/articles/gas/merged-cell-top-left-value)
+- [GASで外部Webアプリからスプレッドシートを簡易DBとして扱う方法](/articles/gas/spreadsheet-db-api-external-webapp)
+
+## まとめ
+
+外部APIが組織ポリシーで使えない場合でも、スプレッドシート関数で取れる値なら、`GOOGLEFINANCE`セルをGASから読む設計にできます。
+
+名前付き範囲で参照し、読み込み中のリトライと手入力フォールバックを用意しておくと、環境差に強いGAS Webアプリになります。

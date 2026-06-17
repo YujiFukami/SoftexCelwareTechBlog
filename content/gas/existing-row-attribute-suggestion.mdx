@@ -1,0 +1,245 @@
+---
+title: "GASで既存行から関連属性を一括反映する入力補助を作る"
+category: "gas"
+slug: "existing-row-attribute-suggestion"
+tags: ["GAS", "Webアプリ", "入力補助", "datalist", "スプレッドシート"]
+description: "Google Apps ScriptのWebアプリで、過去に入力した商品名からブランド、カテゴリー、色、サイズなどの関連属性を候補表示し、一括反映する実装パターンを解説します。"
+date: "2026-06-17"
+---
+
+## はじめに
+
+<Term>Google Apps Script</Term>の<Term>Webアプリ</Term>で商品登録や在庫入力を作ると、同じ商品を何度も登録する場面があります。
+
+商品名を入力するたびに、ブランド、カテゴリー、対象、色、サイズを毎回選び直すのは手間です。一方で、完全自動入力にしてしまうと、同じ商品名で別サイズや別色があるときに困ります。
+
+この記事では、既存行から「商品名に紐づく属性の組み合わせ」を作り、候補として表示し、選んだ組み合わせを一括反映する入力補助の作り方を紹介します。
+
+## こんな場面で使えます
+
+- リピート品が多い商品管理、仕入管理、在庫管理フォーム
+- 商品名が決まると、ブランドやカテゴリーがほぼ決まる
+- 既存候補から選ばせつつ、最後は手修正も許可したい
+- 同じ管理番号や商品名を途中入力で候補表示したい
+
+保存先は<Term>Googleスプレッドシート</Term>、画面はHTML Serviceで作る小規模な業務アプリを想定しています。
+
+## サーバーで候補データを作る
+
+まず、既存行を読み取り、商品名ごとに属性の組み合わせをまとめます。
+
+```javascript
+function buildProductInfo_(rows) {
+  var productNames = [];
+  var productInfo = {};
+  var seenNames = {};
+
+  for (var i = rows.length - 1; i >= 0; i--) {
+    var row = rows[i];
+    var name = String(row.name || '').trim();
+
+    if (!name) {
+      continue;
+    }
+
+    if (!seenNames[name]) {
+      seenNames[name] = true;
+      productNames.push(name);
+    }
+
+    if (!productInfo[name]) {
+      productInfo[name] = [];
+    }
+
+    var combo = {
+      brand: row.brand || '',
+      category: row.category || '',
+      target: row.target || '',
+      color: row.color || '',
+      size: row.size || ''
+    };
+
+    if (!hasSameCombo_(productInfo[name], combo)) {
+      productInfo[name].push(combo);
+    }
+  }
+
+  return {
+    productNames: productNames,
+    productInfo: productInfo
+  };
+}
+```
+
+下から走査すると、新しい行の候補を先に出せます。業務データでは、最近使った組み合わせの方が再利用されやすいことが多いためです。
+
+重複排除用の関数も用意します。
+
+```javascript
+function hasSameCombo_(list, combo) {
+  return list.some(function(item) {
+    return item.brand === combo.brand
+      && item.category === combo.category
+      && item.target === combo.target
+      && item.color === combo.color
+      && item.size === combo.size;
+  });
+}
+```
+
+## datalistで商品名をサジェストする
+
+クライアント側では、商品名入力欄に`datalist`をつなぎます。
+
+```html
+<input id="name" list="nameList" placeholder="商品名を入力">
+<datalist id="nameList"></datalist>
+```
+
+初期データを受け取ったら、候補を追加します。
+
+```javascript
+var DATA = {
+  productNames: [],
+  productInfo: {}
+};
+
+function applyInitialData(data) {
+  DATA = data;
+  var list = document.getElementById('nameList');
+  list.innerHTML = '';
+
+  DATA.productNames.forEach(function(name) {
+    var option = document.createElement('option');
+    option.value = name;
+    list.appendChild(option);
+  });
+}
+```
+
+`datalist`は軽い入力補助として便利です。候補にない値も入力できるため、新しい商品もそのまま登録できます。
+
+## 既存一致時にチップで一括反映する
+
+商品名が既存データと一致したら、属性の組み合わせをボタンとして表示します。
+
+```javascript
+function onNameInput() {
+  var name = document.getElementById('name').value.trim();
+  var combos = DATA.productInfo[name];
+  var list = document.getElementById('comboList');
+
+  list.innerHTML = '';
+
+  if (!combos || !combos.length) {
+    list.hidden = true;
+    return;
+  }
+
+  combos.forEach(function(combo) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = [
+      combo.brand,
+      combo.category,
+      combo.target,
+      combo.color,
+      combo.size
+    ].filter(Boolean).join(' / ');
+
+    btn.onclick = function() {
+      applyCombo(combo);
+    };
+
+    list.appendChild(btn);
+  });
+
+  list.hidden = false;
+}
+```
+
+一括反映では、各プルダウンへ値を入れます。
+
+```javascript
+function applyCombo(combo) {
+  setSelectValue('brand', combo.brand);
+  setSelectValue('category', combo.category);
+  setSelectValue('target', combo.target);
+  setSelectValue('color', combo.color);
+  setSelectValue('size', combo.size);
+}
+```
+
+候補にない値が来ても選択できるように、必要なら`option`を追加します。
+
+```javascript
+function setSelectValue(id, value) {
+  var select = document.getElementById(id);
+  value = value || '';
+
+  if (value && ![].some.call(select.options, function(option) {
+    return option.value === value;
+  })) {
+    var option = document.createElement('option');
+    option.value = value;
+    option.textContent = value;
+    select.appendChild(option);
+  }
+
+  select.value = value;
+}
+```
+
+## 登録後はローカル候補も更新する
+
+連続入力する画面では、送信成功後にクライアント側の候補も更新しておくと便利です。
+
+```javascript
+function addLocalProductCombo(row) {
+  var name = String(row.name || '').trim();
+
+  if (!name) {
+    return;
+  }
+
+  if (DATA.productNames.indexOf(name) === -1) {
+    DATA.productNames.unshift(name);
+    appendDatalistOption(name);
+  }
+
+  if (!DATA.productInfo[name]) {
+    DATA.productInfo[name] = [];
+  }
+
+  DATA.productInfo[name].unshift({
+    brand: row.brand || '',
+    category: row.category || '',
+    target: row.target || '',
+    color: row.color || '',
+    size: row.size || ''
+  });
+}
+```
+
+毎回サーバーから初期データを取り直さなくても、直前に登録した商品を次の入力で候補に出せます。
+
+## 注意点
+
+- 一括反映した値は確定値ではなく、あくまで下書きとして扱う
+- 同じ商品名で複数の属性組み合わせがある場合は、複数チップを出して選ばせる
+- 検索漏れを減らしたい場合は、入力値と保存値を正規化して比較する
+- 候補データが大きくなる場合は、全件を毎回渡さず検索API化や<Term>CacheService</Term>も検討する
+- 候補名を`innerHTML`へ直接入れず、`textContent`で表示する
+
+## 関連記事
+
+- [GASでスプレッドシート検索の全角・半角と大文字小文字を吸収する方法](/articles/gas/normalize-search)
+- [GAS CacheServiceでスプレッドシートの読み込みを高速化する方法](/articles/gas/cache-service)
+- [google.script.runのエラーハンドリング完全パターン【GAS Webアプリ】](/articles/gas/script-run-error-handling)
+- [GASでカード型レスポンシブレイアウトを実装する方法](/articles/gas/card-responsive-layout)
+
+## まとめ
+
+既存行から属性の組み合わせを作っておくと、商品名入力だけで関連項目をまとめて反映できます。
+
+`datalist`で候補を出し、複数候補はチップで選ばせ、一括反映後も編集可能にしておくと、入力速度と柔軟性のバランスを取りやすくなります。

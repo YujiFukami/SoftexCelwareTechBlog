@@ -1,0 +1,127 @@
+---
+title: "GAS スプレッドシートのセル画像表示3方式を比較する"
+category: "gas"
+slug: "spreadsheet-cell-image-display-options"
+tags: ["GAS", "Googleスプレッドシート", "Google Drive", "画像表示", "IMAGE関数"]
+description: "GASでDrive保存済み画像をGoogleスプレッドシートのセルへ表示・リンクする3方式、CellImage、IMAGE関数、HYPERLINKの違いと選び方を解説します。"
+date: "2026-06-17"
+---
+
+## はじめに
+
+<Term>Google Apps Script</Term>で、<Term query="Google Drive">Google Drive</Term>へ保存した写真を<Term>Googleスプレッドシート</Term>の管理表に表示したいことがあります。
+
+このとき「セルをクリックしたら画像がポップアップで拡大される」と期待されることがありますが、Googleスプレッドシートのセル画像には、そのような標準の拡大ポップアップ機能はありません。
+
+実務では、目的に合わせて次の3方式から選びます。
+
+## 3方式の比較
+
+| 方式 | 見え方 | クリック時の動き | 向いている場面 |
+|---|---|---|---|
+| `SpreadsheetApp.newCellImage()` | セル内に画像 | セル選択のみ | セルに画像オブジェクトとして入れたい |
+| `=IMAGE("URL")` | セル内に画像 | 拡大なし | 一覧でサムネイルを見たい |
+| `=HYPERLINK("URL","写真を見る")` | テキストリンク | 別タブで画像を開く | 一覧を軽くし、詳細はクリックで見たい |
+
+セル内にサムネイルを出すなら`IMAGE`関数、クリックして原寸に近い画像を確認したいなら`HYPERLINK`が扱いやすいです。
+
+## 方式1: CellImageを使う
+
+`SpreadsheetApp.newCellImage()`を使うと、セルの値として画像を設定できます。
+
+```javascript
+function setCellImage_(sheet, row, col, url, alt) {
+  const image = SpreadsheetApp
+    .newCellImage()
+    .setSourceUrl(url)
+    .setAltTextTitle(alt || '')
+    .build();
+
+  sheet.getRange(row, col).setValue(image);
+}
+```
+
+一見便利ですが、行高が小さいと画像が潰れて見えます。また、クリックで拡大する機能はありません。
+
+Drive画像URLとの相性で表示されないこともあるため、確実性を優先するなら`IMAGE`関数や`HYPERLINK`も検討します。
+
+## 方式2: IMAGE関数を使う
+
+セル内にサムネイルを表示したい場合は、<Term>IMAGE関数</Term>が分かりやすいです。
+
+```javascript
+function setImageFormula_(sheet, row, col, fileId) {
+  const url = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fileId) + '&sz=w1000';
+  sheet.getRange(row, col).setFormula('=IMAGE("' + url + '")');
+}
+```
+
+Drive画像を表示する場合は、`uc?export=view`ではなくthumbnail URLを使います。
+
+```text
+https://drive.google.com/thumbnail?id=FILE_ID&sz=w1000
+```
+
+写真を一覧で見ながら確認したい管理表では便利です。ただし、画像を見やすくするには行高や列幅を広げる必要があり、件数が多い表では一覧性が下がります。
+
+## 方式3: HYPERLINKで開く
+
+一覧をすっきりさせたい場合は、セルにはリンクだけを置き、クリックでDriveの表示ページを開く方法が現実的です。
+
+```javascript
+function setPhotoLink_(sheet, row, col, fileId) {
+  const url = 'https://drive.google.com/file/d/' + encodeURIComponent(fileId) + '/view';
+  sheet.getRange(row, col).setFormula('=HYPERLINK("' + url + '","写真を見る")');
+}
+```
+
+この方式ではセル内にサムネイルは出ません。その代わり、表の行高を大きくしなくてよく、クリックしたときに別タブで大きく確認できます。
+
+商品管理表、受付一覧、作業履歴のように件数が増える表では、`HYPERLINK`のほうが運用しやすいことがあります。
+
+## 選び方
+
+- セル内で常に写真を見たい: `IMAGE`関数
+- クリックで大きく確認したい: `HYPERLINK`
+- セル値として画像を保持したい: `CellImage`
+- 件数が多く、表を軽く保ちたい: `HYPERLINK`
+- 帳票PDFに写真を出したい: `IMAGE`関数
+
+「クリックで拡大ポップアップ」を前提にすると、Googleスプレッドシート標準機能とのズレが出ます。要件としては、「一覧で見たいのか」「クリックして確認できればよいのか」を先に分けると決めやすくなります。
+
+## 共有設定とURLの注意点
+
+どの方式でも、表示する画像にアクセスできる必要があります。GASで作成したファイルなら、必要に応じて<Term>DriveApp</Term>で共有設定を付けます。
+
+```javascript
+file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+```
+
+ただし、機密写真を扱う場合は、`ANYONE_WITH_LINK`にしてよいかを必ず確認してください。
+
+また、セル内表示に使うURLはthumbnail URLにします。
+
+```text
+https://drive.google.com/thumbnail?id=FILE_ID&sz=w1000
+```
+
+フルサイズ確認用のリンクは、Driveの表示ページURLにします。
+
+```text
+https://drive.google.com/file/d/FILE_ID/view
+```
+
+表示用と確認用のURLを分けると、Webアプリ側のプレビューにも同じ考え方を流用できます。
+
+## 関連記事
+
+- [GASでDrive画像をthumbnail URLで表示する方法](/articles/gas/drive-image-thumbnail-url)
+- [GASで写真ファイル名を主キーにしてDriveを1フォルダ管理する方法](/articles/gas/drive-photo-primary-key-overwrite)
+- [GASでスマホ写真付きレポートをPDF出力する方法](/articles/gas/image-function-photo-pdf-report)
+- [GASで作る工事現場向け写真付き報告書Webアプリ](/articles/gas/construction-photo-report-webapp)
+
+## まとめ
+
+GASでDrive画像をスプレッドシートに出す方法は、`CellImage`、`IMAGE`関数、`HYPERLINK`の3つに分けて考えると整理しやすいです。
+
+セル内で見せたいなら`IMAGE`関数、クリックで大きく確認したいなら`HYPERLINK`を選ぶと、実務の管理表では扱いやすくなります。

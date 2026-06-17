@@ -1,0 +1,148 @@
+---
+title: "GAS Webアプリの無限ローディングをonInitで止める定石"
+category: "gas"
+slug: "gas-webapp-infinite-loading-oninit"
+tags: ["GAS", "Webアプリ", "google.script.run", "ローディング", "エラーハンドリング"]
+description: "Google Apps ScriptのWebアプリでスピナーが止まらない原因を、onInitの例外、failure handler、finallyでのマスク解除に分けて解説します。"
+date: "2026-06-17"
+---
+
+## はじめに
+
+<Term>Google Apps Script</Term>の<Term>Webアプリ</Term>で、フォーム自体は表示されているのに、全画面ローディングのスピナーが止まらないことがあります。
+
+選択肢が空のまま、ボタンも反応せず、利用者から見ると「読み込み中で固まった」状態です。
+
+このとき、原因はサーバー処理の遅さではなく、`google.script.run`の成功後に実行する初期化関数で<Term>JavaScript</Term>例外が起きていることがあります。
+
+## よくある原因
+
+初期データ取得後に`onInit(data)`を呼び、その中でプルダウン作成、ボタン設定、イベント登録、ローディング解除をまとめて行う構成はよくあります。
+
+```javascript
+google.script.run
+  .withSuccessHandler(onInit)
+  .withFailureHandler(function(err) {
+    hideMask();
+    showToast('読み込み失敗: ' + err.message, true);
+  })
+  .getInitialData();
+```
+
+問題は、`onInit`の途中で例外が起きると、後続の`hideMask()`まで到達しないことです。
+
+たとえば、増減ステッパー用の`.stepper`を処理する関数があり、別用途のボタンまで同じclassで囲んでしまうと、必要な属性がない要素に対して処理してしまいます。
+
+```javascript
+// NG: data-steps がない .stepper があると null.split で落ちる
+document.querySelectorAll('.stepper').forEach(function(box) {
+  var steps = box.getAttribute('data-steps').split(',');
+  // ...
+});
+```
+
+`getAttribute('data-steps')`が`null`を返し、`null.split`で`TypeError`になります。ここで初期化処理が止まるため、マスク解除もイベント登録も行われません。
+
+## こんな場面で使えます
+
+- GAS Webアプリの初期表示で全画面スピナーを出している
+- `google.script.run`で初期データを取得してから画面を組み立てている
+- フォームは表示されるが、選択肢が入らず操作できない
+- クライアント側の初期化処理が増えてきた
+
+フォームHTML自体が出ているなら、`doGet`ではなく、初期データ取得後の`onInit`かクライアント側処理を疑うと切り分けやすくなります。
+
+## 実装コード
+
+### 初期化はtry/catch/finallyで囲む
+
+`onInit`では、失敗しても必ずマスクを消すようにします。
+
+```javascript
+function onInit(data) {
+  try {
+    fillSelects(data);
+    buildSteppers();
+    bindEvents();
+  } catch (e) {
+    showToast('初期化エラー: ' + (e && e.message ? e.message : e), true);
+    console.error(e);
+  } finally {
+    hideMask();
+  }
+}
+```
+
+`finally`に`hideMask()`を置くのがポイントです。初期化のどこかで落ちても、画面を完全に操作不能なまま残しにくくなります。
+
+### failure handlerでもマスクを消す
+
+サーバー側の`getInitialData()`自体が失敗した場合にも、同じようにローディングを解除します。
+
+```javascript
+function loadInitialData() {
+  showMask('読み込み中...');
+
+  google.script.run
+    .withSuccessHandler(onInit)
+    .withFailureHandler(function(err) {
+      hideMask();
+      showToast('読み込み失敗: ' + (err && err.message ? err.message : err), true);
+      console.error(err);
+    })
+    .getInitialData();
+}
+```
+
+`withFailureHandler`を付けていないと、サーバー側の例外が画面上では分かりにくくなります。ローディング表示とセットで必ず入れておきましょう。
+
+### querySelectorAllの対象を属性でガードする
+
+複数の部品で似たclassを使う場合は、必要な属性があるかを確認してから処理します。
+
+```javascript
+function buildSteppers() {
+  document.querySelectorAll('.stepper').forEach(function(box) {
+    var target = box.getAttribute('data-target');
+    var stepsAttr = box.getAttribute('data-steps');
+
+    if (!target || !stepsAttr) {
+      return;
+    }
+
+    var steps = stepsAttr.split(',').map(Number);
+    // ...
+  });
+}
+```
+
+さらに安全にするなら、別用途のボタンは`.stepper`を使い回さず、`.rate-actions`のような専用classを付けます。見た目の都合でclassを共有すると、初期化処理の対象まで広がることがあります。
+
+## 切り分けの見方
+
+フォームHTMLすら表示されない場合は、`doGet`やHTMLテンプレートの生成で止まっている可能性があります。
+
+一方で、フォームは表示されるが選択肢が空、スピナーが止まらない、ボタンが動かない場合は、`google.script.run`の成功後に走る初期化処理を確認します。
+
+最初に見るべき場所は、ブラウザの開発者ツールのConsoleです。`TypeError`や`Cannot read properties of null`のようなエラーが出ていれば、サーバーではなくクライアント側の例外です。
+
+## 注意点
+
+- `hideMask()`は成功時の最後だけでなく、`finally`と`withFailureHandler`の両方から呼べるようにする
+- 共通classを使う処理では、必要な`data-*`属性があるかを先に確認する
+- 初期化処理の中で例外を握りつぶすだけにせず、`console.error`にも残す
+- スピナーを表示する関数と解除する関数は、画面全体で呼び方を統一する
+- `innerHTML`へエラーメッセージを出す場合は<Term>HTMLエスケープ</Term>を行い、<Term>XSS</Term>を避ける
+
+## 関連記事
+
+- [google.script.runのエラーハンドリング完全パターン【GAS Webアプリ】](/articles/gas/script-run-error-handling)
+- [GASでCSSだけのローディングスピナーを実装する方法](/articles/gas/css-spinner)
+- [GAS Webアプリのスマホ余白を抑えるHTMLテンプレート](/articles/gas/gas-smartphone-template)
+- [GASのSPA風画面遷移で画面を軽く切り替える方法](/articles/gas/spa-navigation)
+
+## まとめ
+
+GAS Webアプリの無限ローディングは、サーバー処理ではなくクライアント側の初期化例外が原因のことがあります。
+
+`onInit`を`try/catch/finally`で囲み、`withFailureHandler`でもマスクを解除し、`querySelectorAll`の対象を属性でガードしておくと、固まったように見える画面をかなり減らせます。

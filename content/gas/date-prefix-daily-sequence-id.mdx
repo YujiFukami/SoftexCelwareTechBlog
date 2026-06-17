@@ -1,0 +1,188 @@
+---
+title: "GASで日付プレフィックスと日内連番の管理番号を自動採番する"
+category: "gas"
+slug: "date-prefix-daily-sequence-id"
+tags: ["GAS", "Googleスプレッドシート", "採番", "LockService", "管理番号"]
+description: "Google Apps Scriptで、基準日yyyyMMddと日内連番を組み合わせた管理番号を、既存行の最大値とLockServiceで安全に採番する方法を解説します。"
+date: "2026-06-17"
+---
+
+## はじめに
+
+商品、伝票、受付データなどに、日付を含む管理番号を付けたいことがあります。
+
+たとえば、2026年6月17日の1件目を`2026061701`、2件目を`2026061702`のように採番する形式です。
+
+手入力でも作れますが、入力ミスや重複が起きやすくなります。<Term>Google Apps Script</Term>で<Term>Googleスプレッドシート</Term>へ保存するなら、登録処理の中で自動採番しておくと安全です。
+
+## この記事で解決できること
+
+- `yyyyMMdd + 日内連番`形式の管理番号を作る
+- 今日の日付ではなく、入力された基準日から採番する
+- 既存番号の最大連番を見て続きの番号を付ける
+- 同時送信時の連番衝突を<Term>LockService</Term>で防ぐ
+
+## 採番の考え方
+
+基本は、既存の管理番号列を走査し、同じ日付プレフィックスの最大連番を探します。
+
+```text
+2026061701
+2026061702
+2026061801
+```
+
+基準日が`2026-06-17`なら、プレフィックスは`20260617`です。この日付で始まる番号だけを見て、最大連番`02`の次として`03`を作ります。
+
+## 実装コード
+
+### 管理番号を生成する関数
+
+```javascript
+function generateMgmtNumber_(sheet, keyCol, dateStr, lastRow) {
+  var prefix = String(dateStr).replace(/\D/g, '').slice(0, 8);
+  var max = 0;
+
+  if (prefix.length !== 8) {
+    throw new Error('採番用の日付が正しくありません: ' + dateStr);
+  }
+
+  if (lastRow >= 2) {
+    var values = sheet
+      .getRange(2, keyCol, lastRow - 1, 1)
+      .getDisplayValues();
+
+    for (var i = 0; i < values.length; i++) {
+      var value = String(values[i][0] || '').trim();
+
+      if (value.length >= 10 && value.slice(0, 8) === prefix) {
+        var seq = parseInt(value.slice(8), 10);
+
+        if (!isNaN(seq) && seq > max) {
+          max = seq;
+        }
+      }
+    }
+  }
+
+  var next = max + 1;
+  var seqStr = next < 100 ? ('0' + next).slice(-2) : String(next);
+
+  return prefix + seqStr;
+}
+```
+
+`replace(/\D/g, '')`で`2026-06-17`や`2026/06/17`から数字だけを取り出し、先頭8桁を`yyyyMMdd`として使います。
+
+連番は2桁ゼロ埋めにしています。100件を超えた場合は`100`、`101`のように桁あふれを許容する形です。
+
+## 書き込み処理をLockServiceで囲む
+
+複数人が同時に送信するWebアプリでは、2つの処理が同じ最大番号を読んで、同じ次番号を作ってしまう可能性があります。
+
+採番から書き込みまでを`LockService`で囲み、同時実行を直列化します。
+
+```javascript
+function addRow(payload) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+
+  try {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('仕入');
+    var lastRow = findLastDataRow_(sheet, 1);
+    var mgmtNumber = generateMgmtNumber_(sheet, 1, payload.purchaseDate, lastRow);
+
+    sheet
+      .getRange(lastRow + 1, 1, 1, 4)
+      .setValues([[
+        mgmtNumber,
+        payload.purchaseDate,
+        payload.productName,
+        new Date()
+      ]]);
+
+    return {
+      managementNumber: mgmtNumber
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+```
+
+`waitLock(20000)`は、最大20秒待ってロックを取得する指定です。ロックを取った後は、必ず`finally`で解放します。
+
+## 最終行は主キー列基準で見る
+
+シートに数式列があると、`getLastRow()`が想定より下の行を返すことがあります。採番や追記位置は、管理番号列のような主キー列を基準に見ると安定します。
+
+```javascript
+function findLastDataRow_(sheet, keyCol) {
+  var lastRow = sheet.getLastRow();
+
+  if (lastRow < 2) {
+    return 1;
+  }
+
+  var values = sheet.getRange(2, keyCol, lastRow - 1, 1).getDisplayValues();
+
+  for (var i = values.length - 1; i >= 0; i--) {
+    if (String(values[i][0] || '').trim()) {
+      return i + 2;
+    }
+  }
+
+  return 1;
+}
+```
+
+この関数は、2行目以降の主キー列を下から見て、最後に値がある行を返します。データがなければヘッダー行の`1`を返すため、次の追記先は`2`行目になります。
+
+## クライアント側で採番プレビューを出す
+
+登録前に管理番号の見込み値を表示したい場合は、初期データとして既存番号一覧を渡しておき、ブラウザ側でプレビューできます。
+
+```javascript
+function previewMgmt(dateStr, mgmtNumbers) {
+  var prefix = String(dateStr).replace(/\D/g, '').slice(0, 8);
+  var max = 0;
+
+  mgmtNumbers.forEach(function(value) {
+    value = String(value || '').trim();
+
+    if (value.length >= 10 && value.slice(0, 8) === prefix) {
+      var seq = parseInt(value.slice(8), 10);
+
+      if (!isNaN(seq) && seq > max) {
+        max = seq;
+      }
+    }
+  });
+
+  var next = max + 1;
+  return prefix + (next < 100 ? ('0' + next).slice(-2) : String(next));
+}
+```
+
+ただし、これはあくまでプレビューです。確定番号は、必ずサーバー側で`LockService`を使って採番します。
+
+## 注意点
+
+- 採番の基準日は「今日固定」ではなく、入力された日付を使うかを先に決める
+- 既存番号は表示値で取得すると、先頭ゼロや文字列形式を扱いやすい
+- 採番から書き込みまでを1つのロック内で行う
+- 100件超の桁あふれを許容するか、3桁固定にするかは業務ルールで決める
+- クライアント側のプレビュー番号を、そのまま保存値として信用しない
+
+## 関連記事
+
+- [GASでスプレッドシートの日付を安全にフォーマットする方法](/articles/gas/date-format-safe)
+- [GASで外部Webアプリからスプレッドシートを簡易DBとして扱う方法](/articles/gas/spreadsheet-db-api-external-webapp)
+- [google.script.runのエラーハンドリング完全パターン【GAS Webアプリ】](/articles/gas/script-run-error-handling)
+- [GAS CacheServiceでスプレッドシートの読み込みを高速化する方法](/articles/gas/cache-service)
+
+## まとめ
+
+日付プレフィックスと日内連番の管理番号は、既存番号の最大値を見て次番号を作ると、途中に削除行があっても続きの番号を採れます。
+
+複数人が使うGAS Webアプリでは、採番と書き込みを`LockService`で囲み、クライアント側の番号はプレビュー扱いにするのが安全です。
