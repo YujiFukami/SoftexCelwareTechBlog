@@ -4,6 +4,7 @@ import {
   categoryLabels,
 } from "@/lib/articles";
 import { MDXRemote } from "next-mdx-remote/rsc";
+import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import rehypeSlug from "rehype-slug";
 import CTA from "@/components/CTA";
@@ -14,11 +15,26 @@ import ZoomableImage from "@/components/ZoomableImage";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import type { ComponentPropsWithoutRef } from "react";
 import { DEFAULT_OG_IMAGE, SITE_NAME, TWITTER_CARD } from "@/lib/seo";
 
 type Props = {
   params: Promise<{ category: string; slug: string }>;
 };
+
+function MarkdownTable({
+  className = "",
+  ...props
+}: ComponentPropsWithoutRef<"table">) {
+  return (
+    <div className="my-6 overflow-x-auto rounded-lg border border-gray-200">
+      <table
+        {...props}
+        className={`my-0 w-full min-w-[560px] border-collapse text-sm ${className}`}
+      />
+    </div>
+  );
+}
 
 export async function generateStaticParams() {
   return getAllArticles().map((a) => ({
@@ -119,9 +135,16 @@ export default async function ArticlePage({ params }: Props) {
       <article className="prose prose-gray prose-headings:text-gray-900 prose-a:text-blue-600 prose-code:text-sm prose-pre:bg-gray-900 prose-pre:text-gray-100 max-w-none">
         <MDXRemote
           source={content}
-          components={{ Term, CopyCode, BookmarkletInstall, img: ZoomableImage }}
+          components={{
+            Term,
+            CopyCode,
+            BookmarkletInstall,
+            img: ZoomableImage,
+            table: MarkdownTable,
+          }}
           options={{
             mdxOptions: {
+              remarkPlugins: [remarkGfm],
               rehypePlugins: [rehypeHighlight, rehypeSlug],
             },
           }}
