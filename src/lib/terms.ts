@@ -1455,6 +1455,21 @@ export const terms: TermEntry[] = [
     references: [{ title: "Google Sheets", url: "https://www.google.com/sheets/about/" }],
   },
   {
+    slug: "google-forms",
+    title: "Googleフォーム",
+    category: "Google Workspace",
+    aliases: ["Google Forms", "フォーム"],
+    summary: "アンケート、申込受付、問い合わせなどの入力フォームを作り、回答を集められるGoogle Workspaceのサービスです。",
+    description: [
+      "Googleフォームは、固定項目の回答を集め、回答結果をGoogleスプレッドシートへ保存できる入力フォーム作成サービスです。",
+      "回答を蓄積する用途には手軽ですが、スプレッドシート上のマスタや在庫、予約枠に応じて画面を細かく変える業務画面としては、GAS Webアプリの方が向く場合があります。",
+    ],
+    useCases: ["申込受付", "アンケート", "問い合わせフォーム", "固定項目の作業報告"],
+    related: ["google-spreadsheet", "google-apps-script", "html-service"],
+    googleQuery: "Googleフォーム とは",
+    references: [{ title: "Google Forms", url: "https://www.google.com/forms/about/" }],
+  },
+  {
     slug: "html-service",
     title: "HTML Service",
     category: "Google Apps Script",
