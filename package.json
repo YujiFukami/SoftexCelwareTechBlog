@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "article:audit": "node scripts/article-workflow/article-audit.mjs",
+    "article:links": "node scripts/article-workflow/article-suggest-links.mjs",
+    "article:terms": "node scripts/article-workflow/article-suggest-terms.mjs",
+    "article:sensitive": "node scripts/article-workflow/article-sensitive-scan.mjs"
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19",
