@@ -1,0 +1,221 @@
+---
+title: "GASで二重送信を防ぐ実装パターン：LockServiceと失敗時ロールバック"
+category: "gas"
+slug: "gas-lockservice-double-submit-rollback"
+tags: ["GAS", "LockService", "二重送信防止", "ロールバック", "google.script.run", "業務アプリ"]
+description: "GASでスプレッドシート更新とメール送信などの外部副作用をセットで扱うときに、LockService、状態再確認、失敗時ロールバックで二重送信と不整合を防ぐ方法を解説します。"
+date: "2026-06-20"
+---
+
+<Term>Google Apps Script</Term>で業務用の<Term>Webアプリ</Term>を作ると、ボタンを押したあとに<Term>Googleスプレッドシート</Term>を更新し、続けてメール送信や通知処理を行う場面があります。
+
+たとえば「注文状態を発送済みにする」「通知メールを送る」という処理です。
+
+このような処理は、画面上では1つの操作に見えても、内部では複数の処理が順番に動きます。そのため、ボタン連打や複数人の同時操作があると、次のような不整合が起きます。
+
+- 同じ通知メールが二重に送信される
+- シート上は処理済みなのに、通知メールだけ失敗する
+- 画面側では未処理に見えていたが、サーバー側ではすでに処理済みになっている
+
+この記事では、<Term>LockService</Term>、サーバー側での状態再確認、失敗時<Term>ロールバック</Term>を組み合わせて、GASの更新処理を安全にする実装パターンをまとめます。
+
+## なぜボタン無効化だけでは足りないのか
+
+クライアント側でボタンを `disabled` にすることは大事です。
+
+ただし、それだけでは完全ではありません。
+
+- 別ブラウザ、別端末、別ユーザーから同じ処理が走る
+- 通信が遅く、前の処理が終わる前に別操作が入る
+- 画面が古い状態を持ったままになっている
+- 一括処理や再実行処理から同じ関数が呼ばれる
+
+つまり、二重送信防止は「画面側の連打防止」だけでなく、サーバー側でも守る必要があります。
+
+## 基本方針
+
+守るポイントは3つです。
+
+| 対策 | 役割 |
+|---|---|
+| `LockService` | 同じスクリプトの同時実行を直列化する |
+| サーバー側の状態再確認 | 画面側の古い状態を信用せず、最新のシート値で判定する |
+| 失敗時<Term>ロールバック</Term> | シート更新後に外部処理が失敗した場合、可能な範囲で元に戻す |
+
+GASとスプレッドシートだけで、厳密な<Term>トランザクション</Term>と同じ保証を作るのは難しいです。
+
+それでも、上の3点を入れるだけで、実務上よく起きる二重送信や状態不整合はかなり減らせます。
+
+## サーバー側の実装例
+
+以下は、注文番号を受け取り、ステータスを「発送済」に更新してから通知メールを送る例です。
+
+```javascript
+function markShippedAndNotify(orderNo, trackingNo) {
+  var lock = LockService.getScriptLock();
+
+  if (!lock.tryLock(15000)) {
+    throw new Error('処理中です。少し待って再実行してください。');
+  }
+
+  try {
+    var found = findOrderRow_(orderNo);
+    if (!found) {
+      throw new Error('注文が見つかりません: ' + orderNo);
+    }
+
+    var sheet = found.sheet;
+    var row = found.row;
+    var statusCol = found.statusCol;
+
+    // 最新状態をサーバー側で読み直す
+    var current = String(sheet.getRange(row, statusCol).getValue() || '').trim();
+    if (current === '発送済') {
+      throw new Error('既に発送済です。メールは送信しません。');
+    }
+
+    // 先にシートを更新する
+    if (trackingNo) {
+      sheet.getRange(row, found.trackingCol).setValue(trackingNo);
+    }
+    sheet.getRange(row, statusCol).setValue('発送済');
+    SpreadsheetApp.flush();
+
+    try {
+      var order = buildOrderObject_(sheet, found.keys, row);
+      sendShippingMail_(order, trackingNo);
+    } catch (mailErr) {
+      // メール送信に失敗したら、可能な範囲で状態を戻す
+      sheet.getRange(row, statusCol).setValue(current);
+      SpreadsheetApp.flush();
+      throw new Error('メール送信に失敗したため状態を元に戻しました。\n' + mailErr.message);
+    }
+
+    return {
+      ok: true,
+      orderNo: orderNo
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+```
+
+ポイントは、`lock.releaseLock()` を `finally` に置くことです。
+
+途中でエラーが起きてもロックを解放できるため、次の処理が止まり続ける事故を避けられます。
+
+## クライアント側でも二重送信を抑える
+
+サーバー側で守るとしても、画面側の連打防止は入れておきます。
+
+```javascript
+function submitShipping(orderNo, trackingNo) {
+  var btn = document.getElementById('submitButton');
+  btn.disabled = true;
+  btn.textContent = '送信中...';
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      btn.disabled = false;
+      btn.textContent = '送信';
+      showMessage('発送処理が完了しました。');
+      reloadOrderList();
+    })
+    .withFailureHandler(function(error) {
+      btn.disabled = false;
+      btn.textContent = '送信';
+      showError(error.message || error);
+    })
+    .markShippedAndNotify(orderNo, trackingNo);
+}
+```
+
+この形は、[google.script.runのエラーハンドリング完全パターン](/articles/gas/script-run-error-handling) と同じ考え方です。
+
+画面側では「連打を減らす」、サーバー側では「同時実行されても壊れない」ようにします。
+
+## 処理順序の考え方
+
+外部<Term>副作用</Term>を含む処理では、順序も重要です。
+
+| 順序 | 起きやすい問題 |
+|---|---|
+| メール送信 → シート更新 | メールは送ったが、シート更新に失敗する |
+| シート更新 → メール送信 | メール送信に失敗したとき、シートだけ処理済みになる |
+
+どちらにもリスクがあります。
+
+今回のパターンでは、次の順序にします。
+
+1. ロックを取る
+2. サーバー側で最新状態を読み直す
+3. すでに処理済みなら止める
+4. シートを処理済みに更新する
+5. `SpreadsheetApp.flush()` で反映を確定させる
+6. メール送信などの外部処理を実行する
+7. 外部処理が失敗したら、可能な範囲で状態を戻す
+8. 最後にロックを解放する
+
+このロールバックは、完全なDBトランザクションではありません。
+
+それでも、処理済みフラグだけが残って通知が届かない、という状態を減らす実務的な防御になります。
+
+## 一括処理では1件ずつ守る
+
+CSV取込や一括更新で複数件を処理する場合も、全件をまとめて雑に更新しない方が安全です。
+
+1件ずつ同じガードを通し、結果を集計します。
+
+```javascript
+function markManyShipped(items) {
+  var results = [];
+
+  items.forEach(function(item) {
+    try {
+      var result = markShippedAndNotify(item.orderNo, item.trackingNo);
+      results.push({ orderNo: item.orderNo, status: 'success', message: '' });
+    } catch (err) {
+      results.push({ orderNo: item.orderNo, status: 'failed', message: err.message });
+    }
+  });
+
+  return results;
+}
+```
+
+一括処理では「全部成功」だけでなく、「成功」「スキップ」「失敗」を分けて返すと、管理画面で確認しやすくなります。
+
+## さらに堅くするなら冪等キーを持たせる
+
+より厳密にしたい場合は、処理済みフラグだけでなく、次の列も持たせます。
+
+- 送信済み日時
+- 送信対象メールアドレス
+- 送信回数
+- 最後の送信エラー
+- 処理ID、または<Term>冪等キー</Term>
+
+同じ処理IDで再実行された場合は再送信しない、という設計にすると、リトライ時の二重送信をさらに抑えられます。
+
+## 注意点
+
+- `LockService` は同時実行を減らす仕組みであり、すべての業務整合性を保証するものではない
+- `tryLock()` の待ち時間は、処理時間に合わせて調整する
+- メール送信や外部API呼び出しは、失敗する前提で書く
+- クライアント側の表示状態を保存可否の根拠にしない
+- `SpreadsheetApp.flush()` を入れても、外部副作用との完全な原子性は作れない
+- 重要な通知では、送信履歴をログシートへ残す
+
+## 関連記事
+
+- [google.script.runのエラーハンドリング完全パターン【GAS Webアプリ】](/articles/gas/script-run-error-handling)
+- [GAS公開Webアプリで顧客画面と管理者画面の権限を分ける方法](/articles/gas/gas-webapp-admin-menu-permission-separation)
+- [GASで日付プレフィックスと日内連番の管理番号を自動採番する](/articles/gas/date-prefix-daily-sequence-id)
+- [GASでGoogleスプレッドシートを簡易DB化し外部WebアプリからCRUDする構成](/articles/gas/spreadsheet-db-api-external-webapp)
+
+## まとめ
+
+GASでシート更新とメール送信をセットで扱う場合は、ボタン無効化だけでは足りません。
+
+`LockService` で同時実行を抑え、サーバー側で最新状態を読み直し、外部処理が失敗した場合は可能な範囲で状態を戻す。この3点を入れることで、小規模な業務アプリでも実務で壊れにくい処理にできます。

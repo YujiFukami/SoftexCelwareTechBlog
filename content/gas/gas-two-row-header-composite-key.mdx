@@ -1,0 +1,220 @@
+---
+title: "GASで2段ヘッダーの重複見出しを安全に扱う方法"
+category: "gas"
+slug: "gas-two-row-header-composite-key"
+tags: ["GAS", "Googleスプレッドシート", "ヘッダー", "コンポジットキー", "結合セル", "DB設計"]
+description: "GASで2段ヘッダーのスプレッドシートをDBのように扱うとき、氏名や住所などの重複見出しをグループ名と項目名のコンポジットキーで一意に扱う方法を解説します。"
+date: "2026-06-20"
+---
+
+<Term>Google Apps Script</Term>で<Term>Googleスプレッドシート</Term>を簡易DBのように使う場合、ヘッダー名から列番号を探して値を書き込む実装はよく使います。
+
+ただし、シートの見た目を分かりやすくするために2段ヘッダーを使うと、単純なヘッダー名検索では壊れることがあります。
+
+たとえば、次のようなシートです。
+
+```text
+1段目: | 注文者情報                 | 発送先情報                 |
+2段目: | 氏名 | 郵便番号 | 住所 | 電話 | 氏名 | 郵便番号 | 住所 | 電話 |
+```
+
+2段目だけを見ると、`氏名`、`郵便番号`、`住所`、`電話` が重複しています。
+
+この状態で `headers.indexOf('氏名')` のように探すと、常に最初の `氏名` が見つかります。発送先の氏名へ書き込みたいのに、注文者の氏名列へ入ってしまう、という事故が起きます。
+
+この記事では、1段目のグループ見出しと2段目の項目名を組み合わせ、`注文者情報|氏名` のような<Term>コンポジットキー</Term>で列を一意に扱う方法をまとめます。
+
+## 2段ヘッダーで起きる問題
+
+2段ヘッダーは、人間にとっては見やすい形式です。
+
+しかし、GASから見ると注意が必要です。
+
+| 見た目 | GASで起きること |
+|---|---|
+| 1段目のグループ見出しが結合セル | 値は結合範囲の左上セルにだけ入る |
+| 2段目に同じ項目名が複数ある | `indexOf()` は最初の一致しか返さない |
+| 列の追加や並び替えがある | 固定列番号のコードが壊れやすい |
+
+列番号を固定で書くより、ヘッダー名から列を探す方が保守しやすいです。
+
+ただし、重複見出しがある場合は、2段目だけで列を探してはいけません。
+
+## コンポジットキーで一意にする
+
+解決策は、1段目と2段目を組み合わせることです。
+
+```text
+注文者情報|氏名
+注文者情報|郵便番号
+発送先情報|氏名
+発送先情報|郵便番号
+```
+
+このようにすると、同じ `氏名` でも、どのグループの氏名なのかを区別できます。
+
+## ヘッダーを読み取る関数
+
+結合セルは、結合範囲の左上セルにしか値が入りません。
+
+そのため、1段目のグループ名は、左から右へ読みながら前方補完します。
+
+```javascript
+var DB_GROUP_ROW = 1;
+var DB_HEADER_ROW = 2;
+
+function normalizeHeader_(value) {
+  return String(value || '')
+    .replace(/[（]/g, '(')
+    .replace(/[）]/g, ')')
+    .replace(/\s+/g, '')
+    .trim();
+}
+
+function getDbCompositeHeaders_(sheet) {
+  var lastCol = sheet.getLastColumn();
+  var groupRow = sheet
+    .getRange(DB_GROUP_ROW, 1, 1, lastCol)
+    .getDisplayValues()[0];
+  var fieldRow = sheet
+    .getRange(DB_HEADER_ROW, 1, 1, lastCol)
+    .getDisplayValues()[0];
+
+  var lastGroup = '';
+  var keys = [];
+
+  for (var c = 0; c < lastCol; c++) {
+    var group = normalizeHeader_(groupRow[c]);
+    if (group !== '') {
+      lastGroup = group;
+    }
+
+    var field = normalizeHeader_(fieldRow[c]);
+    keys.push(lastGroup + '|' + field);
+  }
+
+  return keys;
+}
+```
+
+`getDisplayValues()` を使うと、表示上の文字列としてヘッダーを取得できます。
+
+日付や数値のような表示形式が絡む場合も、ヘッダー行では表示値ベースの方が扱いやすいです。
+
+## 1行データを作る関数
+
+次に、`グループ|項目` をキーにしたオブジェクトから、シートの列順に合わせた1行配列を作ります。
+
+```javascript
+function buildDbRow_(keys, dataByKey) {
+  return keys.map(function(key) {
+    if (Object.prototype.hasOwnProperty.call(dataByKey, key)) {
+      return dataByKey[key];
+    }
+    return '';
+  });
+}
+```
+
+使う側では、次のように書けます。
+
+```javascript
+var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('データベース');
+var keys = getDbCompositeHeaders_(sheet);
+
+var data = {};
+data['注文者情報|氏名'] = orderer.name;
+data['注文者情報|郵便番号'] = orderer.zip;
+data['発送先情報|氏名'] = shipping.name;
+data['発送先情報|郵便番号'] = shipping.zip;
+
+var nextRow = 3;
+sheet.getRange(nextRow, 1, 1, keys.length).setValues([
+  buildDbRow_(keys, data)
+]);
+```
+
+この形にすると、発送先の `氏名` が注文者側の `氏名` に入ることを防げます。
+
+## 必須ヘッダーを先に確認する
+
+ヘッダー名が変わっていると、空欄のまま登録されてしまう可能性があります。
+
+そのため、必要な列があるかを先に確認します。
+
+```javascript
+function assertHeaders_(actualKeys, requiredKeys, where) {
+  var missing = requiredKeys.filter(function(key) {
+    return actualKeys.indexOf(key) === -1;
+  });
+
+  if (missing.length) {
+    throw new Error(where + ' に必要な見出しが不足しています: ' + missing.join(', '));
+  }
+}
+```
+
+使用例です。
+
+```javascript
+assertHeaders_(keys, [
+  '注文管理|注文番号',
+  '注文者情報|氏名',
+  '発送先情報|氏名'
+], 'データベース');
+```
+
+早い段階で分かりやすいエラーにしておくと、シート構成が変わったときに原因を見つけやすくなります。
+
+## 読み出しにも同じキーを使う
+
+書き込みだけでなく、読み出しでも同じ考え方を使えます。
+
+```javascript
+function rowToObject_(keys, values) {
+  var obj = {};
+  keys.forEach(function(key, index) {
+    obj[key] = values[index];
+  });
+  return obj;
+}
+```
+
+これで、読み出した行も次のように扱えます。
+
+```javascript
+var record = rowToObject_(keys, rowValues);
+var ordererName = record['注文者情報|氏名'];
+var shippingName = record['発送先情報|氏名'];
+```
+
+## 追記位置は別問題として扱う
+
+2段ヘッダーの列マッピングと、次に書き込む行の判定は別の問題です。
+
+数式列があるシートでは、`getLastRow()` が想定より下の行を返すことがあります。
+
+そのため、追記位置は管理番号や注文番号など、主キー列を基準に探す方が安全です。
+
+この考え方は、[GASで日付プレフィックスと日内連番の管理番号を自動採番する](/articles/gas/date-prefix-daily-sequence-id) の主キー列基準の考え方と近いです。
+
+## 注意点
+
+- グループ見出しの空欄は、左側の見出しで前方補完する
+- 2段目の項目名だけで列を探さない
+- `normalizeHeader_()` で表記揺れを吸収しすぎると、別項目まで同一扱いする可能性がある
+- データ開始行は、ヘッダーが2行あるなら通常3行目以降にする
+- 結合セルを使う場合でも、GASが読む値は左上セルだけだと理解しておく
+
+## 関連記事
+
+- [GASでGoogleスプレッドシートを簡易DB化し外部WebアプリからCRUDする構成](/articles/gas/spreadsheet-db-api-external-webapp)
+- [GASで日付プレフィックスと日内連番の管理番号を自動採番する](/articles/gas/date-prefix-daily-sequence-id)
+- [GASでスプレッドシートIDをハードコードせず安全に取得する](/articles/gas/spreadsheet-id-without-hardcoding)
+- [GASで結合セルの左上セルに安全に値を入れる方法](/articles/gas/merged-cell-top-left-value)
+
+## まとめ
+
+2段ヘッダーの<Term>スプレッドシート</Term>をDBのように使う場合、2段目の項目名だけで列を探すと、重複見出しで書き込み先が衝突します。
+
+`グループ|項目` のコンポジットキーを作り、読み書きの両方で同じキーを使うと、見た目の分かりやすさを残したまま、GAS側の処理も安全にできます。

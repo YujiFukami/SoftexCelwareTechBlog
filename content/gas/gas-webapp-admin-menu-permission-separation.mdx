@@ -1,0 +1,183 @@
+---
+title: "GAS公開Webアプリで顧客画面と管理者画面の権限を分ける方法"
+category: "gas"
+slug: "gas-webapp-admin-menu-permission-separation"
+tags: ["GAS", "Webアプリ", "HtmlService", "管理画面", "権限分離", "google.script.run"]
+description: "GASの匿名公開Webアプリに管理機能を同居させず、顧客向け画面はdoGet、管理者向け画面はスプレッドシートのカスタムメニューとHTMLダイアログに分ける構成を解説します。"
+date: "2026-06-20"
+---
+
+<Term>Google Apps Script</Term>で注文フォームや申込フォームを作るとき、顧客向け画面はログイン不要で公開したいことがあります。
+
+一方で、管理者側では次のような操作も必要になります。
+
+- 注文一覧を確認する
+- 状態を更新する
+- メール送信を実行する
+- CSVを取り込む
+- 管理用メモを編集する
+
+この管理機能を、匿名公開している<Term>Webアプリ</Term>のタブとして同居させると危険です。
+
+URLを知っている人が管理画面へアクセスできる可能性があるからです。
+
+この記事では、顧客向け画面は `doGet()` の公開Webアプリ、管理者向け画面は<Term>Googleスプレッドシート</Term>の<Term>カスタムメニュー</Term>から開く<Term query="HTML Service">HTML Service</Term>ダイアログに分ける構成をまとめます。
+
+## 問題になる構成
+
+避けたいのは、次のような構成です。
+
+```text
+公開WebアプリURL
+  ├ 顧客向け注文フォーム
+  ├ 注文状況確認
+  └ 管理者向け発送処理タブ
+```
+
+フォーム自体は匿名公開でよくても、管理者向け操作まで同じ画面内に置くと、公開範囲が広がりすぎます。
+
+「ボタンを隠す」「URLパラメータを知らないと見えないようにする」だけでは、管理機能の保護として弱いです。
+
+## 分離する構成
+
+おすすめは、入口を分けることです。
+
+```text
+顧客向け:
+  doGet()
+  公開WebアプリURL
+  ログイン不要の入力フォーム
+
+管理者向け:
+  onOpen()
+  スプレッドシートのカスタムメニュー
+  HTMLモーダルダイアログ
+```
+
+顧客はWebアプリURLからフォームを開きます。
+
+管理者は、<Term>スプレッドシート</Term>を開き、メニューから管理画面を開きます。スプレッドシート自体の編集権限が前提になるため、公開Webアプリ側へ管理タブを出さずに済みます。
+
+## 管理者メニューの実装
+
+スプレッドシートを開いたときにメニューを追加します。
+
+```javascript
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('管理メニュー')
+    .addItem('発送処理を開く', 'showShippingDialog')
+    .addToUi();
+}
+
+function showShippingDialog() {
+  var html = HtmlService
+    .createHtmlOutputFromFile('admin')
+    .setWidth(680)
+    .setHeight(680);
+
+  SpreadsheetApp.getUi().showModalDialog(html, '発送処理');
+}
+```
+
+`onOpen()` は、スプレッドシートを開いたときに実行される入口です。
+
+このメニューは、公開WebアプリのURLではなく、スプレッドシート画面側に出ます。
+
+## 顧客向け画面はdoGetで公開する
+
+顧客向けフォームは、通常どおり `doGet()` で返します。
+
+```javascript
+function doGet() {
+  return HtmlService
+    .createTemplateFromFile('index')
+    .evaluate()
+    .setTitle('ご注文フォーム')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
+}
+```
+
+スマートフォン向けのフォームでは、`viewport` の指定も入れておきます。
+
+画面余白やフォントサイズの考え方は、[GAS Webアプリのスマホ余白を抑えるHTMLテンプレート](/articles/gas/gas-smartphone-template) と同じです。
+
+## appsscript.jsonの考え方
+
+匿名公開する場合、マニフェスト側では次のようなWebアプリ設定になります。
+
+```json
+{
+  "webapp": {
+    "executeAs": "USER_DEPLOYING",
+    "access": "ANYONE_ANONYMOUS"
+  }
+}
+```
+
+この構成では、Webアプリは誰でもアクセスできます。
+
+ただし、管理画面は公開URLではなく、スプレッドシートのメニューから開きます。管理機能を公開Webアプリの画面に出さないことが重要です。
+
+## ダイアログ側からGAS関数を呼ぶ
+
+管理者用の `admin.html` からも、<Term>google.script.run</Term> でサーバー側関数を呼べます。
+
+```javascript
+function loadOrder(orderNo) {
+  google.script.run
+    .withSuccessHandler(function(order) {
+      renderOrder(order);
+    })
+    .withFailureHandler(function(error) {
+      showError(error.message || error);
+    })
+    .getOrderDetail(orderNo);
+}
+```
+
+顧客向け画面と管理者ダイアログで、同じGASプロジェクト内の関数を呼べます。
+
+ただし、呼べるからといって、顧客向け画面に管理用関数の入口を置く必要はありません。
+
+## モーダルとサイドバーの使い分け
+
+管理画面の出し方には、主に2つあります。
+
+| 表示方法 | 向いている場面 |
+|---|---|
+| `showModalDialog()` | 詳細確認、確定操作、誤操作を避けたい処理 |
+| `showSidebar()` | 常時表示したい補助パネル、軽い検索や参照 |
+
+発送処理やメール送信のように、実行結果が業務データへ影響する操作は、中央に出るモーダルの方が分かりやすいです。
+
+## この構成のメリット
+
+- 顧客向けURLを匿名公開しやすい
+- 公開画面に管理機能を置かずに済む
+- スプレッドシートの編集権限を管理者判定として使える
+- 管理者は普段見ているシートから操作できる
+- 顧客画面と管理画面で同じGAS関数や共通処理を使える
+
+小規模な業務アプリでは、専用ログイン画面を作るより、この構成の方が実装と運用のバランスがよいことがあります。
+
+## 注意点
+
+- `onOpen()` のメニューは、スプレッドシートを再読み込みすると表示される
+- 初回実行時は、GASの権限承認が必要になる
+- `executeAs: USER_DEPLOYING` では、処理はデプロイしたユーザーの権限で実行される
+- 管理機能を公開Webアプリ側に置く場合は、最低でも追加認証や<Term>スクリプトプロパティ</Term>照合が必要
+- メール送信や状態更新のような処理は、[二重送信防止と失敗時ロールバック](/articles/gas/gas-lockservice-double-submit-rollback) も合わせて考える
+
+## 関連記事
+
+- [GASで二重送信を防ぐ実装パターン：LockServiceと失敗時ロールバック](/articles/gas/gas-lockservice-double-submit-rollback)
+- [google.script.runのエラーハンドリング完全パターン【GAS Webアプリ】](/articles/gas/script-run-error-handling)
+- [GAS Webアプリのスマホ余白を抑えるHTMLテンプレート](/articles/gas/gas-smartphone-template)
+- [GASでGoogleスプレッドシートを簡易DB化し外部WebアプリからCRUDする構成](/articles/gas/spreadsheet-db-api-external-webapp)
+
+## まとめ
+
+GASの公開Webアプリでは、顧客向けフォームと管理者向け操作を同じ公開画面へ混ぜない方が安全です。
+
+顧客向けは `doGet()` で公開し、管理者向けはスプレッドシートの `onOpen()` カスタムメニューからHTMLダイアログを開く。この分離だけでも、匿名公開Webアプリのリスクをかなり下げられます。
