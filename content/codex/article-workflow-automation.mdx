@@ -1,0 +1,228 @@
+---
+title: "Tech Blog記事追加ワークフローを自動化して、Codexの確認量を減らす方法"
+category: "codex"
+slug: "article-workflow-automation"
+tags: ["Codex", "技術ブログ", "自動化", "MDX", "記事作成", "SEO", "公開前チェック"]
+description: "Softex Celware Tech Blogの記事追加時に、用語リンク候補、関連記事候補、機密情報候補、frontmatterや画像パスの確認をローカルスクリプト化し、Codexの確認量を減らす運用を整理します。"
+date: "2026-06-20"
+---
+
+Softex Celware Tech Blogでは、開発で得たノウハウを<Term>MDX</Term>記事として増やしていきます。
+
+記事数が少ないうちは、Codexが既存記事をいくつか読んで、関連記事や用語リンクを判断しても大きな負担にはなりません。しかし、記事が増えると、1本の記事を追加するだけでも確認対象が増えます。
+
+- 関連記事を探す
+- `<Term>`でリンク化できる用語を探す
+- 顧客名、実パス、メール、電話番号などの公開リスクを確認する
+- frontmatter、slug、画像パス、内部リンクを確認する
+- 最後に<Term>Next.js</Term>のビルドを通す
+
+この確認を毎回すべて手作業で行うと、Codexのコンテキスト量も時間も大きくなります。
+
+そこで、記事作成そのものは人間とAIで行い、**確認候補の抽出だけをローカルスクリプトに寄せる**ことにしました。
+
+## 何を自動化したのか
+
+今回作ったのは、記事本文を自動で書き換える仕組みではありません。
+
+自動化したのは、記事公開前に毎回見るべき候補の抽出です。
+
+| コマンド | 役割 |
+|---|---|
+| `article:terms` | 本文中にあるが`<Term>`化されていない用語候補を出す |
+| `article:links` | 既存記事から関連記事候補をスコア順に出す |
+| `article:sensitive` | 実パス、メール、電話番号、金額、口座などの確認候補を出す |
+| `article:audit` | frontmatter、画像、内部リンク、関連セクションを監査する |
+
+重要なのは、スクリプトが最終判断をしないことです。
+
+たとえば、関連記事候補に出た記事を必ずリンクするわけではありません。公開リスク候補に出た語も、文脈上「顧客名は出さない」と説明しているだけなら問題ないことがあります。
+
+スクリプトは、Codexが読む前に候補を絞るためのものです。
+
+## 作業前後の流れ
+
+記事追加時の流れは、次のように変わります。
+
+```text
+従来:
+  Codexが素材を読む
+  Codexが既存記事を広く探す
+  Codexが用語候補を探す
+  Codexが公開リスクを目視確認する
+  Codexが記事を調整する
+  buildする
+
+自動化後:
+  Codexが素材を読む
+  記事下書きを作る
+  スクリプトで候補を出す
+  Codexが候補だけを判断する
+  必要箇所を調整する
+  buildする
+```
+
+AIに全部読ませるのではなく、機械的に拾える部分を先に絞ります。
+
+これにより、Codexは「探す作業」よりも、「候補を見て採用するか判断する作業」に集中できます。
+
+## 実装したファイル構成
+
+スクリプトは、`website/scripts/article-workflow/`にまとめました。
+
+```text
+website/
+  article-workflow.bat
+  scripts/
+    article-workflow/
+      article-audit.mjs
+      article-suggest-links.mjs
+      article-suggest-terms.mjs
+      article-sensitive-scan.mjs
+      shared.mjs
+```
+
+処理本体は<Term query="Node.js">Node.js</Term>の`.mjs`ファイルで書き、Windowsからまとめて実行しやすいように<Term>PowerShell</Term>ではなく`bat`を入口にしています。
+
+`package.json`には、次のようなスクリプトを追加しました。
+
+```json
+{
+  "article:audit": "node scripts/article-workflow/article-audit.mjs",
+  "article:links": "node scripts/article-workflow/article-suggest-links.mjs",
+  "article:terms": "node scripts/article-workflow/article-suggest-terms.mjs",
+  "article:sensitive": "node scripts/article-workflow/article-sensitive-scan.mjs"
+}
+```
+
+個別に実行する場合は、次のように使います。
+
+```powershell
+cd website
+npm run article:terms -- content/codex/article-workflow-automation.mdx
+npm run article:links -- content/codex/article-workflow-automation.mdx
+npm run article:sensitive -- content/codex/article-workflow-automation.mdx
+npm run article:audit -- content/codex/article-workflow-automation.mdx
+```
+
+まとめて確認する場合は、次のコマンドだけで済みます。
+
+```powershell
+.\article-workflow.bat content/codex/article-workflow-automation.mdx
+```
+
+ビルドまで含めたい場合は、第2引数に`--build`を渡します。
+
+```powershell
+.\article-workflow.bat content/codex/article-workflow-automation.mdx --build
+```
+
+## 関連記事候補を出す考え方
+
+関連記事候補では、既存記事のfrontmatter、タグ、説明文、見出しなどを軽く読みます。
+
+本文をすべて深く読むのではなく、まずは次の情報を使って候補を絞ります。
+
+- 同じカテゴリか
+- タグが一致しているか
+- タイトルや説明文に近い語があるか
+- 見出しに共通する語があるか
+
+この方法は完璧ではありません。
+
+ただ、記事が200本を超えてくると、毎回人間やAIが全体を読むより、候補を10件程度に絞ってから判断する方が現実的です。
+
+関連記事は<Term>SEO</Term>目的で増やすものではなく、読者が次に知りたい記事へ進むための導線として扱います。
+
+## 用語リンク候補を出す考え方
+
+用語リンク候補では、`src/lib/terms.ts`にある用語の`title`と`aliases`を見ます。
+
+記事本文にその語が出ていて、まだ`<Term>`で囲まれていない場合に候補として出します。
+
+ただし、候補に出た語をすべてリンク化するわけではありません。
+
+用語リンクは、初心者が補足したくなる語、この記事を理解するために重要な語、別記事や用語集への導線として意味がある語に絞ります。
+
+この考え方は、[MDX記事で専門用語をTermリンク化する運用ルール](/articles/codex/term-linking-agent-operation)と同じです。
+
+## 公開リスク候補を出す考え方
+
+開発事例や案件由来の記事では、公開してはいけない情報が混ざることがあります。
+
+そこで、`article:sensitive`では次のような候補を拾います。
+
+- `C:\Users\...`のような実ファイルパス
+- メールアドレス
+- 電話番号
+- 金額
+- 銀行、口座などの契約・支払い関連語
+- 顧客名、実データ、案件固有などの注意語
+
+これも自動削除はしません。
+
+公開用の記事では「顧客名は出さない」と説明するために、あえて`顧客名`という語を使うことがあります。そのため、スクリプトは危険判定ではなく、確認候補を出すだけにしています。
+
+公開前の考え方は、[技術記事を公開する前のリスクチェックリスト](/articles/codex/publication-risk-checklist)と組み合わせて使います。
+
+## frontmatterとリンクを監査する
+
+`article:audit`では、記事の基本情報を確認します。
+
+- `title`、`category`、`slug`、`description`、`date`があるか
+- `category`が保存先フォルダと一致しているか
+- `slug`がファイル名と一致しているか
+- `image`や`<img>`のパスが`public`配下に存在するか
+- 内部記事リンクのリンク先が存在するか
+- `<Term>`リンクが入っているか
+- 関連記事セクションがあるか
+
+このチェックにより、記事を書いたあとにありがちな小さな漏れを早めに見つけられます。
+
+特に、画像パスや内部リンクの間違いは、本文だけ読んでいると見落としやすいです。スクリプトで機械的に見る価値があります。
+
+## この仕組みで減らせる作業
+
+この自動化で減らせるのは、主に探索と確認の手間です。
+
+| 作業 | 自動化前 | 自動化後 |
+|---|---|---|
+| 関連記事探し | Codexが複数記事を読んで探す | 候補一覧から選ぶ |
+| 用語リンク探し | 本文を目視で拾う | 未リンク候補を見る |
+| 公開リスク確認 | 手作業で全体確認 | 危険そうな語を先に見る |
+| frontmatter確認 | 目視確認 | auditで機械的に見る |
+| build前の不安 | 構文やリンク漏れが残りやすい | 事前チェックで減らせる |
+
+完全自動化ではなく、**AIが判断する前段の下ごしらえ**として使うのがポイントです。
+
+## 注意点
+
+この仕組みは便利ですが、万能ではありません。
+
+- 関連記事候補は、意味的にずれることがある
+- 用語候補は、リンクしなくてよい語も拾う
+- 機密語候補は、説明文として安全な語も拾う
+- スクリプトが拾えない公開リスクもある
+- 記事の読みやすさや導線の自然さは最終的に人間とAIで判断する
+
+特に公開リスクは、正規表現だけでは判断できません。固有名詞の組み合わせや画像内の情報は、別途確認が必要です。
+
+また、<Term>OneDrive</Term>配下で<Term>Next.js</Term>をビルドすると、`.next`の削除時に`EPERM`が出ることがあります。その場合は、生成物である`website/.next`だけを削除してから再ビルドします。
+
+## 関連記事
+
+- [開発資産MarkdownをMDX記事へ変換する作業フロー](/articles/codex/website-mdx-article-workflow)
+- [MDX記事で専門用語をTermリンク化する運用ルール](/articles/codex/term-linking-agent-operation)
+- [技術記事を公開する前のリスクチェックリスト](/articles/codex/publication-risk-checklist)
+- [Codexノウハウ循環: 開発を加速する知識ベース運用](/articles/codex/codex-knowhow-cycle)
+- [AIコーディングでAGENTS.mdを運用ルールとして使う方法](/articles/codex/agents-operational-rules)
+
+## まとめ
+
+記事追加ワークフローの自動化は、記事をAIに丸投げするための仕組みではありません。
+
+むしろ、AIが毎回大量の記事や用語定義を読み直さなくてもよいように、機械的に拾える候補を先に出すための仕組みです。
+
+用語リンク、関連記事、公開リスク、frontmatter、画像パス、内部リンクをスクリプトで確認し、Codexはその結果を見て判断する。この分担にすると、記事数が増えても運用を続けやすくなります。
+
+テックブログが大きくなるほど、記事を書く力だけでなく、記事を追加するための作業そのものを整えることが重要になります。
