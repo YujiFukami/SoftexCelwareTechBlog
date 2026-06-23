@@ -1,0 +1,142 @@
+---
+title: "tkinterで重い処理を別スレッド化し、root.afterでログ更新する"
+category: "python-windows"
+slug: "tkinter-thread-after-log"
+tags: ["Python", "tkinter", "threading", "UIフリーズ防止", "ログ表示", "Windows"]
+description: "tkinterアプリで画像一括処理などの重い処理を実行するときに、threading.Threadで処理を逃がし、root.afterで安全にログ更新する実装パターンです。"
+date: "2026-06-23"
+---
+
+<Term>tkinter</Term>で画像変換やファイル一括処理のツールを作ると、処理中にウィンドウが固まることがあります。
+
+原因は、ボタンのクリックイベント内で重い処理を直接実行し、tkinterのイベントループを止めてしまうことです。
+
+この記事では、重い処理を<Term>threading</Term>で別スレッドへ逃がし、ログ表示やボタン状態の更新は `root.after` でメインスレッドへ戻す実装パターンを整理します。
+
+## 課題
+
+tkinterのボタン処理内で、次のような処理を直接回すとUIが固まります。
+
+- 大量画像の変換
+- フォルダ内ファイルの一括読み込み
+- PDF生成
+- 外部コマンド実行
+- 長いループ処理
+
+処理中はウィンドウが「応答なし」になり、ログ欄も更新されません。
+
+一方で、別スレッドからtkinterのウィジェットを直接操作するのも危険です。不安定なクラッシュや表示崩れの原因になります。
+
+## 解決策
+
+ルールは単純です。
+
+- 重い処理は `threading.Thread` で実行する
+- tkinterウィジェットはメインスレッドからだけ触る
+- 別スレッドからUIを更新したいときは `root.after(0, 関数, 引数...)` を使う
+- 実行中はボタンを無効化し、二重起動を防ぐ
+
+この形にすると、処理中もログを流しながら、UIフリーズを避けられます。
+
+## 実装例
+
+```python
+import threading
+import tkinter as tk
+from tkinter import ttk, messagebox
+from tkinter.scrolledtext import ScrolledText
+
+class App:
+    def __init__(self, root):
+        self.root = root
+
+        self.run_button = ttk.Button(root, text="変換実行", command=self.on_run)
+        self.run_button.pack()
+
+        self.log_text = ScrolledText(root, state="disabled")
+        self.log_text.pack(fill="both", expand=True)
+
+    def log(self, message):
+        self.log_text.configure(state="normal")
+        self.log_text.insert(tk.END, message + "\n")
+        self.log_text.see(tk.END)
+        self.log_text.configure(state="disabled")
+
+    def on_run(self):
+        self.run_button.configure(state="disabled")
+        self.log("処理開始")
+
+        thread = threading.Thread(
+            target=self._worker,
+            args=(self.targets,),
+            daemon=True,
+        )
+        thread.start()
+
+    def _worker(self, targets):
+        success = 0
+
+        for path in targets:
+            self._ui_log(f"{path} を処理中...")
+
+            try:
+                heavy_process(path)
+                success += 1
+                self._ui_log(f"{path} 完了")
+            except Exception as e:
+                self._ui_log(f"失敗: {path}（{e}）")
+
+        self.root.after(0, self._done, success)
+
+    def _ui_log(self, message):
+        self.root.after(0, self.log, message)
+
+    def _done(self, success):
+        self.run_button.configure(state="normal")
+        messagebox.showinfo("完了", f"すべての処理が完了しました。（成功 {success}件）")
+```
+
+## なぜroot.afterを使うのか
+
+`root.after(0, self.log, message)` は、「次にtkinterのイベントループが処理できるタイミングで `self.log(message)` を実行してほしい」という予約です。
+
+別スレッド側ではUIを直接触らず、UI更新の依頼だけをメインスレッドへ渡します。
+
+このルールを守ると、次のような操作が安定します。
+
+- ログ欄へ追記する
+- ボタンを再度有効化する
+- 完了メッセージを表示する
+- 進捗バーを更新する
+- エラー内容を表示する
+
+## 実装のポイント
+
+### daemon=Trueにする
+
+`daemon=True` にしておくと、ウィンドウを閉じたときにバックグラウンドスレッドだけが残り続ける状態を避けやすくなります。
+
+長時間処理でキャンセル対応を厳密に作る場合は、終了フラグも組み合わせます。
+
+### 実行中はボタンを無効化する
+
+一括処理中にもう一度ボタンを押されると、同じファイルへ同時に処理が走る可能性があります。
+
+処理開始時に `state="disabled"`、完了時に `state="normal"` へ戻すだけでも、二重実行の事故を減らせます。
+
+### ログ欄は読み取り専用にする
+
+ログ欄は普段 `state="disabled"` にしておき、追記時だけ `normal` に切り替えると、利用者がログを誤編集しにくくなります。
+
+## 関連記事
+
+- [Python一括処理で元ファイルを壊さない安全設計](/articles/python-windows/batch-processing-safe-output-folder)
+- [tkinter Treeviewをチェックボックス付き一覧として使う](/articles/python-windows/tkinter-treeview-checkbox-list)
+- [NumPyベクトル化で画像を一括色置換する](/articles/python-windows/numpy-vectorized-image-color-replace-alpha)
+
+## まとめ
+
+tkinterで重い処理を扱う場合、処理本体とUI更新を分けることが重要です。
+
+重い処理は別スレッドで実行し、UI更新は必ず `root.after` 経由でメインスレッドへ戻す。このルールを固定しておくと、画像一括変換やファイル処理ツールでも、操作不能になりにくいUIを作れます。
+

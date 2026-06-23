@@ -1,0 +1,134 @@
+---
+title: "NumPyベクトル化で画像を一括色置換する: 透過維持と許容差マスク"
+category: "python-windows"
+slug: "numpy-vectorized-image-color-replace-alpha"
+tags: ["Python", "NumPy", "Pillow", "画像処理", "一括処理", "透過PNG"]
+description: "Pillowで読み込んだRGBA画像をNumPy配列に変換し、許容差付きのブールマスクで特定色だけを高速に置換する実装パターンです。透明部分を維持し、元画像を非破壊で処理します。"
+date: "2026-06-23"
+---
+
+<Term>Python</Term>で画像の特定色を別の色へ置換するとき、1ピクセルずつ二重ループで処理すると遅くなりがちです。
+
+画像サイズが大きくなったり、複数ファイルを一括処理したりすると、体感で待たされるツールになります。
+
+この記事では、<Term>Pillow</Term>で読み込んだ画像を<Term>NumPy</Term>配列に変換し、ブール値マスクで一括色置換する実装パターンを整理します。
+
+## 課題
+
+色置換では、単純な完全一致だけでは足りないことがあります。
+
+たとえば、透過PNG素材では次の条件を同時に満たしたくなります。
+
+- 透明部分は処理対象外にする
+- 黒い線や影は残す
+- 指定色に近い部分だけ変える
+- アンチエイリアスの縁も拾えるように許容差を持たせる
+- 置換後もアルファ値は維持する
+- 複数画像を高速に処理する
+
+この処理を `pixels[x, y]` の二重ループで書くと、分かりやすい反面、処理速度が遅くなります。
+
+## 解決策
+
+画像をRGBA配列として扱い、条件に合うピクセルだけをブール値マスクで一括置換します。
+
+判定の考え方は次の通りです。
+
+```text
+各RGBチャンネルの差が許容差以内
+かつ
+アルファ値が0ではない
+```
+
+透明ピクセルは `alpha != 0` で除外します。アルファ列自体は書き換えないため、透過情報を維持できます。
+
+## 実装例
+
+```python
+import os
+
+import numpy as np
+from PIL import Image
+
+def replace_color_array(img_rgba, source_rgb, target_rgb, tolerance):
+    """(H, W, 4) のuint8配列に1色置換を適用して返す。"""
+    out = img_rgba.copy()
+
+    rgb = out[:, :, 0:3].astype(np.int16)
+    alpha = out[:, :, 3]
+
+    source = np.array(source_rgb, dtype=np.int16)
+    diff = np.abs(rgb - source)
+
+    mask = np.all(diff <= tolerance, axis=2) & (alpha != 0)
+
+    out[mask, 0] = target_rgb[0]
+    out[mask, 1] = target_rgb[1]
+    out[mask, 2] = target_rgb[2]
+
+    return out
+
+def process_file(input_path, output_path, source_rgb, target_rgb, tolerance):
+    img = Image.open(input_path).convert("RGBA")
+    arr = np.asarray(img, dtype=np.uint8)
+
+    out_arr = replace_color_array(arr, source_rgb, target_rgb, tolerance)
+    out_img = Image.fromarray(out_arr, "RGBA")
+
+    if os.path.splitext(output_path)[1].lower() in (".jpg", ".jpeg"):
+        out_img = out_img.convert("RGB")
+
+    out_img.save(output_path)
+```
+
+## astype(np.int16) が重要
+
+RGB値は通常 `uint8` です。
+
+`uint8` のまま差分を計算すると、マイナス方向の計算でアンダーフローが起き、正しい差分にならないことがあります。
+
+たとえば、`10 - 246` のような計算を `uint8` のまま扱うと、意図しない値になります。
+
+そのため、差分計算の前に `astype(np.int16)` で符号付き整数へ変換しておきます。
+
+## アルファ値を維持する
+
+透過PNGでは、透明部分を勝手に塗りつぶさないことが重要です。
+
+この実装では、マスク条件に `alpha != 0` を入れています。
+
+さらに、書き換えるのはRGB列だけです。
+
+```python
+out[mask, 0] = target_rgb[0]
+out[mask, 1] = target_rgb[1]
+out[mask, 2] = target_rgb[2]
+```
+
+アルファ列 `out[:, :, 3]` には触らないため、透過情報をそのまま維持できます。
+
+## 許容差の目安
+
+許容差は、画像の縁やアンチエイリアスをどの程度拾うかに関係します。
+
+| tolerance | 使い方の目安 |
+| --- | --- |
+| 0 | 完全一致だけ置換 |
+| 10 | かなり近い色だけ置換 |
+| 20 | 標準的な許容範囲 |
+| 30 | 広めに置換 |
+
+広げすぎると、影や線まで変わる可能性があります。プレビューやサンプル画像で確認しながら調整します。
+
+## 関連記事
+
+- [Python一括処理で元ファイルを壊さない安全設計](/articles/python-windows/batch-processing-safe-output-folder)
+- [tkinterで重い処理を別スレッド化し、root.afterでログ更新する](/articles/python-windows/tkinter-thread-after-log)
+- [tkinter Treeviewをチェックボックス付き一覧として使う](/articles/python-windows/tkinter-treeview-checkbox-list)
+
+## まとめ
+
+画像の色置換は、ピクセル単位の二重ループで書くより、NumPyのブール値マスクでまとめて処理する方が高速で保守しやすくなります。
+
+`int16` への変換、`alpha != 0` の条件、RGB列だけの更新をセットで覚えておくと、透過PNGを扱う一括変換ツールでも安全に使えます。
+

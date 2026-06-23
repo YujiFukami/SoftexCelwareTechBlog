@@ -1,0 +1,147 @@
+---
+title: "tkinter Treeviewをチェックボックス付き一覧として使う"
+category: "python-windows"
+slug: "tkinter-treeview-checkbox-list"
+tags: ["Python", "tkinter", "Treeview", "UI", "ファイル一覧", "Windows"]
+description: "tkinterのttk.Treeviewには標準のチェックボックス列がないため、先頭列に☑/☐を表示し、クリックでON/OFFを切り替える実装パターンを整理します。"
+date: "2026-06-23"
+---
+
+<Term>tkinter</Term>でファイル一括処理ツールを作ると、「対象ファイルを一覧表示し、処理するものだけチェックしたい」という要望がよく出ます。
+
+しかし、`ttk.Treeview` には標準のチェックボックス列がありません。
+
+この記事では、<Term>Treeview</Term>の先頭列に `☑` と `☐` を表示し、クリックで状態を切り替える簡易チェックボックス付き一覧の作り方を整理します。
+
+## 課題
+
+ファイル一覧を作る方法として、行ごとに `tk.Checkbutton` を並べる方法もあります。
+
+ただし、件数が増えると次の問題が出ます。
+
+- スクロールと行の位置合わせが難しい
+- 列幅や見た目を揃えにくい
+- ファイル名、拡張子、サイズなどの表形式表示と相性が悪い
+- 全選択、全解除、件数表示の管理が複雑になる
+
+表形式の一覧にはTreeviewが向いています。そこで、Treeviewの先頭列をチェック表示用として使います。
+
+## 実装例
+
+チェック状態はTreeviewの文字列だけに頼らず、別の辞書で保持します。
+
+```python
+import tkinter as tk
+from tkinter import ttk
+
+CHECKED = "☑"
+UNCHECKED = "☐"
+
+class FileList:
+    def __init__(self, parent):
+        self.file_items = {}
+
+        columns = ("check", "name", "ext", "size")
+        self.tree = ttk.Treeview(parent, columns=columns, show="headings")
+
+        self.tree.heading("check", text="対象")
+        self.tree.heading("name", text="ファイル名")
+        self.tree.heading("ext", text="種類")
+        self.tree.heading("size", text="サイズ")
+
+        self.tree.column("check", width=50, anchor="center", stretch=False)
+        self.tree.pack(fill="both", expand=True)
+        self.tree.bind("<Button-1>", self.on_click)
+
+    def add_row(self, path, name, ext, size):
+        item_id = self.tree.insert("", tk.END, values=(CHECKED, name, ext, size))
+        self.file_items[item_id] = {
+            "path": path,
+            "checked": True,
+        }
+
+    def on_click(self, event):
+        if self.tree.identify("region", event.x, event.y) != "cell":
+            return
+
+        if self.tree.identify_column(event.x) != "#1":
+            return
+
+        item_id = self.tree.identify_row(event.y)
+        if item_id in self.file_items:
+            self.toggle(item_id)
+
+    def toggle(self, item_id):
+        info = self.file_items[item_id]
+        info["checked"] = not info["checked"]
+
+        values = list(self.tree.item(item_id, "values"))
+        values[0] = CHECKED if info["checked"] else UNCHECKED
+        self.tree.item(item_id, values=values)
+
+    def set_all(self, checked):
+        for item_id, info in self.file_items.items():
+            info["checked"] = checked
+            values = list(self.tree.item(item_id, "values"))
+            values[0] = CHECKED if checked else UNCHECKED
+            self.tree.item(item_id, values=values)
+
+    def checked_paths(self):
+        return [
+            info["path"]
+            for info in self.file_items.values()
+            if info["checked"]
+        ]
+```
+
+## クリック判定のポイント
+
+重要なのは、クリックされた場所がチェック列かどうかを判定する部分です。
+
+```python
+if self.tree.identify_column(event.x) != "#1":
+    return
+```
+
+`#1` は先頭列です。これにより、ファイル名列をクリックしてもチェックが切り替わらず、チェック列をクリックしたときだけON/OFFできます。
+
+## 表示と状態を分ける
+
+`☑` や `☐` はあくまで表示です。
+
+実際のチェック状態は、次のように辞書で管理します。
+
+```python
+self.file_items[item_id] = {
+    "path": path,
+    "checked": True,
+}
+```
+
+表示文字列を毎回読み取って真偽判定すると、見た目変更に弱くなります。表示と状態を分離しておくと、後からアイコン画像方式へ変える場合も対応しやすくなります。
+
+## 全選択・全解除・件数表示
+
+全選択と全解除は `set_all(True)`、`set_all(False)` を呼ぶだけにできます。
+
+処理対象の件数は、次のように取得できます。
+
+```python
+count = len(file_list.checked_paths())
+count_label.config(text=f"対象ファイル数: {count}件")
+```
+
+一括処理ツールでは、実行前に対象件数を見せるだけでも、利用者の操作ミスを減らせます。
+
+## 関連記事
+
+- [tkinterで重い処理を別スレッド化し、root.afterでログ更新する](/articles/python-windows/tkinter-thread-after-log)
+- [Python一括処理で元ファイルを壊さない安全設計](/articles/python-windows/batch-processing-safe-output-folder)
+- [tkinterアプリのJSON設定を読み込み・書き出し・自動バックアップする](/articles/python-windows/tkinter-json-config-backup)
+
+## まとめ
+
+Treeviewには標準のチェックボックス列はありませんが、先頭列に記号を表示し、クリック時に状態を切り替えることで、実用的なチェック付き一覧を作れます。
+
+依存を増やさずに、ファイル一覧、全選択、全解除、対象件数表示を作りたい場合に使いやすいパターンです。
+

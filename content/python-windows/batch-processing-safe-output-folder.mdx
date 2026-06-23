@@ -1,0 +1,120 @@
+---
+title: "Python一括処理で元ファイルを壊さない安全設計: 別フォルダ出力と上書き確認"
+category: "python-windows"
+slug: "batch-processing-safe-output-folder"
+tags: ["Python", "Windows", "一括処理", "安全設計", "非破壊", "tkinter"]
+description: "画像や帳票をフォルダ単位で一括変換するときに、元ファイルを上書きしないための別フォルダ出力、実行前の上書き確認、入力チェックの設計パターンを整理します。"
+date: "2026-06-23"
+---
+
+<Term>Python</Term>で画像や帳票を一括変換するツールを作るとき、最も避けたいのは**元ファイルを壊すこと**です。
+
+特に、Pythonやコマンド操作に慣れていない利用者へ渡すツールでは、「変換できること」以上に「失敗しても元データが残ること」が重要になります。
+
+この記事では、一括処理ツールで使い回しやすい安全設計として、別フォルダ出力、非破壊処理、上書き確認、入力チェックをまとめます。
+
+## 課題
+
+一括処理では、次のような事故が起こりやすくなります。
+
+- 入力ファイルと同じ場所へ保存して、元画像を上書きする
+- 途中でエラーになり、一部だけ変換済みになる
+- 出力フォルダ名を空欄のまま実行する
+- 同名ファイルがあるたびに確認ダイアログが出て操作が面倒になる
+- どのファイルが処理対象なのか分かりづらい
+
+処理対象が1件であれば手動で戻せることもあります。しかし、数十件、数百件をまとめて処理するツールでは、破壊的な保存設計は致命的です。
+
+## 解決策は4原則で固定する
+
+安全側に倒すなら、次の4原則を固定しておくと実装が安定します。
+
+| 原則 | 内容 |
+| --- | --- |
+| 出力は必ず別フォルダ | `元フォルダ\_converted` のような出力専用フォルダへ保存する |
+| 元ファイルは上書きしない | 入力パスと出力パスを物理的に分ける |
+| 同名既存は実行前に一括確認 | 変換開始前に既存ファイル件数をまとめて確認する |
+| 失敗しても元に影響させない | 処理途中で落ちても入力側へは書き込まない |
+
+これにより、変換処理の中身が画像処理でもPDF出力でも、基本の安全性を保ちやすくなります。
+
+## 実装例
+
+出力フォルダを元フォルダ直下に作り、変換関数には入力パスと出力パスを明示して渡します。
+
+```python
+import os
+from tkinter import messagebox
+
+def run_batch(src_folder, output_name, targets, convert_one):
+    if not src_folder or not os.path.isdir(src_folder):
+        messagebox.showerror("エラー", "処理対象フォルダーを選択してください。")
+        return
+
+    output_name = output_name.strip()
+    if not output_name:
+        messagebox.showerror("エラー", "出力フォルダー名を入力してください。")
+        return
+
+    if not targets:
+        messagebox.showerror("エラー", "処理対象の画像ファイルがありません。")
+        return
+
+    output_dir = os.path.join(src_folder, output_name)
+    os.makedirs(output_dir, exist_ok=True)
+
+    existing = [
+        os.path.basename(path)
+        for path in targets
+        if os.path.exists(os.path.join(output_dir, os.path.basename(path)))
+    ]
+
+    if existing:
+        ok = messagebox.askyesno(
+            "確認",
+            "出力先に同名ファイルが存在します。\n"
+            "上書きしてもよろしいですか？\n\n"
+            f"（{len(existing)}件）",
+        )
+        if not ok:
+            return
+
+    for path in targets:
+        out_path = os.path.join(output_dir, os.path.basename(path))
+        convert_one(path, out_path)
+```
+
+`convert_one` の中では、必ず `out_path` に保存します。入力ファイルへ直接保存しないようにすれば、変換途中で失敗しても元ファイルは残ります。
+
+## 実装のポイント
+
+### 出力先を元フォルダ直下に固定する
+
+出力先を完全な自由入力にすると、利用者が別の重要フォルダを指定してしまう可能性があります。
+
+一括変換ツールでは、まず `元フォルダ\_converted` のように、元フォルダ直下の出力専用フォルダへ固定する方が安全です。
+
+### 上書き確認は実行前に1回だけ行う
+
+同名ファイルがあるたびに確認すると、数十件の処理で何度もダイアログが出ます。
+
+実行前に既存ファイルを集計し、「同名ファイルが何件あります」とまとめて確認する方が、利用者にとって分かりやすくなります。
+
+### 入力チェックは変換前にまとめて行う
+
+処理に入ってからエラーを出すより、フォルダ未選択、出力名空欄、対象ファイルなしを最初に止める方が安全です。
+
+一括処理では、変換前チェックを厚くすることで、途中失敗の原因を減らせます。
+
+## 関連記事
+
+- [NumPyベクトル化で画像を一括色置換する: 透過維持と許容差マスク](/articles/python-windows/numpy-vectorized-image-color-replace-alpha)
+- [tkinterで重い処理を別スレッド化し、root.afterでログ更新する](/articles/python-windows/tkinter-thread-after-log)
+- [tkinter Treeviewをチェックボックス付き一覧として使う](/articles/python-windows/tkinter-treeview-checkbox-list)
+
+## まとめ
+
+一括処理ツールでは、変換ロジックより先に、元ファイルを壊さない設計を決めておく必要があります。
+
+出力先を別フォルダへ固定し、上書き確認を実行前にまとめ、入力ファイルには一切書き込まない形にすると、利用者へ渡しやすい安全なツールになります。
+
