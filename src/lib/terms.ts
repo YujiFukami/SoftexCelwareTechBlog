@@ -1188,6 +1188,21 @@ export const terms: TermEntry[] = [
     references: [{ title: "GitHub Docs - GitHub Pages", url: "https://docs.github.com/pages" }],
   },
   {
+    slug: "github",
+    title: "GitHub",
+    category: "開発管理",
+    aliases: ["GitHubリポジトリ", "リポジトリ", "Private Repository", "プライベートリポジトリ", "collaborator"],
+    summary: "ソースコードの履歴管理、共有、共同開発、公開配布に使われる開発プラットフォームです。",
+    description: [
+      "GitHubは、Gitで管理したソースコードをオンラインで共有し、変更履歴、権限管理、レビュー、Issue管理などを行えるサービスです。",
+      "受託開発では、お客様所有のプライベートリポジトリへ開発者を招待することで、資産管理と共同開発を両立できます。",
+    ],
+    useCases: ["ソースコード管理", "共同開発", "納品用リポジトリ", "GitHub連携デプロイ"],
+    related: ["github-pages", "github-actions", "github-releases", "vercel"],
+    googleQuery: "GitHub とは",
+    references: [{ title: "GitHub Docs", url: "https://docs.github.com/" }],
+  },
+  {
     slug: "github-releases",
     title: "GitHub Releases",
     category: "配布",
@@ -3234,6 +3249,20 @@ export const terms: TermEntry[] = [
     related: ["nextjs", "dns", "cname"],
     googleQuery: "Vercel とは",
     references: [{ title: "Vercel Docs", url: "https://vercel.com/docs" }],
+  },
+  {
+    slug: "environment-variables",
+    title: "環境変数",
+    category: "デプロイ",
+    aliases: ["env", ".env", "Environment Variables"],
+    summary: "APIキーや接続先URLなど、環境ごとに変わる設定値をコード本体から分けて管理する仕組みです。",
+    description: [
+      "環境変数を使うと、開発環境、本番環境、テスト環境で異なる設定を、ソースコードに直接書かずに扱えます。",
+      "Webアプリでは、DB接続URL、APIキー、Secret KeyなどをVercelやホスティングサービス側に設定して管理します。",
+    ],
+    useCases: ["APIキー管理", "DB接続情報管理", "開発環境と本番環境の切り替え"],
+    related: ["vercel", "api-token", "supabase"],
+    googleQuery: "環境変数 Webアプリ とは",
   },
   {
     slug: "generative-ai",
