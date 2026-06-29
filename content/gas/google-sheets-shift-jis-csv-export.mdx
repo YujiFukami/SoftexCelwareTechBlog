@@ -1,0 +1,265 @@
+---
+title: "GoogleスプレッドシートからShift_JISのCSVを出力する方法"
+category: "gas"
+slug: "google-sheets-shift-jis-csv-export"
+tags: ["GAS", "Googleスプレッドシート", "CSV", "Shift_JIS", "文字コード", "Google Drive"]
+description: "GoogleスプレッドシートからShift_JIS形式のCSVを出力する方法を、Google Apps Scriptのサンプルコード付きで解説します。業務システム向けCSVで注意したい文字コード、改行コード、出力先フォルダ、空ファイル確認も整理します。"
+date: "2026-06-29"
+image: "/articles/gas/google-sheets-shift-jis-csv-export/cover.png"
+---
+
+<Term>Googleスプレッドシート</Term>では、標準機能で<Term>CSV</Term>をダウンロードできます。
+
+ただし、標準のCSV出力では文字コードを細かく選べません。日本語の業務システムでは、現在でも<Term>Shift_JIS</Term>や<Term query="Shift_JIS">Windows-31J</Term>系のCSVを求められることがあります。
+
+たとえば、送り状発行システム、会計ソフト、販売管理ソフト、古い社内基幹システムなどでは、<Term>UTF-8</Term>のCSVをそのまま取り込むと文字化けしたり、形式エラーになったりする場合があります。
+
+この記事では、<Term>Google Apps Script</Term>でGoogleスプレッドシートの内容をShift_JIS形式のCSVとして出力する実装メモをまとめます。
+
+<figure>
+  <a href="/articles/gas/google-sheets-shift-jis-csv-export/cover.png" target="_blank" rel="noreferrer">
+    <img src="/articles/gas/google-sheets-shift-jis-csv-export/cover.png" alt="Google Apps ScriptでGoogleスプレッドシートからShift_JIS形式のCSVを出力する流れ" />
+  </a>
+  <figcaption>標準CSV出力で足りない場合は、GASで表示値を取得し、CSV文字列をShift_JISのBlobに変換してDriveへ保存します。</figcaption>
+</figure>
+
+## 標準CSV出力では足りない場面
+
+Googleスプレッドシートでは、次の操作でCSVを出力できます。
+
+```text
+ファイル
+↓
+ダウンロード
+↓
+カンマ区切り形式 CSV
+```
+
+この操作自体は便利です。
+
+ただし、業務システム向けCSVでは、単にCSVファイルを作れるだけでは不十分なことがあります。
+
+- 文字コードをShift_JISにしたい
+- 改行コードをCRLFにしたい
+- 郵便番号や電話番号の先頭ゼロを残したい
+- 日付の表示形式をシート上の見た目に合わせたい
+- 取り込み先に合わせて列順やヘッダーを固定したい
+- 出力先フォルダを分かりやすくしたい
+
+GoogleスプレッドシートからCSVを出力できることと、取り込み先システムが求める形式のCSVを出力できることは別問題です。
+
+## UTF-8とShift_JISの違い
+
+UTF-8は、現在のWebサービスで広く使われている文字コードです。GoogleスプレッドシートやWebアプリでは、UTF-8を前提にすることが多くなっています。
+
+一方、Shift_JISやWindows-31J、<Term>CP932</Term>は、日本語Windows環境や古い業務システムで使われてきた文字コードです。<Term>Excel</Term>で直接CSVを開いたときに、日本語が文字化けしにくいケースもあります。
+
+ただし、Shift_JISでは絵文字や一部の特殊文字を表現できない場合があります。業務CSVでは、できるだけ標準的な日本語、英数字、記号に絞る方が安全です。
+
+## GASでShift_JIS CSVを出力する流れ
+
+GASでは、CSV文字列を作成したあと、<Term>Blob</Term>へ変換して<Term>Google Drive</Term>に保存します。
+
+流れは次の通りです。
+
+```text
+スプレッドシート
+↓ getDisplayValues()
+2次元配列
+↓ CSV文字列化
+CSVテキスト
+↓ setDataFromString(csvText, 'Shift_JIS')
+Shift_JIS CSV Blob
+↓ folder.createFile(blob)
+Google DriveにCSV出力
+```
+
+ポイントは、`Utilities.newBlob()`で作ったBlobに対して、`setDataFromString(csvText, 'Shift_JIS')` を使うことです。
+
+## 最小サンプル
+
+まず、固定データをShift_JIS CSVとして出力する最小サンプルです。
+
+```javascript
+function testExportCsvShiftJis() {
+  const fileName = 'test_shiftjis.csv';
+
+  const values = [
+    ['お客様管理番号', 'お届け先名', 'お届け先住所', '品名'],
+    ['TEST001', '山田 太郎', '愛媛県今治市テスト町1-2-3', 'りんご 2kg']
+  ];
+
+  const csvText = valuesToCsv_(values);
+
+  const blob = Utilities.newBlob('', 'text/csv', fileName);
+  blob.setDataFromString(csvText, 'Shift_JIS');
+
+  DriveApp.createFile(blob);
+}
+
+function valuesToCsv_(values) {
+  return values.map(row => {
+    return row.map(value => {
+      let text = value == null ? '' : String(value);
+      text = text.replace(/"/g, '""');
+      return '"' + text + '"';
+    }).join(',');
+  }).join('\r\n');
+}
+```
+
+このコードで、固定データのShift_JIS CSVを作成できます。
+
+ただし、このままだと`DriveApp.createFile(blob)`によりマイドライブ直下へ作成されます。実務では、CSVがどこに出力されたか分からなくなると困るため、出力先フォルダを指定する方が扱いやすいです。
+
+## スプレッドシートと同じフォルダへ出力する
+
+現在開いているスプレッドシートと同じフォルダにCSVを作る場合は、スプレッドシートファイルの親フォルダを<Term>DriveApp</Term>で取得して、`folder.createFile(blob)`を使います。
+
+```javascript
+function createFileInSameFolder_(blob) {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheetFile = DriveApp.getFileById(spreadsheet.getId());
+  const parents = spreadsheetFile.getParents();
+
+  if (parents.hasNext()) {
+    const folder = parents.next();
+    return folder.createFile(blob);
+  }
+
+  return DriveApp.createFile(blob);
+}
+```
+
+この形にすると、スプレッドシートと出力CSVを同じ作業フォルダで管理できます。
+
+注意点として、Google Drive上で複数フォルダに配置されているファイルの場合、ここでは最初に取得できた親フォルダを使います。運用上の保存先を厳密に固定したい場合は、フォルダIDを設定として持たせる方が確実です。
+
+## コピー可能な完成版コード
+
+次は、現在開いているシートの表示内容を取得し、Shift_JIS CSVとしてスプレッドシートと同じフォルダへ出力する完成版です。
+
+<CopyCode language="javascript" filename="Code.gs" src="/articles/gas/google-sheets-shift-jis-csv-export/Code.gs" />
+
+このコードでは、`getDisplayValues()`を使っているため、日付、郵便番号、電話番号などをシート上の表示に近い形で出力できます。
+
+また、CSV文字数、Blobバイト数、Driveファイルサイズ、CSV先頭100文字をログに出しています。CSVが作られたのに中身が空に見える場合、どの段階で問題が起きているかを切り分けやすくするためです。
+
+## CSVが空に見える場合の確認ポイント
+
+CSVファイルは作成されたのに、Excelで開くと中身が空に見えることがあります。
+
+その場合、まずGASのログで次を確認します。
+
+```text
+CSV文字数
+CSV先頭100文字
+Blobバイト数
+Driveファイルサイズ
+```
+
+それぞれの意味は次の通りです。
+
+| ログ | 見るポイント |
+|---|---|
+| CSV文字数 | CSV文字列そのものが作られているか |
+| CSV先頭100文字 | ヘッダーや先頭データが想定通り入っているか |
+| Blobバイト数 | 文字列をShift_JIS化したあと、Blobにデータがあるか |
+| Driveファイルサイズ | Google Drive上のファイルが空ではないか |
+
+CSV文字数が0なら、データ取得やCSV化の前段階に問題があります。
+
+Blobバイト数やDriveファイルサイズが0なら、Blob変換やファイル作成の処理を確認します。
+
+## CSV変換で注意すること
+
+業務CSVでは、値を単純にカンマでつなぐだけでは不十分です。
+
+### 改行コードはCRLFにする
+
+Windows系の業務システムでは、改行コードが<Term>CRLF</Term>の方が無難な場合があります。
+
+```javascript
+.join('\r\n')
+```
+
+### 値はダブルクォートで囲む
+
+住所、品名、備考などにカンマが含まれる可能性があります。値はすべてダブルクォートで囲む方が安全です。
+
+```javascript
+return '"' + text + '"';
+```
+
+### ダブルクォートをエスケープする
+
+セル内に`"`が含まれる場合は、CSVのルールに従って`""`へ置き換えます。
+
+```javascript
+text = text.replace(/"/g, '""');
+```
+
+### getValuesではなくgetDisplayValuesを使う
+
+業務CSVでは、内部値よりも画面表示のまま出したいことがあります。
+
+たとえば、郵便番号、電話番号、日付、コード番号などです。`getValues()`ではなく`getDisplayValues()`を使うと、シート上の表示文字列として取得できます。
+
+```javascript
+const values = sheet.getDataRange().getDisplayValues();
+```
+
+## Excelと取り込み先システムの両方で確認する
+
+CSVは、Excelで開けたからといって、取り込み先システムで正常に取り込めるとは限りません。
+
+取り込み先によって、次の条件が違います。
+
+- 文字コード
+- 改行コード
+- ヘッダーの有無
+- 列数
+- 列順
+- 必須項目
+- 日付形式
+- 電話番号形式
+- 郵便番号形式
+- 空欄の扱い
+- ダブルクォートの有無
+
+Google Driveのプレビューでは正しく見えないこともあります。Excelで確認するだけでなく、テキストエディタで開いて、文字化け、列数、改行、先頭ゼロの扱いも確認する方が安全です。
+
+最終的には、実際の業務システムにテスト用CSVを取り込んで確認します。
+
+## Shift_JIS CSV出力チェックリスト
+
+- Googleスプレッドシート標準CSVで問題ないか確認した
+- 取り込み先がShift_JISを要求しているか確認した
+- GASでCSV文字列を作成した
+- `getDisplayValues()`で表示値を取得した
+- 改行コードをCRLFにした
+- カンマやダブルクォートを考慮した
+- `setDataFromString(csvText, 'Shift_JIS')`を使用した
+- 出力先をスプレッドシートと同じフォルダにした
+- CSV文字数をログで確認した
+- Blobバイト数をログで確認した
+- Driveファイルサイズをログで確認した
+- Excelで開いて文字化けしないか確認した
+- テキストエディタでも確認した
+- 取り込み先システムでテストインポートした
+
+## 関連記事
+
+- [GoogleスプレッドシートのURL変更パターンまとめ: /copy・/preview・/export・gid・rangeの使い分け](/articles/summary/google-sheets-url-patterns)
+- [GASでPDF帳票を作るときの画像・Drive・フォルダ設計](/articles/gas/image-function-photo-pdf-report)
+- [GASでGoogle Driveへの提出フォルダを自動作成する](/articles/gas/drive-submission-folder)
+- [Googleスプレッドシートを簡易DBとして使うMVP構成のアイデア](/articles/design-philosophy/google-sheets-simple-db-mvp)
+- [GASで2段ヘッダーの重複見出しを安全に扱う方法](/articles/gas/gas-two-row-header-composite-key)
+
+## まとめ
+
+Googleスプレッドシート標準のCSV出力は便利ですが、文字コードを細かく指定できません。
+
+業務システム向けにShift_JIS形式のCSVが必要な場合は、GASでCSV文字列を作成し、`setDataFromString(csvText, 'Shift_JIS')`でBlob化して出力する方法が使えます。
+
+ただし、実務ではCSVを作るだけでは不十分です。出力先フォルダ、ログ確認、ファイルサイズ確認、Excelでの見え方、取り込み先システムでのテストまで含めて確認することで、業務用CSVとして使いやすくなります。
