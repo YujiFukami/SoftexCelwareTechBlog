@@ -1,0 +1,200 @@
+---
+title: "GAS Webアプリ納品時の導入サポート｜使い始めるところまで案内します"
+category: "summary"
+slug: "gas-webapp-delivery-onboarding-support"
+tags: ["GAS", "Google Apps Script", "Googleスプレッドシート", "Webアプリ", "納品", "導入サポート", "スマホ対応", "業務改善"]
+description: "GoogleスプレッドシートとGASで作成したWebアプリを納品するときに、スプレッドシートのコピー、Apps Scriptの起動、デプロイ、アクセス承認、URL共有、スマホ利用までどのように導入サポートしているかを紹介します。"
+date: "2026-07-02"
+image: "/articles/summary/gas-webapp-delivery-onboarding-support/cover.png"
+---
+
+<Term>Google Apps Script</Term>と<Term>Googleスプレッドシート</Term>で作る<Term>Webアプリ</Term>は、専用サーバーを用意せずに業務用の入力画面や管理画面を作れるのが大きな利点です。
+
+一方で、納品時には「ファイルを渡して終わり」ではなく、実際に使い始められる状態まで案内する必要があります。特に、初回の<Term>Apps Script</Term>起動、Webアプリとしてのデプロイ、Googleアカウントのアクセス承認、スマートフォンでの起動方法は、慣れていない方にとって不安になりやすい部分です。
+
+この記事では、<Term query="Google Apps Script">GAS</Term> Webアプリを納品するときに、どのような流れで導入サポートを行っているかを整理します。
+
+<figure>
+  <a href="/articles/summary/gas-webapp-delivery-onboarding-support/cover.png" target="_blank" rel="noreferrer">
+    <img src="/articles/summary/gas-webapp-delivery-onboarding-support/cover.png" alt="GAS Webアプリの納品と導入サポートの流れ" />
+  </a>
+  <figcaption>GAS Webアプリは、スプレッドシートのコピー、Apps Scriptの起動、デプロイ、アクセス承認、URL共有まで進めて、初めて現場で使える状態になります。</figcaption>
+</figure>
+
+## 作って終わりにしない
+
+GAS Webアプリの納品では、完成したコードやスプレッドシートだけを渡しても、すぐに業務で使えるとは限りません。
+
+たとえば、次のような操作が必要になります。
+
+- 納品用の<Term>Googleスプレッドシート</Term>を自分のGoogleアカウントへコピーする
+- メニューから<Term>Apps Script</Term>を開く
+- Webアプリとしてデプロイする
+- 実行ユーザーとアクセスできるユーザーを設定する
+- 初回起動時にGoogleアカウントのアクセス承認を行う
+- 発行されたWebアプリURLを利用者へ共有する
+- スマートフォンで開き、必要に応じてホーム画面へ追加する
+
+このあたりは、開発者にとっては慣れた作業でも、初めて使う方には分かりにくい部分です。そのため、納品時には画像付きの手順、操作動画、必要に応じたオンライン画面共有で、使い始めるところまで案内するようにしています。
+
+<figure>
+  <a href="/articles/summary/gas-webapp-delivery-onboarding-support/delivery-flow.jpg" target="_blank" rel="noreferrer">
+    <img src="/articles/summary/gas-webapp-delivery-onboarding-support/delivery-flow.jpg" alt="GAS Webアプリ納品時に説明する基本の流れ" />
+  </a>
+  <figcaption>納品時の説明は、スプレッドシートのコピー、Webアプリのデプロイ、実際の使い方という流れで分けると伝わりやすくなります。</figcaption>
+</figure>
+
+## Apps Scriptを開くところから案内する
+
+GAS Webアプリは、スプレッドシートと紐づいた<Term>Apps Script</Term>プロジェクトとして作ることが多いです。
+
+納品後にお客様側で設定を確認したり、Webアプリとしてデプロイしたりする場合は、まずスプレッドシートのメニューからApps Scriptを開く必要があります。
+
+<figure>
+  <a href="/articles/summary/gas-webapp-delivery-onboarding-support/open-apps-script.jpg" target="_blank" rel="noreferrer">
+    <img src="/articles/summary/gas-webapp-delivery-onboarding-support/open-apps-script.jpg" alt="Googleスプレッドシートの拡張機能メニューからApps Scriptを開く画面" />
+  </a>
+  <figcaption>スプレッドシートの「拡張機能」からApps Scriptを開き、納品されたスクリプトを確認します。画像内のアプリ名は説明用の一例です。</figcaption>
+</figure>
+
+ここで重要なのは、開発者側だけで完結させるのではなく、お客様側のGoogleアカウントで管理できる形にしておくことです。業務で使うスプレッドシートや<Term>Google Drive</Term>上のデータは、お客様の資産として残る形の方が、あとから保守や引き継ぎを行いやすくなります。
+
+アカウント管理の考え方は、[Webアプリ受託開発ではGitHubやDBのアカウントは誰が管理すべきか？](/articles/summary/webapp-contract-account-ownership)でも整理しています。
+
+## Webアプリとしてデプロイする
+
+Apps Scriptで作った画面を業務用のWebアプリとして使うには、デプロイ設定が必要です。
+
+納品時には、次のような設定を一緒に確認します。
+
+- 種類を「ウェブアプリ」にする
+- 実行ユーザーをどうするか決める
+- アクセスできるユーザーの範囲を決める
+- 社内利用なのか、URLを知っている人が使うのかを確認する
+
+<figure>
+  <a href="/articles/summary/gas-webapp-delivery-onboarding-support/deploy-settings.jpg" target="_blank" rel="noreferrer">
+    <img src="/articles/summary/gas-webapp-delivery-onboarding-support/deploy-settings.jpg" alt="Apps ScriptでWebアプリを新しくデプロイする設定画面" />
+  </a>
+  <figcaption>実行ユーザーとアクセスできるユーザーは、運用ルールに合わせて設定します。URLを知っている人が使える設定にする場合は、共有範囲の説明もセットで行います。</figcaption>
+</figure>
+
+ここを曖昧にすると、「誰が使えるのか」「URLを転送してよいのか」「退職者や外部メンバーが使えないようにできるのか」が分かりにくくなります。
+
+そのため、単にデプロイ手順を説明するだけでなく、実際の運用に合わせてアクセス範囲を確認することが大事です。
+
+## アクセス承認は不安になりやすい
+
+GAS Webアプリでは、初回実行時にGoogleアカウントのアクセス承認が表示されることがあります。
+
+これは、スプレッドシートを読み書きしたり、<Term>Google Drive</Term>へファイルを保存したり、外部サービスと通信したりする処理で必要になるものです。
+
+<figure>
+  <a href="/articles/summary/gas-webapp-delivery-onboarding-support/access-approval.jpg" target="_blank" rel="noreferrer">
+    <img src="/articles/summary/gas-webapp-delivery-onboarding-support/access-approval.jpg" alt="GAS Webアプリの初回アクセス承認画面" />
+  </a>
+  <figcaption>Googleの承認画面は初めて見ると不安になりやすい部分です。納品元、処理内容、必要な権限を確認したうえで進めるように説明します。</figcaption>
+</figure>
+
+ここで「警告が出ても気にせず進めてください」とだけ説明するのは適切ではありません。
+
+大事なのは、次の点を確認してから進めることです。
+
+- 納品されたスクリプトであること
+- どのGoogleアカウントで使うのか
+- スプレッドシートやDriveへアクセスする理由
+- どの業務データを扱うのか
+- 不明点があれば、画面共有で一緒に確認できること
+
+小規模な社内用GAS Webアプリでは、Googleの確認済みアプリとして公開審査を通すのではなく、社内・個別運用として使うケースもあります。その場合でも、権限承認の意味を説明し、納得して進めてもらうことが重要です。
+
+## スマートフォンで使えるところまで案内する
+
+現場入力用のWebアプリでは、PCよりもスマートフォンで使う場面が多くなります。
+
+納品時には、WebアプリURLを共有するだけでなく、スマートフォンでURLを開き、実際の入力画面が表示されるところまで確認します。
+
+<figure>
+  <a href="/articles/summary/gas-webapp-delivery-onboarding-support/share-url-smartphone.jpg" target="_blank" rel="noreferrer">
+    <img src="/articles/summary/gas-webapp-delivery-onboarding-support/share-url-smartphone.jpg" alt="GAS WebアプリのURLをスマートフォンへ共有してChromeで開く流れ" />
+  </a>
+  <figcaption>WebアプリURLをスマートフォンへ共有し、<Term>Chrome</Term>などのブラウザで開きます。画像内のアプリ画面は、写真付き報告書作成アプリを例にした説明です。</figcaption>
+</figure>
+
+URLをブックマークに入れるだけでも使えますが、毎日使う業務アプリであれば、ホーム画面へ追加しておくと起動しやすくなります。
+
+<figure>
+  <a href="/articles/summary/gas-webapp-delivery-onboarding-support/home-screen-shortcut.jpg" target="_blank" rel="noreferrer">
+    <img src="/articles/summary/gas-webapp-delivery-onboarding-support/home-screen-shortcut.jpg" alt="スマートフォンのホーム画面へGAS Webアプリのショートカットを追加する方法" />
+  </a>
+  <figcaption>スマートフォンのホーム画面にショートカットを追加しておくと、通常のアプリに近い感覚で起動できます。</figcaption>
+</figure>
+
+スマホ利用を前提にする場合は、画面幅、入力欄の大きさ、ボタン位置、画像アップロードの操作性も重要です。GAS Webアプリをスマートフォン向けに作る考え方は、[GAS Webアプリをスマホで使いやすくするUIテンプレート](/articles/gas/gas-smartphone-template)でも整理しています。
+
+## 画像・動画・画面共有を組み合わせる
+
+納品時の説明は、文章だけでは伝わりにくいことがあります。
+
+そのため、次のような形で、複数の説明方法を組み合わせます。
+
+<table>
+  <thead>
+    <tr>
+      <th>説明方法</th>
+      <th>向いている内容</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>画像付きマニュアル</td>
+      <td>あとから見返す手順、設定画面、クリックする場所の説明</td>
+    </tr>
+    <tr>
+      <td>操作動画</td>
+      <td>画面遷移、スマートフォン操作、ホーム画面追加などの流れ</td>
+    </tr>
+    <tr>
+      <td>オンライン画面共有</td>
+      <td>Googleアカウント承認、デプロイ設定、初回利用時の不安解消</td>
+    </tr>
+  </tbody>
+</table>
+
+特に、Googleのアクセス承認やデプロイ設定は、画面を見ながら一緒に進めた方が早いことがあります。
+
+「手順書はあるけれど、自分の画面と少し違っていて不安」という場面では、オンラインで画面を共有しながら確認できるようにしておくと、導入時のつまずきを減らせます。
+
+## GAS Webアプリ納品で確認しておきたいこと
+
+GAS Webアプリを納品するときは、次の項目を事前に確認しておくとスムーズです。
+
+- どのGoogleアカウントで管理するか
+- スプレッドシートやDriveフォルダの所有者を誰にするか
+- WebアプリURLを誰に共有するか
+- スマートフォン利用を前提にするか
+- 初回承認を誰が行うか
+- 運用後に設定変更や軽微な改修が必要になった場合の連絡方法
+
+このあたりを整理しておくと、納品後に「どこを開けばよいか分からない」「URLはどこにあるのか」「スマホでどう起動するのか」といった問題を減らせます。
+
+写真付き報告書作成アプリのような現場向けアプリでは、実際の入力やPDF出力まで含めて確認することが重要です。関連する開発事例は、[GASで作る工事現場向け写真付き報告書Webアプリ](/articles/gas/construction-photo-report-webapp)にまとめています。
+
+## まとめ
+
+GAS Webアプリは、<Term>Googleスプレッドシート</Term>や<Term>Google Drive</Term>と組み合わせることで、比較的低コストに業務アプリを構築できます。
+
+ただし、実務で使ってもらうには、開発だけでなく、納品後の導入手順まで含めたサポートが必要です。
+
+スプレッドシートのコピー、Apps Scriptの起動、デプロイ、アクセス承認、WebアプリURLの共有、スマートフォンでの起動、ホーム画面への追加まで案内しておくことで、お客様が実際に使い始めるまでの不安を減らせます。
+
+Softex Celwareでは、GoogleスプレッドシートとGASを使った業務用Webアプリについて、開発だけでなく導入時の説明資料作成や画面共有サポートも含めて対応しています。
+
+## 関連記事
+
+- [GASで作る工事現場向け写真付き報告書Webアプリ](/articles/gas/construction-photo-report-webapp)
+- [GAS Webアプリをスマホで使いやすくするUIテンプレート](/articles/gas/gas-smartphone-template)
+- [GoogleフォームかGAS Webアプリ選択の判断材料](/articles/design-philosophy/google-forms-vs-gas-webapp)
+- [Googleスプレッドシートを簡易DBにするアイデア](/articles/design-philosophy/google-sheets-simple-db-mvp)
+- [GoogleスプレッドシートのURL変更パターンまとめ](/articles/summary/google-sheets-url-patterns)
+- [Webアプリ受託開発ではGitHubやDBのアカウントは誰が管理すべきか？](/articles/summary/webapp-contract-account-ownership)
