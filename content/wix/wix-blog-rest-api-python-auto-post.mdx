@@ -1,0 +1,220 @@
+---
+title: "Wixブログ記事をREST APIとPythonで自動投稿する方法"
+category: "wix"
+slug: "wix-blog-rest-api-python-auto-post"
+tags: ["Wix", "REST API", "Python", "ブログ自動投稿", "Markdown", "SEO", "業務自動化"]
+description: "Markdown原稿をPythonでWix Blog REST APIへ送り、下書き作成、画像アップロード、SEO設定まで自動化するための構成、必要なID、Ricos変換、ハマりどころを整理します。"
+date: "2026-07-02"
+image: "/articles/wix/wix-blog-rest-api-python-auto-post/workflow.svg"
+---
+
+<Term>Wix</Term>でブログを運用していると、毎回Editorを開いて記事本文、画像、タグ、<Term>SEO</Term>設定を手作業で入れるのが負担になることがあります。
+
+記事のネタや原稿を<Term>Markdown</Term>で管理している場合は、<Term>Python</Term>スクリプトから<Term>REST API</Term>を呼び出し、Wix Blogへ下書きとして登録する運用にできます。
+
+この記事では、Markdown原稿をWixブログへ自動投稿するための構成、必要な準備、画像アップロード、本文形式の変換、実装時にハマりやすい点を整理します。
+
+<figure>
+  <a href="/articles/wix/wix-blog-rest-api-python-auto-post/workflow.svg" target="_blank" rel="noreferrer">
+    <img src="/articles/wix/wix-blog-rest-api-python-auto-post/workflow.svg" alt="Markdown原稿をPythonでWix Blog REST APIへ送り下書き化する流れ" />
+  </a>
+  <figcaption>ネタや参考資料をMarkdown原稿にし、PythonでRicos形式へ変換してWix Blog REST APIへ送る流れです。公開は自動化しすぎず、まず下書きで止める運用が安全です。</figcaption>
+</figure>
+
+## 何を自動化するのか
+
+今回の目的は、Wixブログの記事作成を次のような流れにすることです。
+
+```text
+記事のネタ・参考URL・資料
+  ↓
+AIまたは人がMarkdown原稿を作成
+  ↓
+PythonスクリプトでMarkdownをWix用JSONへ変換
+  ↓
+Wix Blog REST APIで下書き作成
+  ↓
+人間が内容、画像、リンク、公開可否を確認
+  ↓
+Wixブログで公開
+```
+
+ポイントは、いきなり自動公開しないことです。
+
+API上は公開まで進める構成も作れますが、実務では誤情報、画像の権利、個人情報、守秘義務、リンク切れの確認が必要になります。まずは `publish: false` で下書き作成まで自動化し、人間が最終確認して公開する形が扱いやすいです。
+
+Wixを外部から操作できる範囲の考え方は、[Wixは外部APIでどこまで自動化できる？](/articles/design-philosophy/wix-external-operation-automation) でも整理しています。
+
+## 必要な準備
+
+Wix Blog APIを使うには、最低限次の情報を用意します。
+
+<table>
+  <thead>
+    <tr>
+      <th>項目</th>
+      <th>役割</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>APIキー</td>
+      <td>外部スクリプトからWix APIを呼ぶための認証情報です。公開リポジトリや記事に実値を載せてはいけません。</td>
+    </tr>
+    <tr>
+      <td>サイトID</td>
+      <td>どのWixサイトを操作するかを指定するIDです。APIリクエストでは `wix-site-id` ヘッダーに入れます。</td>
+    </tr>
+    <tr>
+      <td>memberId</td>
+      <td>ブログ記事の著者を表すIDです。下書き作成時に指定しないと、投稿所有者情報が不足してエラーになることがあります。</td>
+    </tr>
+  </tbody>
+</table>
+
+APIキーには、必要な権限だけを付与します。ブログ投稿に使うならWix Blogの管理権限、画像アップロードも行うならMedia Manager関連の権限を確認します。
+
+サイト全体へ広い権限を与えるより、対象サイトだけに絞る方が安全です。
+
+## 共通ヘッダーとリトライ処理
+
+Wix APIを呼ぶときは、`Authorization` と `wix-site-id` をヘッダーへ付けます。
+
+また、外部APIでは一時的な `429`、`502`、`503`、`504` が返ることがあります。同じリクエストでも少し待って再試行すると通る場合があるため、最初からリトライを入れておくと安定します。
+
+<CopyCode language="python" filename="retry_client.py" src="/articles/wix/wix-blog-rest-api-python-auto-post/retry_client.py" />
+
+ここで扱う `API_KEY`、`SITE_ID` は、<Term>環境変数</Term>や `.env` などから読み込む想定です。記事内のように変数名だけを載せ、実値は公開しないようにします。
+
+## Markdownをそのまま送れるわけではない
+
+Wix Blog APIの本文は、Markdown文字列をそのまま渡す形式ではありません。
+
+本文はRicosと呼ばれるリッチコンテンツ<Term>JSON</Term>の構造で渡します。つまり、Markdown原稿をそのまま送るのではなく、見出し、段落、箇条書き、引用、コードブロック、画像などをWix用のノード構造へ変換する必要があります。
+
+```text
+Markdown
+  # 見出し
+  本文
+  - 箇条書き
+
+Wix richContent
+  HEADING node
+  PARAGRAPH node
+  BULLETED_LIST node
+```
+
+実装では、Markdownパーサーで構文を読み取り、`PARAGRAPH`、`HEADING`、`BULLETED_LIST`、`ORDERED_LIST`、`BLOCKQUOTE`、`CODE_BLOCK`、`IMAGE` などのノードへ変換します。
+
+各ノードには一意の `id` を振っておくと、Wix側で扱いやすくなります。
+
+## 画像はMedia Managerへアップロードする
+
+本文内の画像やカバー画像は、ローカルファイルをそのまま記事本文へ差し込むのではなく、先にWixのMedia Managerへアップロードします。
+
+流れは次の2段階です。
+
+1. `generate-upload-url` でアップロード先URLを発行する
+2. そのURLへ画像バイナリを `PUT` する
+
+アップロード後に返ってくるメディアIDを、記事本文の画像ノードや `heroImage` に指定します。
+
+<CopyCode language="python" filename="upload_local_file.py" src="/articles/wix/wix-blog-rest-api-python-auto-post/upload_local_file.py" />
+
+注意点として、アップロード用の署名付きURLへ `PUT` するときは、通常のWix APIヘッダーをそのまま付けない方がよいです。発行された `uploadUrl` に対して、画像の `Content-Type` とバイナリだけを送る形にします。
+
+## draftPostペイロードの骨子
+
+下書き作成では、`draftPost` にタイトル、本文、著者ID、抜粋、URLスラッグ、SEOデータ、カバー画像、カテゴリ、タグなどを渡します。
+
+<CopyCode language="python" filename="draft_payload.py" src="/articles/wix/wix-blog-rest-api-python-auto-post/draft_payload.py" />
+
+`memberId` がないと、`Missing post owner information` のようなエラーになることがあります。固定の著者で運用する場合は、一度取得したIDを `WIX_MEMBER_ID` として環境変数に持たせると、毎回問い合わせずに済みます。
+
+## 原稿Markdownの形式
+
+原稿側は、YAMLフロントマター付きMarkdownにしておくと扱いやすいです。
+
+<CopyCode language="markdown" filename="article-example.md" src="/articles/wix/wix-blog-rest-api-python-auto-post/article-example.md" />
+
+`title`、`excerpt`、`meta_description`、`slug`、`hero_image`、`tags`、`categories`、`publish` を原稿側に持たせておけば、投稿スクリプトはそれを読み取ってWix APIのペイロードへ変換できます。
+
+本文中の画像にWindowsフルパスを使う場合は、スペースやバックスラッシュでMarkdownパーサーが崩れやすくなります。必要に応じてパス全体を山括弧で囲み、スクリプト側でURLデコードしてローカルパスとして扱います。
+
+## SEO設定も一緒に送る
+
+Wix Blog APIでは、本文だけでなくSEO関連の情報も指定できます。
+
+- `seoSlug`: 記事URLの末尾スラッグ
+- `excerpt`: 記事の概要
+- `seoData.tags`: meta descriptionなど
+- `heroImage`: カバー画像
+- `categoryIds`、`tagIds`: Wix側のカテゴリ・タグID
+
+カテゴリやタグは、名前をそのまま送るのではなく、Wix側に存在するIDへ解決してから渡す必要があります。存在しないカテゴリを勝手に作る運用にすると整理が崩れやすいため、最初は既存カテゴリだけを付与する方が安全です。
+
+## ハマりやすいポイント
+
+### memberIdが必要になる
+
+Wix Blogの下書き作成では、記事の所有者情報が必要になります。
+
+`memberId` を渡していない場合、下書き作成時に投稿者情報が不足して失敗することがあります。著者一覧を取得するAPIでIDを確認し、投稿時に指定します。
+
+### MarkdownからRicosへの変換が必要
+
+MarkdownやHTMLをそのまま本文に入れれば自動変換される、という前提で作ると詰まります。
+
+Wix Blogの本文はRicos形式なので、Markdownを読み取り、Wixが期待するJSONノードへ変換する層を用意します。
+
+### 画像はID参照が基本になる
+
+外部URLをそのまま差し込むのではなく、Media Managerへアップロードしてから、その画像IDを本文やカバー画像に指定します。
+
+この一手間を入れることで、Wix側のメディア管理と記事表示が安定します。
+
+### 一時的なAPIエラーはリトライする
+
+`503 UNAVAILABLE` のような一時エラーは、同じリクエストでも再試行で通ることがあります。
+
+投稿自動化では、失敗したら即終了ではなく、指数バックオフや短い待機を挟んでリトライする設計にしておくと実用しやすくなります。
+
+## 安全な運用方針
+
+ブログ自動投稿は便利ですが、完全自動公開まで進めるとリスクもあります。
+
+おすすめは次の形です。
+
+```text
+AIや人がMarkdown原稿を作る
+PythonでWixへ下書き登録する
+人間がWix上で内容を確認する
+問題なければ公開する
+```
+
+APIキー、サイトID、著者ID、ローカルパス、未公開URL、顧客情報などは、記事本文やGitHubへ出さないようにします。
+
+特に、<Term>生成AI</Term>で原稿を作る場合は、公開前チェックを固定手順にしておくことが重要です。公開前の確認観点は、[技術記事を公開する前のリスクチェックリスト](/articles/codex/publication-risk-checklist)にも整理しています。
+
+## まとめ
+
+Wixブログは、Editor上の手作業だけでなく、Blog REST APIを使って外部から下書き作成できます。
+
+Markdown原稿、Pythonスクリプト、Ricos変換、Media Managerへの画像アップロード、SEO設定を組み合わせると、記事投稿作業をかなり自動化できます。
+
+ただし、実務では自動公開まで一気に進めるより、下書き作成までを自動化し、最後に人間が確認する形が安全です。
+
+## 関連記事
+
+- [Wixは外部APIでどこまで自動化できる？ CMS・ブログ・エディター操作の違い](/articles/design-philosophy/wix-external-operation-automation)
+- [開発資産MarkdownをMDX記事へ変換する作業フロー](/articles/codex/website-mdx-article-workflow)
+- [技術記事を公開する前のリスクチェックリスト](/articles/codex/publication-risk-checklist)
+- [生成AIを活用した新しいシステム導入サービスの考え方](/articles/design-philosophy/generative-ai-introduction-support)
+- [Pythonバッチ処理で安全な出力フォルダを作る考え方](/articles/python-windows/batch-processing-safe-output-folder)
+
+## 参考資料
+
+- [Wix Blog Draft Posts API](https://dev.wix.com/docs/api-reference/business-solutions/blog/draft-posts/create-draft-post)
+- [Wix API Keys](https://dev.wix.com/docs/rest/articles/getting-started/api-keys)
+- [Wix Media Manager: Generate File Upload URL](https://dev.wix.com/docs/rest/assets/media/media-manager/files/generate-file-upload-url)
+- [Wix Media Manager: Upload API](https://dev.wix.com/docs/api-reference/assets/media/media-manager/files/upload-api)

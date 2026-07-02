@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Wixブログ記事自動投稿の流れ</title>
+  <desc id="desc">Markdown原稿をPythonでRicos形式へ変換し、Wix Blog REST APIで下書き登録するワークフロー図</desc>
+  <rect width="1200" height="630" fill="#f8fafc"/>
+  <rect x="56" y="58" width="1088" height="514" rx="18" fill="#ffffff" stroke="#d8e0ea"/>
+  <text x="86" y="115" font-family="Arial, 'Yu Gothic', sans-serif" font-size="40" font-weight="700" fill="#0f172a">Wixブログ記事の自動投稿ワークフロー</text>
+  <text x="88" y="158" font-family="Arial, 'Yu Gothic', sans-serif" font-size="22" fill="#475569">Markdown原稿をPythonで変換し、Wix Blog REST APIへ下書き登録する</text>
+
+  <g font-family="Arial, 'Yu Gothic', sans-serif">
+    <rect x="86" y="238" width="178" height="126" rx="12" fill="#e0f2fe" stroke="#7dd3fc"/>
+    <text x="175" y="286" text-anchor="middle" font-size="24" font-weight="700" fill="#075985">ネタ・資料</text>
+    <text x="175" y="322" text-anchor="middle" font-size="18" fill="#0f172a">参考URL</text>
+    <text x="175" y="348" text-anchor="middle" font-size="18" fill="#0f172a">画像・メモ</text>
+
+    <path d="M274 301 H344" stroke="#2563eb" stroke-width="5" fill="none"/>
+    <path d="M344 301 l-15 -10 v20 z" fill="#2563eb"/>
+
+    <rect x="356" y="238" width="178" height="126" rx="12" fill="#dcfce7" stroke="#86efac"/>
+    <text x="445" y="286" text-anchor="middle" font-size="24" font-weight="700" fill="#166534">Markdown</text>
+    <text x="445" y="322" text-anchor="middle" font-size="18" fill="#0f172a">frontmatter</text>
+    <text x="445" y="348" text-anchor="middle" font-size="18" fill="#0f172a">本文・画像パス</text>
+
+    <path d="M544 301 H614" stroke="#2563eb" stroke-width="5" fill="none"/>
+    <path d="M614 301 l-15 -10 v20 z" fill="#2563eb"/>
+
+    <rect x="626" y="238" width="178" height="126" rx="12" fill="#fef3c7" stroke="#fbbf24"/>
+    <text x="715" y="286" text-anchor="middle" font-size="24" font-weight="700" fill="#92400e">Python</text>
+    <text x="715" y="322" text-anchor="middle" font-size="18" fill="#0f172a">Ricos変換</text>
+    <text x="715" y="348" text-anchor="middle" font-size="18" fill="#0f172a">画像アップロード</text>
+
+    <path d="M814 301 H884" stroke="#2563eb" stroke-width="5" fill="none"/>
+    <path d="M884 301 l-15 -10 v20 z" fill="#2563eb"/>
+
+    <rect x="896" y="238" width="218" height="126" rx="12" fill="#ede9fe" stroke="#c4b5fd"/>
+    <text x="1005" y="286" text-anchor="middle" font-size="24" font-weight="700" fill="#5b21b6">Wix Blog API</text>
+    <text x="1005" y="322" text-anchor="middle" font-size="18" fill="#0f172a">下書き作成</text>
+    <text x="1005" y="348" text-anchor="middle" font-size="18" fill="#0f172a">SEO・タグ設定</text>
+
+    <rect x="230" y="436" width="740" height="62" rx="31" fill="#0f766e"/>
+    <text x="600" y="475" text-anchor="middle" font-size="24" font-weight="700" fill="#ffffff">公開前に人間が内容・画像・リンク・機密情報を確認</text>
+    <path d="M1005 372 C1005 426 940 466 970 466" stroke="#0f766e" stroke-width="5" fill="none"/>
+    <path d="M230 466 C160 466 175 396 175 372" stroke="#0f766e" stroke-width="5" fill="none"/>
+  </g>
+</svg>

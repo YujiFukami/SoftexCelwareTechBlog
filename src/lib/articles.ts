@@ -97,6 +97,7 @@ export const categoryLabels: Record<string, string> = {
   "client-work": "開発対応事例",
   "design-philosophy": "設計思想",
   summary: "技術まとめ",
+  wix: "Wix自動化",
   vba: "Excel VBA",
   powershell: "PowerShell / bat運用",
 };
