@@ -1,0 +1,103 @@
+---
+title: "ボタンの配置範囲から列の表示/非表示を切り替えるExcel VBA汎用プロシージャ"
+category: "vba"
+slug: "switch-show-hide-col-by-button"
+tags: ["Excel VBA", "汎用プロシージャ", "フォームコントロール", "Application.Caller", "TopLeftCell", "列表示切替", "Shape"]
+description: "Excel VBAでフォームコントロールボタンの配置セル範囲を取得し、その範囲の列を表示/非表示に切り替える汎用プロシージャを解説します。"
+date: "2026-07-03"
+image: "/articles/vba/switch-show-hide-col-by-button/workflow.jpg"
+---
+
+## 概要
+
+`SwitchShowHideColByButton`は、<Term>Excel VBA</Term>でクリックされた<Term>フォームコントロールのボタン</Term>を取得し、そのボタンが置かれているセル範囲をもとに列の表示/非表示を切り替える汎用<Term>プロシージャ</Term>です。
+
+横長のスケジュール表や管理表では、「区分別時間だけ表示する」「時間帯別の列だけ開く」「シフト表示を一時的に隠す」といった操作がよく出てきます。ボタンごとに `Columns("J:M").Hidden = True` のような処理を書くと、列構成が変わるたびにVBAコードを直す必要があります。
+
+この方法では、列番号をコードに固定せず、ボタンの配置範囲そのものを対象範囲として使います。見た目と処理範囲が一致するため、あとから修正しやすいExcelツールにできます。
+
+## 使う場面
+
+- スケジュール表や勤務表で、必要な列グループだけ表示したい
+- 横長の管理表で、不要な列を一時的に隠したい
+- 複数の表示切替ボタンで、同じ処理を使い回したい
+- ボタンごとのVBAコードを1行にして、実処理を共通化したい
+- 列構成の変更に強い業務用Excelツールにしたい
+
+## 処理イメージ図
+
+<figure>
+  <a href="/articles/vba/switch-show-hide-col-by-button/workflow.jpg" target="_blank" rel="noopener noreferrer">
+    <img src="/articles/vba/switch-show-hide-col-by-button/workflow.jpg" alt="ボタンの配置範囲から列の表示非表示を切り替えるExcel VBA汎用プロシージャの処理フロー" className="h-auto w-full" />
+  </a>
+  <figcaption>ボタンの配置範囲をそのまま列表示切替の対象範囲として使うことで、ボタンごとの個別処理を最小化できます。</figcaption>
+</figure>
+
+処理の流れは次の通りです。
+
+1. ユーザーが表示切替ボタンをクリックする
+2. `Application.Caller`でクリックされたボタン名を取得する
+3. ボタン名から該当する<Term>Shape</Term>を取得する
+4. `Shape.DrawingObject`からフォームコントロールの`Button`を取得する
+5. `Button.TopLeftCell`と`Button.BottomRightCell`で配置セル範囲を取得する
+6. 対象列が非表示なら表示する
+7. 対象列が表示中なら非表示にする
+
+## 使用例
+
+各ボタンに割り当てるプロシージャは、汎用処理を呼び出すだけにします。
+
+<CopyCode language="vba" filename="使用例" src="/articles/vba/switch-show-hide-col-by-button/usage.bas" />
+
+例えば「区分別時間表示切替」「時間帯別表示切替」「シフト表示切替」のボタンがあっても、個別処理の中身はすべて `Call SwitchShowHideColByButton` だけです。実際にどの列を切り替えるかは、押されたボタンの配置範囲から判定します。
+
+## コピー可能な実装コード
+
+下のコードは、`SwitchShowHideColByButton`、クリックされたボタンを取得する`GetButtonPushed`、指定名の図形を取得する`GetShapeByName`をまとめたものです。
+
+<CopyCode language="vba" filename="SwitchShowHideColByButton.bas" src="/articles/vba/switch-show-hide-col-by-button/SwitchShowHideColByButton.bas" />
+
+## 初心者向けコード解説
+
+中心になるのは、次の2行です。
+
+```vba
+Dim StartCell As Range: Set StartCell = Button.TopLeftCell
+Dim EndCell   As Range: Set EndCell = Button.BottomRightCell.Offset(-1, -1)
+```
+
+`TopLeftCell`は、ボタン左上が重なっているセルを返します。`BottomRightCell`は、ボタン右下が重なっているセルを返します。つまり、ボタンをどの<Term>Range</Term>の上に置くかによって、処理対象の列範囲を変えられます。
+
+`EndCell`で`Offset(-1, -1)`しているのは、ボタンの右下判定が隣のセルにずれることがあるため、実際に対象にしたい範囲へ寄せるためです。図形や結合セルの配置によって最適な補正は変わるため、実装後に一度対象列が正しく切り替わるか確認します。
+
+表示/非表示の切り替えは、次の条件で判断しています。
+
+```vba
+If StartCell.Offset(0, 1).EntireColumn.Hidden = True Then
+```
+
+左端列ではなく、1列右の列を見ています。これは、左端列を見出しや再表示のための目印として残す設計にしているためです。非表示状態ならボタン範囲全体を表示し、表示状態なら左端列を残して右側だけを非表示にします。
+
+クリックされたボタンの取得には、`Application.Caller`を使います。フォームコントロールボタンにマクロを割り当てて実行すると、`Application.Caller`から押されたボタンの名前を取得できます。ただし、そのままでは文字列なので、`GetShapeByName`で<Term>Shape</Term>として取得し、`DrawingObject`で`Button`として扱います。
+
+## 注意点
+
+- このコードは、ワークシート上の<Term>フォームコントロールのボタン</Term>を前提にしています。ActiveXボタンでは取得方法が変わる場合があります。
+- ボタンは、切り替えたい列範囲の上に分かりやすく配置します。配置がずれると、意図しない列が対象になることがあります。
+- 左端列を残す設計にしているため、完全に隠したい列と、再表示のために残す列を事前に決めておきます。
+- 結合セルや図形サイズによって、`TopLeftCell`や`BottomRightCell`の取得結果が想定とずれることがあります。
+- `Application.Caller`は、ボタンに割り当てたマクロとして実行された場合を前提にしています。VBEから直接実行する用途には向きません。
+
+## 関連記事
+
+- [指定名の図形を取得するGetShapeByName](/articles/vba/get-shape-by-name)
+- [クリックされた図形を取得するGetShapePushed](/articles/vba/get-shape-pushed)
+- [セル範囲に合わせてボタンを作成するMakeCommandButtonAtCell](/articles/vba/make-command-button-at-cell)
+- [クリックされた図形の色を一時変更するChangePushedButtonColor](/articles/vba/change-pushed-button-color)
+- [Excel VBA部品化テクニックの言語化](/articles/vba/vba-componentization-technique)
+
+## 軽いまとめ
+
+VBAの汎用化は、難しい設計だけではありません。今回のように、ボタンの配置範囲を処理対象として使うだけでも、コード量を減らし、保守しやすいExcelツールにできます。
+
+特に横長のスケジュール表や管理表では、表示切替の仕組みを共通化しておくと、列構成の変更やボタン追加にかなり強くなります。見た目の配置と処理対象を一致させる、小さくても実務で効く設計です。
