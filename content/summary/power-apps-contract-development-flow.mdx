@@ -1,0 +1,289 @@
+---
+title: "Power Apps受託開発の流れを解説｜受注から納品・保守までに必要な作業"
+category: "summary"
+slug: "power-apps-contract-development-flow"
+tags: ["Power Apps", "Power Platform", "Microsoft 365", "SharePoint", "Dataverse", "Power Automate", "受託開発", "業務改善"]
+description: "Power Apps受託開発では、Excelファイルのように成果物を渡すだけではなく、クライアントのMicrosoft 365環境にアプリ、データ、権限、自動化を構築する必要があります。受注から納品・保守までの流れを整理します。"
+date: "2026-07-05"
+image: "/articles/summary/power-apps-contract-development-flow/cover.png"
+---
+
+<Term>Power Apps</Term>は、<Term>Excel VBA</Term>や<Term>Google Apps Script</Term>と同じように、業務改善に使える強力な選択肢です。
+
+ただし、受託開発として考えると、納品の考え方が少し異なります。Excel VBAであれば、マクロ入りのExcelファイルを作成して納品する形が多いです。一方でPower Appsの場合は、クライアントの<Term>Microsoft 365</Term>環境内に、アプリ、データ保存先、権限、自動処理を構築して、実際に利用者が使える状態にする必要があります。
+
+この記事では、Excel VBAやGASの受託開発に慣れている方向けに、<Term>Power Platform</Term>を使ったPower Apps受託開発の流れを整理します。
+
+## ファイル納品型ではない
+
+Power Apps受託開発で最初に押さえたいのは、「完成したファイルを作って渡す」形とは違うという点です。
+
+Power Appsは、クライアント側のMicrosoft 365環境にアプリを作り、データ保存先や権限設定、必要に応じた<Term>Power Automate</Term>の通知・承認フローまで含めて整えます。
+
+<table>
+  <thead>
+    <tr>
+      <th>開発種別</th>
+      <th>納品のイメージ</th>
+      <th>注意点</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Excel VBA</td>
+      <td>Excelファイルを作成して渡す</td>
+      <td>PC環境、マクロ設定、参照設定など</td>
+    </tr>
+    <tr>
+      <td>GAS</td>
+      <td>スプレッドシートやApps Scriptを共有・引き継ぐ</td>
+      <td>Googleアカウント、権限、トリガー</td>
+    </tr>
+    <tr>
+      <td>Power Apps</td>
+      <td>Microsoft 365環境内にアプリ・データ・権限を構築</td>
+      <td>ライセンス、環境、SharePoint、Dataverse、Power Automate</td>
+    </tr>
+  </tbody>
+</table>
+
+そのため、アプリ画面だけでなく、次の要素もセットで考える必要があります。
+
+- Microsoft 365アカウント
+- Power Platform環境
+- <Term>SharePoint</Term>リストまたは<Term>Dataverse</Term>
+- Power Automate
+- 利用者への共有設定
+- 権限設定
+- ライセンス確認
+- 納品後の保守
+
+## 全体像
+
+<figure>
+  <a href="/articles/summary/power-apps-contract-development-flow/cover.png" target="_blank" rel="noreferrer">
+    <img src="/articles/summary/power-apps-contract-development-flow/cover.png" alt="Power Apps受託開発で相談から納品保守まで進める流れ" />
+  </a>
+  <figcaption>Power Apps受託開発では、相談、契約、環境確認、アカウント準備、データ設計、アプリ開発、テスト、納品保守という流れで進めます。</figcaption>
+</figure>
+
+Power Apps受託開発では、アプリ画面を作る作業だけでなく、その前後の確認作業が重要です。
+
+特に、Microsoft 365の契約状況、Power Appsを利用できるライセンス、データ保存先、開発用アカウント、利用者の権限などを事前に確認しておかないと、開発途中や納品直前で作業が止まる可能性があります。
+
+## 受注から納品までの流れ
+
+### 1. 相談・要件整理
+
+最初に確認するのは、機能一覧だけではありません。現在の業務フロー、既存のExcel台帳、紙の帳票、利用人数、利用端末、現場で困っていることを整理します。
+
+開発者側では、その業務がPower Apps化に向いているかを判断します。小さなExcel処理で十分ならExcel VBA、Googleスプレッドシート中心ならGASの方が合う場合もあります。Power Appsは便利ですが、すべての業務に無条件で最適というわけではありません。
+
+### 2. 契約・範囲確定
+
+Power Apps案件では、後から「通知も追加したい」「承認も入れたい」「別部署でも使いたい」という要望が出やすいです。
+
+そのため、初回構築範囲と追加対応範囲を分けておきます。作業範囲、納品物、見積もり、スケジュール、保守対応の考え方を契約前に整理しておくと、あとから揉めにくくなります。
+
+### 3. Microsoft 365環境の確認
+
+Power Appsはクライアント側のMicrosoft 365環境に依存します。Power Appsを利用できる契約か、管理者は誰か、SharePointが使えるか、Dataverseを使う必要があるかを確認します。
+
+ここで断定しすぎないことが大切です。利用可否やライセンスは契約状況によって変わるため、実案件ではクライアントの管理者と一緒に確認します。
+
+### 4. 開発用アカウント・権限準備
+
+受託開発では、管理者IDや担当者本人のパスワードを直接預かる運用は避けた方が安全です。
+
+現実的には、開発者用アカウントを発行してもらうか、外部ゲストとして招待してもらい、Power Apps、SharePoint、Dataverse、Power Automateに必要な権限を付与してもらう形が扱いやすいです。
+
+開発者側では、指定アカウントでログインできるか、Power Apps編集画面に入れるか、データ保存先を作成・編集できるか、フローを作成できるかを確認します。
+
+### 5. データ保存先の設計
+
+Power Appsでは、画面を作る前にデータ設計が重要です。
+
+Excel台帳の見た目をそのまま移すのではなく、入力項目、マスタ、業務ルール、権限による見せ分け、後から集計しやすい構造を整理します。小規模であればSharePointリスト、大きめのデータ構造や複雑な権限管理が必要ならDataverseを検討します。
+
+### 6. Power Apps・Power Automateの開発
+
+Power Appsでは、入力画面、一覧画面、詳細画面、編集画面、検索やフィルター、入力チェックなどを作ります。
+
+また、申請、承認、メール送信、Teams通知、リマインドなどはPower Automateと組み合わせることが多いです。アプリだけで完結しない業務フローが多いため、どこまでをアプリ側で行い、どこからをフロー側で行うかを決めます。
+
+### 7. テスト・共有設定
+
+開発者の環境で動くだけでは不十分です。実際の利用者アカウントで、権限、画面、通知が正しく動くか確認します。
+
+管理者、一般利用者、承認者など役割が分かれる場合は、それぞれの権限でテストします。Power Appsは共有設定とデータ保存先の権限が絡むため、「アプリは開けるがデータが見えない」といった問題も起きやすいです。
+
+### 8. 納品・保守
+
+納品時には、操作マニュアル、管理者向けの説明、利用者追加時の手順、修正依頼の出し方などを整理します。
+
+Power Appsは納品後も、利用者追加、権限変更、項目追加、通知先変更などが発生しやすいです。そのため、都度対応または月額保守の考え方と相性があります。
+
+## 作業分担
+
+Power Apps案件では、クライアント側と開発者側の作業分担を早めに整理しておくと進めやすくなります。
+
+<table>
+  <thead>
+    <tr>
+      <th>フェーズ</th>
+      <th>クライアント側</th>
+      <th>開発者側</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>相談</td>
+      <td>現在の業務・課題を共有</td>
+      <td>Power Apps化の適性を判断</td>
+    </tr>
+    <tr>
+      <td>契約</td>
+      <td>必要機能・利用人数を確定</td>
+      <td>作業範囲・納品物を明確化</td>
+    </tr>
+    <tr>
+      <td>環境確認</td>
+      <td>Microsoft 365契約・管理者を確認</td>
+      <td>利用環境・データ保存先を確認</td>
+    </tr>
+    <tr>
+      <td>権限準備</td>
+      <td>開発用アカウント発行・権限付与</td>
+      <td>ログイン・編集権限を確認</td>
+    </tr>
+    <tr>
+      <td>データ設計</td>
+      <td>項目・マスタ・業務ルールを共有</td>
+      <td>リスト・テーブルを設計</td>
+    </tr>
+    <tr>
+      <td>開発</td>
+      <td>画面・操作感を確認</td>
+      <td>アプリ・フローを作成</td>
+    </tr>
+    <tr>
+      <td>テスト</td>
+      <td>実利用者で操作確認</td>
+      <td>不具合修正・共有設定</td>
+    </tr>
+    <tr>
+      <td>納品</td>
+      <td>検収・運用開始</td>
+      <td>マニュアル納品・保守対応</td>
+    </tr>
+  </tbody>
+</table>
+
+## よくある構成例
+
+初めてのPower Apps案件では、SharePointリスト、Power Apps、Power Automateを組み合わせる構成が分かりやすいです。
+
+```text
+利用者
+  ↓
+Power Apps
+  ↓
+SharePointリスト
+  ↓
+Power Automate
+  ↓
+Teams通知 / Outlook通知
+```
+
+利用者はPower Appsから入力・閲覧し、データはSharePointリストに保存します。通知や承認はPower Automateで処理し、TeamsやOutlookへ送ります。
+
+Excel台帳をもとにした小規模な業務アプリでは、この構成から検討すると、Excel VBAやGAS受託の経験を活かしやすいです。
+
+## Excel VBA / GAS受託との違い
+
+<table>
+  <thead>
+    <tr>
+      <th>項目</th>
+      <th>Excel VBA</th>
+      <th>GAS</th>
+      <th>Power Apps</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>主な環境</td>
+      <td>Excelファイル</td>
+      <td>Google環境</td>
+      <td>Microsoft 365環境</td>
+    </tr>
+    <tr>
+      <td>納品形態</td>
+      <td>ファイル納品が多い</td>
+      <td>スプレッドシート・スクリプト共有</td>
+      <td>環境内にアプリ構築</td>
+    </tr>
+    <tr>
+      <td>権限管理</td>
+      <td>ファイル単位が中心</td>
+      <td>Googleアカウント権限</td>
+      <td>Microsoft 365 / SharePoint / Dataverse権限</td>
+    </tr>
+    <tr>
+      <td>自動化</td>
+      <td>VBAマクロ</td>
+      <td>トリガー・GAS</td>
+      <td>Power Automate</td>
+    </tr>
+    <tr>
+      <td>注意点</td>
+      <td>マクロ設定、PC環境</td>
+      <td>実行権限、トリガー所有者</td>
+      <td>ライセンス、環境、共有設定</td>
+    </tr>
+  </tbody>
+</table>
+
+Power Appsでは、アプリ開発そのものよりも「運用できる状態にするための環境設定」が重要になることがあります。
+
+## 最初に受けるなら小さく始める
+
+最初からDataverseや複雑な権限管理を含む大規模案件を受けるより、既存Excel台帳のPower Apps化から始める方が現実的です。
+
+```text
+既存Excel台帳
+  ↓
+項目整理
+  ↓
+SharePointリスト化
+  ↓
+Power Appsで入力・一覧・検索画面を作成
+  ↓
+Power Automateで通知
+  ↓
+利用者に共有
+```
+
+この流れなら、既存業務を理解し、データ構造を整理し、使いやすい入力画面にするという点で、Excel VBA / GAS受託の経験とつながります。
+
+## 関連記事
+
+- [GAS Webアプリ納品時の導入サポート](/articles/summary/gas-webapp-delivery-onboarding-support)
+- [Webアプリ受託開発ではGitHubやDBのアカウントは誰が管理すべきか？](/articles/summary/webapp-contract-account-ownership)
+- [GoogleフォームかGAS Webアプリかを選ぶ判断材料](/articles/design-philosophy/google-forms-vs-gas-webapp)
+- [Excelで出来ることはExcelでさせるべき](/articles/design-philosophy/excel-first-business-improvement)
+
+## 参考資料
+
+- [Microsoft Learn - What is Power Apps?](https://learn.microsoft.com/en-us/power-apps/powerapps-overview)
+- [Microsoft Learn - Power Automate documentation](https://learn.microsoft.com/en-us/power-automate/)
+- [Microsoft Learn - SharePoint documentation](https://learn.microsoft.com/en-us/sharepoint/)
+- [Microsoft Learn - Microsoft Dataverse documentation](https://learn.microsoft.com/en-us/power-apps/maker/data-platform/data-platform-intro)
+
+## まとめ
+
+Power Apps受託開発は、Excelファイルを作って渡すようなファイル納品型とは少し違います。クライアントのMicrosoft 365環境に、アプリ、データ保存先、権限、自動化を構築し、実際に運用できる状態まで整える必要があります。
+
+そのため、受注前にはライセンス、アカウント、権限、データ保存先、納品後の保守まで含めて確認することが重要です。
+
+まずは、Excel台帳をSharePointリストとPower Appsに置き換えるような小規模案件から始めると、Excel VBA / GAS受託の経験を活かしながら、Power Platform領域へ自然に広げていけます。
