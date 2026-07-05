@@ -1,0 +1,152 @@
+---
+title: "OneDrive配下のTech Blog作業を避け、C:\\devでGitHub公開する運用"
+category: "codex"
+slug: "tech-blog-c-dev-git-publish-workflow"
+tags: ["Codex", "OneDrive", "GitHub", "Next.js", "Node.js", "Tech Blog", "開発運用"]
+description: "OneDrive配下でNext.jsサイトの記事追加、ビルド、commit、pushを行うと、同期やファイルロックの影響で作業が止まることがあります。Tech Blog本体だけをC:\\devへcloneし、GitHubを正とする運用に切り替える考え方を整理します。"
+date: "2026-07-06"
+---
+
+## はじめに
+
+<Term>Next.js</Term>で構築したTech Blogを、<Term>OneDrive</Term>配下で編集していると、記事追加そのものよりも周辺作業で時間を取られることがあります。
+
+たとえば、`npm run build`で`.next`を作り直すときに`EPERM`が出たり、`publish_articles.bat`でビルド、commit、pushまで進める途中でファイル削除が失敗したりします。
+
+原因の多くは、記事の中身ではなく、OneDriveの同期対象フォルダ内で大量の生成ファイルを扱っていることです。
+
+この記事では、Softex Celware Tech Blogのような記事追加型サイトを例に、共有資産フォルダはOneDriveに残しつつ、サイト本体の作業リポジトリだけを`C:\dev`へ移して安定させる運用を整理します。
+
+## 問題は記事本文ではなく作業場所に出る
+
+Tech Blogの記事追加では、次のような処理が発生します。
+
+- <Term>MDX</Term>記事を追加する
+- 画像を`public`配下へ置く
+- 用語集や関連記事リンクを更新する
+- `article-workflow.bat`で記事の確認を行う
+- `npm run build`で静的ページを生成する
+- `publish_articles.bat`でcommitとpushまで行う
+
+このうち、OneDriveの影響を受けやすいのは、主に`node_modules`、`.next`、Gitの作業ファイル、ビルド時に生成される多数の小さなファイルです。
+
+本文のMDXファイルが悪いわけではなく、同期サービスがファイルを監視している最中に、<Term>Node.js</Term>や<Term>Next.js</Term>が大量のファイルを作成・削除することで競合が起きます。
+
+## 起きやすい症状
+
+実際の運用では、次のような症状が出ます。
+
+| 症状 | 起きる場面 | 見るべきポイント |
+|---|---|---|
+| `.next`を削除できない | `npm run build`や公開バッチ | OneDriveが生成物を同期・ロックしていないか |
+| ビルドが極端に遅い | 記事追加後の確認 | `node_modules`や`.next`が同期対象になっていないか |
+| publish前後で待ち時間が長い | commit / push前のビルド | ファイル監視とGit操作が重なっていないか |
+| 原因調査が記事本文に寄りすぎる | ビルド失敗時 | まず作業場所と生成物ロックを疑う |
+
+特に`EPERM: operation not permitted, rmdir ...\.next\static\...`のようなエラーは、記事本文よりも、生成物の削除が外部プロセスに妨げられている可能性を先に見ます。
+
+## 推奨する分離方針
+
+方針はシンプルです。
+
+```text
+OneDrive側:
+  記事ネタ、画像素材、開発ノウハウ、作業メモを保管する
+
+C:\dev側:
+  Tech Blog本体のGitリポジトリをcloneする
+  npm install / npm run build / article-workflow / publishを行う
+
+GitHub:
+  サイト本体の履歴と公開用ソースの正とする
+```
+
+OneDriveは、開発資産や素材を蓄積する場所として便利です。一方で、ビルド成果物や依存パッケージを頻繁に作り替えるWebサイト本体は、OneDrive外に置いた方が安定します。
+
+## cloneで作業リポジトリを作る
+
+既存のOneDrive側フォルダを丸ごと移動するより、<Term>GitHub</Term>から新しくcloneする方が安全です。
+
+```powershell
+mkdir C:\dev
+cd C:\dev
+git clone https://github.com/YujiFukami/SoftexCelwareTechBlog.git
+cd SoftexCelwareTechBlog
+npm install
+npm run build
+```
+
+cloneで作ると、`.git`、remote、branchの状態が整理された状態から始められます。
+
+未コミットの変更を持ったまま移動するより、まずGitHub上の最新状態を`C:\dev`へ取得し、今後の作業場所を切り替える方がトラブルを減らせます。
+
+## 記事ネタとサイト本体を分ける
+
+この運用では、OneDriveを使わなくなるわけではありません。
+
+OneDrive側には、次のような素材を置きます。
+
+- 記事化したい開発ノウハウ
+- 画像、スクリーンショット、説明図
+- サンプルコード
+- 記事作成指示書
+- 案件固有ではない共有テクニック
+
+一方で、`C:\dev`側では、次の作業に集中します。
+
+- `content`配下の記事MDXを編集する
+- `public`配下へ公開用画像を配置する
+- `src/lib/terms.ts`などサイト本体を更新する
+- `article-workflow.bat`で確認する
+- `npm run build`でビルドする
+- `publish_articles.bat`でcommitとpushを行う
+
+この分け方にすると、OneDriveは素材保管、GitHubはソース管理、`C:\dev`は作業実行という役割に整理できます。
+
+## 公開前の確認フロー
+
+`C:\dev`へ切り替えた後も、記事追加時の確認フローは変えません。
+
+```powershell
+cd C:\dev\SoftexCelwareTechBlog
+.\article-workflow.bat content\codex\sample-article.mdx
+npm run build
+.\publish_articles.bat "Add sample article"
+```
+
+重要なのは、これらをOneDrive配下ではなく`C:\dev`側で実行することです。
+
+`article-workflow.bat`は、用語候補、関連記事候補、機密語候補、frontmatter、画像パスなどを確認するための入口です。記事本文を整えた後、公開前チェックとして使います。
+
+`publish_articles.bat`は、ビルド、stage、commit、pushまでをまとめて実行する公開用の入口です。
+
+## OneDrive側に残すならショートカットだけにする
+
+OneDrive側から`C:\dev`の作業フォルダを開きたい場合は、`.lnk`ショートカットを置く程度に留めます。
+
+ジャンクションやシンボリックリンクでOneDrive側から`C:\dev`の実体へつなぐと、同期ソフトがリンク先を辿ってしまう可能性があります。
+
+導線を作るだけなら、Windowsのショートカットで十分です。
+
+## 注意点
+
+- OneDrive側の古い`website`を編集し続けない
+- `C:\dev`側で作業することをVS Codeや<Term>Codex</Term>の開始時に確認する
+- `.env`などGit管理外のファイルが必要な場合は移し忘れない
+- GitHubへpushできていることを公開完了の基準にする
+- OneDrive側は素材とメモの保管場所として扱い、ビルド作業場所にしない
+
+同じサイトの実体が2か所にあると、どちらを編集したか分からなくなります。運用を切り替えた後は、編集対象を`C:\dev`側に固定するのが重要です。
+
+## 関連記事
+
+- [OneDrive配下のNodeビルド遅延を避け、C:\devで開発するワークフロー](/articles/powershell/onedrive-node-build-slow-c-dev-workflow)
+- [Tech Blog記事追加ワークフローを自動化して、Codexの確認量を減らす方法](/articles/codex/article-workflow-automation)
+- [開発資産MarkdownをMDX記事へ変換する作業フロー](/articles/codex/website-mdx-article-workflow)
+- [技術記事を公開する前のリスクチェックリスト](/articles/codex/publication-risk-checklist)
+
+## まとめ
+
+OneDrive配下でTech Blogのビルドや公開作業を行うと、記事本文とは関係ないファイル同期・ロック問題で作業が止まることがあります。
+
+素材やノウハウはOneDriveに置き、サイト本体は`C:\dev`へcloneして、ビルド、記事確認、commit、pushをそこで行う。この分離にすると、OneDriveの便利さを残しながら、<Term>Next.js</Term>と<Term>GitHub</Term>を使った公開作業を安定させやすくなります。
