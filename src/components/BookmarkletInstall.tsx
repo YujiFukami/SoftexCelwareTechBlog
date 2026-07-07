@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type BookmarkletId =
   | "coconala-reservation-copy"
@@ -16,16 +16,40 @@ const bookmarklets: Record<BookmarkletId, string> = {
 };
 
 type BookmarkletInstallProps = {
-  id: BookmarkletId;
+  id?: BookmarkletId;
+  src?: string;
   label: string;
 };
 
-export default function BookmarkletInstall({ id, label }: BookmarkletInstallProps) {
-  const bookmarklet = bookmarklets[id];
+export default function BookmarkletInstall({ id, src, label }: BookmarkletInstallProps) {
+  const [loadedBookmarklet, setLoadedBookmarklet] = useState("");
+  const bookmarklet = id ? bookmarklets[id] : loadedBookmarklet;
   const anchorRef = useRef<HTMLAnchorElement>(null);
 
   useEffect(() => {
-    anchorRef.current?.setAttribute("href", bookmarklet);
+    if (!src) return;
+
+    let cancelled = false;
+
+    fetch(src)
+      .then((response) => {
+        if (!response.ok) throw new Error("bookmarklet source not found");
+        return response.text();
+      })
+      .then((text) => {
+        if (!cancelled) setLoadedBookmarklet(text.trim());
+      })
+      .catch(() => {
+        if (!cancelled) setLoadedBookmarklet("");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+
+  useEffect(() => {
+    anchorRef.current?.setAttribute("href", bookmarklet || "#");
   }, [bookmarklet]);
 
   return (
@@ -36,6 +60,7 @@ export default function BookmarkletInstall({ id, label }: BookmarkletInstallProp
         href="#"
         onClick={(event) => event.preventDefault()}
         onDragStart={(event) => {
+          if (!bookmarklet) return;
           event.dataTransfer.setData("text/uri-list", bookmarklet);
           event.dataTransfer.setData("text/plain", bookmarklet);
         }}
@@ -45,6 +70,7 @@ export default function BookmarkletInstall({ id, label }: BookmarkletInstallProp
       </a>
       <p className="mt-3 text-sm text-slate-700">
         クリックではなく、このボタンをChromeのブックマークバーへドラッグして登録します。
+        {!bookmarklet ? " コードを読み込み中です。" : ""}
       </p>
     </div>
   );

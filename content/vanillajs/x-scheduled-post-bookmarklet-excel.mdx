@@ -1,0 +1,241 @@
+---
+title: "Excelの投稿リストからXの予約投稿を半自動化するブックマークレット"
+category: "vanillajs"
+slug: "x-scheduled-post-bookmarklet-excel"
+tags: ["JavaScript", "Chrome", "ブックマークレット", "クリップボード", "DOM", "X", "SNS投稿", "業務効率化"]
+description: "Excelやスプレッドシートで管理している投稿本文・予約日時・画像パスを使って、Xの予約投稿入力を半自動化するブックマークレットの実装例です。"
+date: "2026-07-07"
+image: "/articles/vanillajs/x-scheduled-post-bookmarklet-excel/workflow.jpg"
+---
+
+## はじめに
+
+Xで定期的に投稿していると、本文、予約日時、画像を毎回手で入力する作業が地味に手間になります。
+
+投稿ネタ自体は<Term>Excel</Term>や<Term>Googleスプレッドシート</Term>で管理しているのに、最後の投稿予約だけはXの画面へ手入力する、という流れになりがちです。
+
+この記事では、<Term>Chrome</Term>の<Term>ブックマークレット</Term>として<Term>JavaScript</Term>を登録し、Excelやスプレッドシートで用意した投稿データから、Xの予約投稿入力を半自動化する方法を整理します。
+
+X APIを使った完全自動投稿ではありません。ブラウザ上で表示中のX画面を補助操作し、最後は人が内容を確認して予約確定する実務向けの小さな自動化です。
+
+## 完成イメージ
+
+<figure>
+  <a href="/articles/vanillajs/x-scheduled-post-bookmarklet-excel/workflow.jpg" target="_blank" rel="noopener noreferrer">
+    <img src="/articles/vanillajs/x-scheduled-post-bookmarklet-excel/workflow.jpg" alt="Excelやスプレッドシートの投稿本文・予約日時・画像パスからX予約投稿を半自動化する流れ" className="h-auto w-full rounded-lg border border-gray-200" />
+  </a>
+  <figcaption>Excelまたはスプレッドシートで投稿データをコピーし、Xの投稿画面でブックマークレットを実行すると、本文と予約日時の入力を補助できます。</figcaption>
+</figure>
+
+実際の動作イメージは次の動画です。
+
+<video controls preload="metadata" className="my-6 w-full rounded-lg border border-gray-200 bg-black">
+  <source src="/articles/vanillajs/x-scheduled-post-bookmarklet-excel/demo.mp4" type="video/mp4" />
+</video>
+
+このブックマークレットで行うことは、主に次の4つです。
+
+- 投稿本文をXの投稿欄へ入力する
+- 予約日時を解析して、予約設定画面へ反映する
+- 画像パスがある場合は<Term>クリップボード</Term>へコピーする
+- 最後の予約確定は手動にして、誤投稿を防ぐ
+
+## 入力データの形式
+
+ExcelまたはGoogleスプレッドシートで、次の3項目を用意します。
+
+<table>
+  <thead>
+    <tr>
+      <th>項目</th>
+      <th>内容</th>
+      <th>例</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>投稿本文</td>
+      <td>Xに投稿する文章</td>
+      <td>投稿テスト<br />投稿テスト改行</td>
+    </tr>
+    <tr>
+      <td>予約日時</td>
+      <td>投稿したい日時</td>
+      <td><code>2026/7/7 17:41</code></td>
+    </tr>
+    <tr>
+      <td>画像パス</td>
+      <td>添付したい画像ファイルのフルパス</td>
+      <td><code>&lt;画像ファイルのフルパス&gt;</code></td>
+    </tr>
+  </tbody>
+</table>
+
+コピー形式は、縦3セルでも横3セルでも扱えるようにしています。
+
+縦3セルの例です。
+
+```text
+投稿テスト
+投稿テスト改行
+2026/7/7 17:41
+<画像ファイルのフルパス>
+```
+
+横3セルの例です。
+
+```text
+投稿テスト	2026/7/7 17:41	<画像ファイルのフルパス>
+```
+
+Excelのセル内改行を含む本文では、貼り付け時に本文セルがダブルクォートで囲まれることがあります。今回のコードでは、その形式も考慮しています。
+
+## ブックマークバーへドラッグして登録する
+
+下のボタンをクリックするのではなく、Chromeのブックマークバーへドラッグして登録します。
+
+<BookmarkletInstall src="/articles/vanillajs/x-scheduled-post-bookmarklet-excel/x-scheduled-post-bookmarklet-url.txt" label="X予約投稿補助 ←これをブックマークバーにドラッグ" />
+
+登録後は、Xのホーム画面または投稿欄が見えている画面を開き、ブックマークバーに追加された「X予約投稿補助」をクリックします。
+
+記事ページ上でこのボタンをクリックしても実行しません。対象ページで誤動作しないよう、クリック時は何もしない作りにしています。
+
+## 手動で設定する場合
+
+ドラッグ登録がうまくいかない場合は、Chromeで任意のページをブックマークし、ブックマーク編集画面でURL欄を差し替えます。
+
+手順は次の通りです。
+
+1. Chromeで任意のページをブックマークする
+2. ブックマークバー上で右クリックし、「編集」を選ぶ
+3. 名前を「X予約投稿補助」などに変更する
+4. URL欄へ `javascript:` から始まるコードを貼り付ける
+5. 保存する
+
+Chromeでは、貼り付け時に先頭の `javascript:` が消えることがあります。保存前に、URL欄が必ず `javascript:` から始まっているか確認してください。
+
+## コピー可能なコード
+
+ブックマークのURL欄へ手動登録する場合は、下の **改行なし・`javascript:`付き** のコードを使います。
+
+<CopyCode language="text" filename="ブックマークレットURL（改行なし・javascript:付き）" src="/articles/vanillajs/x-scheduled-post-bookmarklet-excel/x-scheduled-post-bookmarklet-url.txt" />
+
+処理内容を確認したい場合は、下の確認用コードを見ます。登録には上の改行なし版を使います。
+
+<CopyCode language="javascript" filename="処理確認用コード（javascript:なし）" src="/articles/vanillajs/x-scheduled-post-bookmarklet-excel/x-scheduled-post-bookmarklet-readable.js" />
+
+登録前に、コード内で外部サーバーへ送信する処理がないことを確認してください。今回のコードは、表示中のX画面を操作し、必要に応じて画像パスをクリップボードへコピーする処理に限定しています。
+
+## 処理の流れ
+
+全体の流れは次の通りです。
+
+```text
+Excelまたはスプレッドシートで投稿データをコピー
+↓
+Xの投稿画面を開く
+↓
+ブックマークレットを実行
+↓
+入力ダイアログにコピー内容を貼り付け
+↓
+投稿本文を自動入力
+↓
+予約設定画面を開く
+↓
+年月日・時分を自動設定
+↓
+確認ボタンをクリック
+↓
+画像パスがあればクリップボードへコピー
+↓
+画像ボタンからファイル選択画面を開き、画像パスを貼り付け
+↓
+内容確認後、最後の予約設定ボタンを手動クリック
+```
+
+最後の予約確定を自動化しないのは、誤投稿や誤予約を防ぐためです。SNS投稿では、入力作業の効率化と、公開前の人間による確認を分けて考える方が安全です。
+
+## 実装のポイント
+
+### Excel貼り付けデータを解析する
+
+Excelやスプレッドシートからコピーしたデータは、単純な改行区切りとは限りません。
+
+本文セル内に改行がある場合、クリップボード上では本文全体がダブルクォートで囲まれることがあります。今回のコードでは、<Term query="TSV">タブ区切り</Term>、改行、ダブルクォートを考慮して、本文、予約日時、画像パスへ分解しています。
+
+### 予約日時を年月日・時分へ分ける
+
+`2026/7/7 17:41` のような文字列から、年、月、日、時、分を取り出します。
+
+Xの予約設定画面では、年月日と時分が別々の選択欄になっているため、文字列のままではなく、各項目へ分けて入力します。
+
+### X画面のDOMを探して操作する
+
+投稿欄は、`data-testid="tweetTextarea_0"` や `contenteditable="true"` の要素から探しています。
+
+予約設定ボタンは、`data-testid="scheduleOption"` を優先し、見つからない場合は「予約」や `Schedule` を含むボタンを探します。
+
+このように<Term>DOM</Term>の候補を複数持たせると、画面の揺れに少し強くなります。ただし、X側の画面構造が大きく変われば、コードの見直しが必要です。
+
+### 画像パスはクリップボードへコピーする
+
+ブラウザ上のJavaScriptは、セキュリティ上、ローカルPC内のファイルを勝手に読み取ったり、ファイル選択欄へローカルファイルパスを自動入力したりできません。
+
+そのため、画像ファイルの完全自動添付は行わず、画像パスをクリップボードへコピーする方式にしています。
+
+使うときは、Xの画像ボタンをクリックし、ファイル選択画面のファイル名欄へ `Ctrl + V` で画像パスを貼り付けます。
+
+## できること・できないこと
+
+<table>
+  <thead>
+    <tr>
+      <th>分類</th>
+      <th>内容</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>できること</td>
+      <td>投稿本文の入力、本文セル内改行への対応、予約日時の設定、画像パスのクリップボードコピー、最後の確認を残した半自動化</td>
+    </tr>
+    <tr>
+      <td>できないこと</td>
+      <td>ローカル画像ファイルの完全自動添付、X側UI変更への完全追従、大量投稿やスパム的な自動投稿の安全な実行</td>
+    </tr>
+  </tbody>
+</table>
+
+## 注意点
+
+ブックマークレットは、現在開いているページ上でJavaScriptを実行する仕組みです。便利ですが、内容を理解できないコードや、出所が不明なコードは登録しないでください。
+
+今回のようにSNS投稿画面を補助する場合は、特に次の点に注意します。
+
+- Xの利用規約や自動化に関するルールを確認する
+- 高頻度の連続投稿やスパム的な使い方をしない
+- 最後の予約確定前に、本文、日時、画像を必ず人が確認する
+- 画像ファイルの完全自動添付はできない前提で運用する
+- X側のUI変更で動かなくなる可能性がある
+- 公開記事やデモ動画では、アカウント名、通知、未公開の投稿内容、個人情報が写り込まないように確認する
+
+実務では、完全自動化を狙うよりも、入力作業を減らしつつ最後の確認を残す方が運用しやすいことがあります。
+
+## 関連記事
+
+- [OAuth不要！X（Twitter）Intent URLでポストボタンを実装する方法](/articles/nextjs/twitter-intent-post)
+- [Chromeブックマークレットでココナラ予約枠を1クリックコピーする](/articles/vanillajs/coconala-reservation-bookmarklet-copy)
+- [Chromeブックマークレットでココナラ分析グラフの数値をExcel用にコピーする](/articles/vanillajs/coconala-analytics-bookmarklet-copy)
+- [Chromeブックマークレットでココナラ販売金額を1クリック合計する](/articles/vanillajs/coconala-sales-total-bookmarklet)
+- [Chromeブックマークレットでココナラ依頼者名を返信欄へ自動入力する](/articles/vanillajs/coconala-client-name-bookmarklet)
+- [静的サイトに検索機能を追加する](/articles/nextjs/static-site-search)
+- [UIと計算ロジックを分離する純粋関数パターン](/articles/vanillajs/pure-function-calculation-logic)
+
+## まとめ
+
+Xの予約投稿は、Excelやスプレッドシートで投稿リストを管理している場合、ブックマークレットで入力作業をかなり軽くできます。
+
+本文と予約日時は自動設定し、画像はパスをクリップボードへコピーして手動選択する。最後の予約確定は人が確認して押す。この割り切りにすると、ブラウザの制約を避けながら、実務上の手間を減らせます。
+
+大がかりなAPI連携までは不要でも、既存のWeb画面で繰り返している入力作業を少し楽にしたい場面では、ブックマークレットは扱いやすい選択肢になります。
