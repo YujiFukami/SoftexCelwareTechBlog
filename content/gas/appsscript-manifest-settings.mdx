@@ -1,0 +1,276 @@
+---
+title: "GASのappsscript.jsonマニフェストでWebアプリ設定とOAuthスコープを固定する"
+category: "gas"
+slug: "appsscript-manifest-settings"
+tags: ["GAS", "Google Apps Script", "appsscript.json", "OAuth", "Webアプリ", "Google Drive", "スコープ"]
+description: "GASのappsscript.jsonマニフェストで、タイムゾーン、V8ランタイム、Webアプリの公開設定、OAuthスコープを明示する考え方を整理します。"
+date: "2026-07-07"
+---
+
+<Term>Google Apps Script</Term>で<Term>Webアプリ</Term>を作るとき、コードだけでなく `appsscript.json` の設定も重要になります。
+
+`appsscript.json` は、GASプロジェクトのマニフェストです。タイムゾーン、実行環境、ログ出力、Webアプリの公開範囲、<Term>OAuth</Term>スコープなどを宣言します。
+
+普段はGAS側が自動で推定してくれますが、公開Webアプリや業務用の納品物では、どの権限で動かすのか、どの権限を要求するのかを明示しておく方が安全です。
+
+この記事では、`appsscript.json` を表示する方法、主要フィールドの意味、OAuthスコープの選び方、Webアプリ公開時の注意点を整理します。
+
+## appsscript.jsonを表示する
+
+`appsscript.json` は、初期状態ではエディタ上に表示されていないことがあります。
+
+表示する手順は次の通りです。
+
+1. Apps Scriptエディタ左側の「プロジェクトの設定」を開く
+2. 「appsscript.json マニフェスト ファイルをエディタで表示する」にチェックを入れる
+3. 左側のファイル一覧に `appsscript.json` が表示される
+
+表示されたら、通常のコードファイルと同じように編集して保存できます。
+
+ただし、`appsscript.json` はJSONです。末尾カンマは使えず、文字列はダブルクォートで囲む必要があります。構文が壊れると保存できないため、手で編集するときは特に注意します。
+
+## 基本の設定例
+
+顧客向けの公開フォームをGAS Webアプリで作り、スプレッドシートやDrive、メール送信を使う場合は、たとえば次のような設定になります。
+
+```json
+{
+  "timeZone": "Asia/Tokyo",
+  "dependencies": {},
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "webapp": {
+    "executeAs": "USER_DEPLOYING",
+    "access": "ANYONE_ANONYMOUS"
+  },
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/spreadsheets.currentonly",
+    "https://www.googleapis.com/auth/script.send_mail",
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/script.container.ui",
+    "https://www.googleapis.com/auth/drive"
+  ]
+}
+```
+
+この例は、次のような用途を想定しています。
+
+- 日本時間で日付を扱う
+- V8ランタイムで実行する
+- エラーをCloud Loggingへ記録する
+- Webアプリをデプロイ者の権限で実行する
+- ログイン不要の公開フォームとして使う
+- バインド先スプレッドシート、メール送信、外部API、UIダイアログ、Google Driveを使う
+
+## 主要フィールドの意味
+
+<table>
+  <thead>
+    <tr>
+      <th>フィールド</th>
+      <th>意味</th>
+      <th>実務での見方</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>timeZone</code></td>
+      <td>スクリプトの基準タイムゾーン</td>
+      <td>日本向け業務なら <code>Asia/Tokyo</code> を指定します。日付処理や <code>Utilities.formatDate</code> の基準になります。</td>
+    </tr>
+    <tr>
+      <td><code>runtimeVersion</code></td>
+      <td>JavaScriptの実行環境</td>
+      <td>通常は <code>V8</code> を使います。古い <code>DEPRECATED_ES5</code> 前提の構成は避けます。</td>
+    </tr>
+    <tr>
+      <td><code>exceptionLogging</code></td>
+      <td>例外ログの出力先</td>
+      <td><code>STACKDRIVER</code> にしておくと、実行時エラーをCloud Loggingで追いやすくなります。</td>
+    </tr>
+    <tr>
+      <td><code>dependencies</code></td>
+      <td>ライブラリや高度なサービスの依存設定</td>
+      <td>ライブラリやAdvanced Google Servicesを使う場合に設定します。使わない場合は空でも問題ありません。</td>
+    </tr>
+    <tr>
+      <td><code>webapp.executeAs</code></td>
+      <td>Webアプリを誰の権限で実行するか</td>
+      <td><code>USER_DEPLOYING</code> なら、デプロイしたユーザーの権限で処理されます。</td>
+    </tr>
+    <tr>
+      <td><code>webapp.access</code></td>
+      <td>Webアプリへアクセスできるユーザー</td>
+      <td><code>ANYONE_ANONYMOUS</code> ならログイン不要でアクセスできます。顧客向けフォームでは便利ですが、管理機能を混ぜない設計が必要です。</td>
+    </tr>
+    <tr>
+      <td><code>oauthScopes</code></td>
+      <td>スクリプトが要求する権限</td>
+      <td>スプレッドシート、Drive、メール送信、外部通信など、コードが使う権限を明示します。</td>
+    </tr>
+  </tbody>
+</table>
+
+## OAuthスコープを明示する理由
+
+`oauthScopes` は、このGASプロジェクトがGoogleサービスへどこまでアクセスするかを示す設定です。
+
+何も書かなくても、GASはコードを見て必要なスコープを自動推定します。そのため、小さな試作では自動推定のままでも動きます。
+
+一方で、納品用や公開Webアプリでは、スコープを明示するメリットがあります。
+
+- 余計な権限を要求しにくくなる
+- 承認画面に出る権限の意図を確認しやすい
+- テンプレート化したときに必要権限を把握しやすい
+- どの処理がどのGoogleサービスに依存しているか見直しやすい
+
+特に、顧客向けフォームを匿名公開しながら、保存先は<Term>Googleスプレッドシート</Term>や<Term>Google Drive</Term>にする構成では、公開範囲と実行権限を混同しないことが大切です。
+
+## よく使うスコープ
+
+<table>
+  <thead>
+    <tr>
+      <th>スコープ</th>
+      <th>使う場面</th>
+      <th>注意点</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>spreadsheets.currentonly</code></td>
+      <td><Term>SpreadsheetApp</Term>で、バインドされた現在のスプレッドシートだけを扱う</td>
+      <td><code>SpreadsheetApp.getActiveSpreadsheet()</code> と相性がよいです。任意IDのシートを開く場合は、より広いスコープが必要になることがあります。</td>
+    </tr>
+    <tr>
+      <td><code>script.send_mail</code></td>
+      <td><code>MailApp.sendEmail()</code> で通知メールを送る</td>
+      <td>受付メール、完了通知、管理者通知などで使います。</td>
+    </tr>
+    <tr>
+      <td><code>script.external_request</code></td>
+      <td><Term>UrlFetchApp</Term>で外部APIへアクセスする</td>
+      <td>郵便番号API、外部Web API、PDFエクスポートURLの取得などで必要になります。</td>
+    </tr>
+    <tr>
+      <td><code>script.container.ui</code></td>
+      <td><code>showModalDialog()</code> や <code>showSidebar()</code> を使う</td>
+      <td><Term>カスタムメニュー</Term>を表示するだけなら不要でも、メニューからダイアログを開く場合は必要です。</td>
+    </tr>
+    <tr>
+      <td><code>drive</code></td>
+      <td><Term>DriveApp</Term>でフォルダ取得、ファイル作成、PDFやCSV保存を行う</td>
+      <td><code>drive.file</code> の方が狭い権限ですが、既存フォルダの探索や親フォルダ取得では広い <code>drive</code> が必要になることがあります。</td>
+    </tr>
+  </tbody>
+</table>
+
+スコープを絞るほど安全になりますが、必要な権限を書き漏らすと実行時エラーになります。最小権限を狙う場合は、動作確認とセットで調整します。
+
+## Webアプリ公開設定の考え方
+
+GAS Webアプリでは、`webapp.executeAs` と `webapp.access` の組み合わせが重要です。
+
+顧客向けフォームでは、次の組み合わせを使うことがあります。
+
+```json
+"webapp": {
+  "executeAs": "USER_DEPLOYING",
+  "access": "ANYONE_ANONYMOUS"
+}
+```
+
+`access: "ANYONE_ANONYMOUS"` は、Googleログインなしで誰でも開ける設定です。問い合わせフォーム、現場入力フォーム、注文フォームなどでは便利です。
+
+ただし、処理自体は `executeAs: "USER_DEPLOYING"` により、デプロイしたユーザーの権限で動きます。つまり、利用者がGoogle Driveへ直接アクセスできなくても、Webアプリ経由でデプロイ者権限の処理が走ります。
+
+この構成では、公開画面へ管理機能を混ぜないことが重要です。管理画面や発送処理、CSV出力、メール再送信などは、公開Webアプリとは別に、スプレッドシートのカスタムメニューや管理者用ダイアログへ分けます。
+
+## ハマりやすいポイント
+
+### スコープを書き漏らすと実行時に落ちる
+
+`oauthScopes` を手で書く場合、コードで使う権限を1つでも漏らすと実行時に失敗します。
+
+たとえば、`SpreadsheetApp.getUi().showModalDialog()` を使うのに `script.container.ui` がないと、ダイアログを表示できません。
+
+カスタムメニュー自体は表示されるのに、メニューからダイアログを開いた瞬間に失敗する場合は、このスコープ漏れを疑います。
+
+### スコープを増やしたら再承認が必要
+
+`oauthScopes` を追加したら、初回実行時に再承認が必要になります。
+
+承認しないまま実行すると、`PermissionDenied` 系のエラーになります。納品前には、実際の運用アカウントで初回承認まで確認しておく方が安全です。
+
+### Webアプリ設定は再デプロイが必要
+
+`webapp.access` や `webapp.executeAs` を変えただけでは、既存デプロイへ反映されないことがあります。
+
+設定を変えたら「デプロイを管理」から新しいバージョンとして再デプロイし、公開URLで動作確認します。
+
+### コード貼り直しでマニフェストが戻ることがある
+
+テンプレートや別プロジェクトのコードを貼り直すと、`appsscript.json` の設定が古い状態へ戻ることがあります。
+
+特に、納品用のテンプレートを複製する場合は、コードだけでなくマニフェストも確認します。
+
+## 実務での使い分け
+
+<table>
+  <thead>
+    <tr>
+      <th>用途</th>
+      <th>設定例</th>
+      <th>考え方</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>顧客向け公開フォーム</td>
+      <td><code>USER_DEPLOYING</code> + <code>ANYONE_ANONYMOUS</code></td>
+      <td>ログイン不要で入力してもらい、保存や通知はデプロイ者権限で処理します。</td>
+    </tr>
+    <tr>
+      <td>社内向けWebアプリ</td>
+      <td><code>USER_ACCESSING</code> やドメイン限定</td>
+      <td>利用者ごとの権限や社内ログインを前提にしたい場合に検討します。</td>
+    </tr>
+    <tr>
+      <td>管理者だけが使う補助画面</td>
+      <td>Webアプリにせず、スプレッドシートのカスタムメニューから開く</td>
+      <td>公開URLへ管理操作を出さず、編集権限を持つ管理者だけが操作できる入口にします。</td>
+    </tr>
+  </tbody>
+</table>
+
+## 今回の事例
+
+農産物の受注販売システムでは、顧客向けフォームをログイン不要で公開しつつ、受注データの保存、メール通知、CSV出力、Drive保存を行う構成にしました。
+
+そのため、Webアプリは `ANYONE_ANONYMOUS` + `USER_DEPLOYING` とし、スプレッドシートには `spreadsheets.currentonly`、CSV保存には `drive`、通知には `script.send_mail`、外部APIには `script.external_request` を使いました。
+
+また、発送処理の管理メニューからHTMLダイアログを開く処理があり、`script.container.ui` の書き漏れで一度エラーになりました。これは、`oauthScopes` へ `script.container.ui` を追加し、再承認することで解消できます。
+
+このように、`appsscript.json` は「動けばよい」段階では見落としがちですが、公開・納品・再利用を考えると、かなり重要な確認ポイントになります。
+
+## 関連記事
+
+- [GAS公開Webアプリで顧客画面と管理者画面の権限を分ける方法](/articles/gas/gas-webapp-admin-menu-permission-separation)
+- [GASでスプレッドシートIDをコードへ直書きしない取得パターン](/articles/gas/spreadsheet-id-without-hardcoding)
+- [GASでJIS形式のCSVを出力する方法](/articles/gas/google-sheets-shift-jis-csv-export)
+- [GASでGoogle Driveへの提出フォルダを自動作成する](/articles/gas/drive-submission-folder)
+
+## 参考
+
+- [Apps Script manifests](https://developers.google.com/apps-script/concepts/manifests)
+- [Authorization scopes](https://developers.google.com/apps-script/concepts/scopes)
+- [Web Apps](https://developers.google.com/apps-script/guides/web)
+- [Deployments](https://developers.google.com/apps-script/concepts/deployments)
+
+## まとめ
+
+`appsscript.json` は、GASプロジェクトの設定を固定するための重要なファイルです。
+
+公開Webアプリでは、誰がアクセスできるのか、誰の権限で実行されるのか、どのGoogleサービスへアクセスするのかを明示しておくことで、納品後のトラブルを減らせます。
+
+特に、`ANYONE_ANONYMOUS` で公開する顧客向けフォームでは、管理機能を混ぜないこと、OAuthスコープを書き漏らさないこと、変更後に再承認と再デプロイを確認することが重要です。
