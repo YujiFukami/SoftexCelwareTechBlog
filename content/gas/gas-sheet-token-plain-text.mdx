@@ -1,0 +1,94 @@
+---
+title: "GASでシートに書くトークンは書式なしテキストに固定する"
+category: "gas"
+slug: "gas-sheet-token-plain-text"
+tags: ["GAS", "Googleスプレッドシート", "トークン", "書式", "不具合対策"]
+description: "UUID由来の16進トークンをGoogleスプレッドシートへ保存するとき、数値や指数表記として解釈される不具合を防ぐために書式なしテキストへ固定する方法をまとめます。"
+date: "2026-07-09"
+---
+
+## はじめに
+
+<Term>Googleスプレッドシート</Term>へ利用者ごとのトークンを書き込む場合、文字列として渡しているつもりでも、シート側で数値として解釈されることがあります。
+この問題は、数人のテストでは見つからず、本番で「特定の人だけURLが開けない」という形で出やすいです。
+
+## 何が起きるか
+
+UUIDからハイフンを消して先頭12文字を使うと、16進文字列になります。
+
+```js
+function newToken_() {
+  return Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+}
+```
+
+16進文字列は、まれに数値や指数表記として読める並びになります。
+
+| トークン例 | シート側の解釈 | 結果 |
+|---|---|---|
+| `01234ABC8901` | 文字列ID | 自動判定に任せると意図しない変換が起きる |
+| `1e2345678901` | 指数表記 | 極端な数値や`Infinity`扱いになる |
+| `7e00b2b1fd1a` | 文字列 | 問題になりにくい |
+
+`setValue()`で文字列を渡しても、セルの書式が自動判定だと、Googleスプレッドシート側が値として解釈してしまう場合があります。
+
+## 解決策
+
+書き込む前に、対象セルの表示形式を「書式なしテキスト」に固定します。
+
+```js
+function writeToken_(range) {
+  range.setNumberFormat("@");
+  range.setValue(newToken_());
+}
+```
+
+複数セルへ`setValues()`で一括投入する場合も同じです。
+書き込む範囲に先に`setNumberFormat("@")`をかけてから値を入れます。
+
+```js
+const range = sheet.getRange(2, 3, values.length, 1);
+range.setNumberFormat("@");
+range.setValues(values.map((token) => [token]));
+```
+
+## どの値で注意するか
+
+トークン以外でも、次のような値は同じ問題を起こします。
+
+- 郵便番号
+- 電話番号
+- 商品コード
+- 先頭ゼロを含むID
+- `1E5`のように指数表記へ見えるコード
+
+業務アプリでは、見た目が数字でも「計算する値」ではなく「識別子」として扱う列がよくあります。
+そのような列は、先にテキスト書式へ固定します。
+
+## トークンの置き場所も分ける
+
+利用者へ配るURLに載せるトークンは、管理者が目視しやすいようにシートへ置くことがあります。
+一方で、外部API連携用のAPIトークンや秘密情報は、シートではなくScript Propertiesへ置く方が安全です。
+
+```js
+function ensureApiToken_() {
+  const props = PropertiesService.getScriptProperties();
+  let token = props.getProperty("API_TOKEN");
+  if (!token) {
+    token = Utilities.getUuid().replace(/-/g, "");
+    props.setProperty("API_TOKEN", token);
+  }
+  return token;
+}
+```
+
+## 関連記事
+
+- [GAS Webアプリで本人限定表示をトークンURLで実現する](/articles/gas/gas-webapp-private-token-url)
+- [Next.jsからGAS＋スプレッドシート予約台帳へつなぐ構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)
+- [GASのappsscript.jsonでWebアプリ公開設定を固定する](/articles/gas/appsscript-manifest-settings)
+
+## まとめ
+
+トークンやIDをスプレッドシートへ保存する場合は、値を書き込む前に`setNumberFormat("@")`を実行します。
+「文字列として渡したから大丈夫」と考えず、シート側の自動解釈を止めることが、再現しにくい認証不具合を防ぐコツです。

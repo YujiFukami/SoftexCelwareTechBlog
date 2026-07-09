@@ -1,0 +1,104 @@
+---
+title: "勤務時間の通常・深夜按分は区間の重なりで計算する"
+category: "gas"
+slug: "work-time-normal-night-overlap"
+tags: ["GAS", "勤怠集計", "時刻計算", "日跨ぎ", "業務ロジック"]
+description: "勤務時間を通常時間と深夜時間へ分けるとき、条件分岐を増やさず分に正規化した区間の重なりで安定して計算する方法をまとめます。"
+date: "2026-07-09"
+---
+
+## はじめに
+
+勤怠集計では、1回の勤務を通常時間と深夜時間に分けたいことがあります。
+たとえば通常帯を`5:00-22:00`、深夜帯をそれ以外とする場合です。
+
+開始時刻だけで判定すると、`14:00-23:00`、`22:00-翌6:00`、`0:00-9:30`のようなケースで破綻します。
+この種の計算は、条件分岐を増やすのではなく、すべて「分」に正規化して区間の重なりで扱うと安定します。
+
+## 時刻を分へ正規化する
+
+まず、セルの値を0から1440までの分へ変換します。
+<Term>Google Apps Script</Term>では、セルの時刻が`Date`、数値、文字列のどれで入ってくるかを吸収します。
+
+```js
+function cellToMinutes_(value) {
+  if (value === null || value === "") return 0;
+  if (value instanceof Date) return value.getHours() * 60 + value.getMinutes();
+  if (typeof value === "number") {
+    return Math.round((value - Math.floor(value)) * 1440);
+  }
+
+  const match = String(value).trim().match(/^(\d{1,2}):(\d{2})/);
+  if (match) return Number(match[1]) * 60 + Number(match[2]);
+  return 0;
+}
+```
+
+## 日跨ぎは退勤に1440分を足す
+
+退勤が出勤以下なら、翌日にまたいだとみなします。
+
+```js
+let inMin = cellToMinutes_(row[startIndex]);
+let outMin = cellToMinutes_(row[endIndex]);
+
+if (outMin === 1439) outMin = 1440;
+if (outMin <= inMin) outMin += 1440;
+
+const duration = outMin - inMin;
+```
+
+`23:59`を`24:00`として扱う特例は、退勤だけに適用します。
+夜勤を`22:00-23:59`と`0:00-6:00`の2行に分ける運用で、1分欠ける問題を避けるためです。
+
+## 通常帯との重なりを取る
+
+2つの区間の重なりは、次の関数で計算できます。
+
+```js
+function overlapMinutes_(aStart, aEnd, bStart, bEnd) {
+  const start = Math.max(aStart, bStart);
+  const end = Math.min(aEnd, bEnd);
+  return end > start ? end - start : 0;
+}
+```
+
+通常帯を`5:00-22:00`とするなら、当日分と翌日分の通常帯に対して重なりを取ります。
+
+```js
+const normalStart = 5 * 60;
+const normalEnd = 22 * 60;
+
+const normal =
+  overlapMinutes_(inMin, outMin, normalStart, normalEnd) +
+  overlapMinutes_(inMin, outMin, normalStart + 1440, normalEnd + 1440);
+
+const night = duration - normal;
+```
+
+深夜帯を`22:00-24:00`と`0:00-5:00`へ分けて列挙しないのがポイントです。
+通常帯との重なりを引けば、残りが深夜時間になります。
+
+## 検算例
+
+| 勤務 | 合計 | 通常 | 深夜 |
+|---|---:|---:|---:|
+| `9:00-12:30` | 3:30 | 3:30 | 0:00 |
+| `14:00-23:00` | 9:00 | 8:00 | 1:00 |
+| `0:00-9:30` | 9:30 | 4:30 | 5:00 |
+| `22:00-5:00` | 7:00 | 0:00 | 7:00 |
+| `21:00-2:00` | 5:00 | 1:00 | 4:00 |
+
+仕様として研修時間、休憩時間、控除時間などを別軸で集計する場合は、通常・深夜按分とは別にルールを決めます。
+「通常と深夜に含めるのか」「別枠にするのか」を先に決めておくことが重要です。
+
+## 関連記事
+
+- [Excelの時刻セルはDate型として扱い24:00を壊さず送る](/articles/vba/excel-time-cell-date-24hour)
+- [GASの日付フォーマットを安全に変換する](/articles/gas/date-format-safe)
+- [Excel VBAからGAS Web APIへTSVでPOSTする実装定石](/articles/gas/excel-vba-gas-webapi-tsv-post)
+
+## まとめ
+
+勤務時間の按分は、開始時刻ごとの条件分岐で考えると複雑になります。
+分に正規化し、日跨ぎは`+1440`、通常帯との重なりを引いて深夜を出す、という数直線の問題に落とすと、仕様変更にも耐えやすくなります。

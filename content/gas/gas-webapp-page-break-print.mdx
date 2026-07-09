@@ -1,0 +1,166 @@
+---
+title: "GAS Webアプリで1レコード1ページの印刷PDFを作る"
+category: "gas"
+slug: "gas-webapp-page-break-print"
+tags: ["GAS", "Webアプリ", "印刷", "PDF", "CSS", "google.script.run"]
+description: "GAS Webアプリから改ページ付き帳票を印刷するために、iframe、ポップアップブロック、Chromeの余白設定を回避する実装パターンをまとめます。"
+date: "2026-07-09"
+---
+
+## はじめに
+
+<Term>Google Apps Script</Term>の<Term>Webアプリ</Term>で、一覧データを「1件1ページ」の帳票として印刷したい場面があります。
+たとえば担当者別、顧客別、案件別の明細を、ページごとに分けてPDF保存したいケースです。
+
+通常のHTMLなら`break-after: page`で済みそうですが、GAS Webアプリではそのままでは効かないことがあります。
+
+## GAS Webアプリでは改ページが効きにくい理由
+
+GAS Webアプリは、Google側のラッパーページの中にサンドボックスiframeとして描画されます。
+そのため、`Ctrl + P`で印刷すると外側ページが対象になり、iframe内の改ページ指定が期待どおりに反映されないことがあります。
+
+対策は、印刷用HTMLを別ウィンドウへ展開し、iframeではないトップレベルの文書として印刷することです。
+
+## 印刷HTMLはサーバー側で作る
+
+画面表示用HTMLと印刷用HTMLは分けておくと保守しやすくなります。
+印刷用はGAS側でテンプレート評価し、HTML文字列として返します。
+
+```js
+function getPrintHtml(token) {
+  const list = getPrintableRecords_(token);
+  const template = HtmlService.createTemplateFromFile("Print");
+  template.data = {
+    list: list.map((record) => ({
+      record,
+      pages: buildPrintPages_(record, 29),
+    })),
+  };
+  return template.evaluate().getContent();
+}
+```
+
+`google.script.run`から呼ぶ関数名は、末尾アンダースコアにしない点も重要です。
+`getPrintHtml_`のような非公開関数名にすると、クライアント側から呼べません。
+
+## ポップアップブロックを避ける
+
+次のように、サーバー応答のコールバック内で`window.open`するとブロックされやすくなります。
+
+```js
+function doPrintBad() {
+  google.script.run.withSuccessHandler((html) => {
+    const win = window.open("", "_blank");
+    win.document.write(html);
+  }).getPrintHtml(TOKEN);
+}
+```
+
+コールバックが走る頃には「ユーザーがクリックした直後」という文脈が切れているためです。
+実務では、印刷用HTMLを先読みしておき、クリック時には同期的にウィンドウを開きます。
+
+```js
+let printHtml = null;
+
+document.addEventListener("DOMContentLoaded", () => {
+  const button = document.getElementById("btnPrint");
+  button.disabled = true;
+  button.textContent = "印刷準備中";
+
+  google.script.run
+    .withSuccessHandler((html) => {
+      printHtml = html;
+      button.disabled = false;
+      button.textContent = "印刷 / PDF保存";
+    })
+    .withFailureHandler(() => {
+      button.textContent = "印刷を利用できません";
+    })
+    .getPrintHtml(TOKEN);
+});
+
+function doPrint() {
+  if (!printHtml) return;
+
+  const win = window.open("", "_blank");
+  if (!win || !win.document) {
+    printInPage();
+    return;
+  }
+
+  win.document.open();
+  win.document.write(printHtml);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 400);
+}
+```
+
+## フォールバックとしてページ内印刷も用意する
+
+ブラウザや設定によっては、別ウィンドウが開けないことがあります。
+その場合は、印刷用HTMLを現在ページの`printArea`へ差し込み、`@media print`で画面表示と印刷表示を切り替えます。
+
+```js
+function printInPage() {
+  const doc = new DOMParser().parseFromString(printHtml, "text/html");
+  document.getElementById("printArea").innerHTML = doc.body.innerHTML;
+  window.print();
+}
+```
+
+この方式では、印刷用HTMLのCSSが本体画面へ影響しないよう、画面用CSSと印刷用CSSの責務を分けます。
+
+## Chromeの余白最小対策
+
+Chromeの印刷ダイアログで余白を「最小」にすると、`@page { margin }`が期待どおりに効かないことがあります。
+左右余白は`@page`だけに頼らず、用紙内のブロック余白として確保します。
+
+```css
+@page {
+  size: A4 portrait;
+  margin: 10mm 0;
+}
+
+.sheet-page {
+  margin: 0 10mm 8px;
+  padding: 4px;
+  border: 2px solid #000;
+  break-after: page;
+  page-break-after: always;
+}
+
+.sheet-page:last-child {
+  break-after: auto;
+  page-break-after: auto;
+}
+```
+
+## 帳票の品質を上げるCSS
+
+表の見出しや合計欄がページ境界で分断されると読みづらくなります。
+
+```css
+thead {
+  display: table-header-group;
+}
+
+tr,
+.summary {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+```
+
+1ページに収まらない場合は、事前に配列をページ単位へ分割しておくと安定します。
+
+## 関連記事
+
+- [google.script.runのエラーハンドリング完全パターン](/articles/gas/script-run-error-handling)
+- [GASでテンプレートシートを複製して複数ページPDFを作る](/articles/gas/template-sheet-multi-page-pdf)
+- [印刷・PDF出力で横向き/縦向きを自動判定する](/articles/vanillajs/print-pdf-orientation)
+
+## まとめ
+
+GAS Webアプリで改ページ付き印刷を行う場合は、iframe、ポップアップブロック、ブラウザの余白設定をそれぞれ分けて対策します。
+印刷HTMLの先読み、クリック時の同期的な別窓展開、ページ内印刷フォールバックを組み合わせると、Web画面からPDF保存まで安定しやすくなります。

@@ -1,0 +1,114 @@
+---
+title: "VBAでCOMに配列を渡すときはVariantで受ける"
+category: "vba"
+slug: "vba-com-array-variant-boundary"
+tags: ["Excel VBA", "COM", "Variant", "Byte配列", "MSXML"]
+description: "VBAからMSXMLなどのCOMへByte配列を渡す・responseBodyを受けるとき、Byte()ではなくVariantで境界を扱うべき理由をまとめます。"
+date: "2026-07-09"
+---
+
+## 概要
+
+<Term>Excel VBA</Term>から<Term>COM</Term>オブジェクトを扱うとき、配列の受け渡しで型の罠に遭遇することがあります。
+特に`MSXML2.ServerXMLHTTP.6.0`でUTF-8バイト配列を送信し、`responseBody`を受け取る処理では、`Byte()`と`Variant`の違いが重要です。
+
+## 受け取り側の罠
+
+`http.responseBody`は、Byte配列そのものではなく「Byte配列を格納したVariant」として返ります。
+
+```vb
+' ダメな例
+Private Function Utf8Decode(ByRef bytes() As Byte) As String
+End Function
+
+PostToGas = Utf8Decode(http.responseBody)
+```
+
+この形では、型不一致のコンパイルエラーになります。
+
+解決策は、COMから返る値を`Variant`で受けることです。
+
+```vb
+Private Function Utf8Decode(ByVal bytes As Variant) As String
+    If IsEmpty(bytes) Then Exit Function
+    If Not IsArray(bytes) Then Exit Function
+    ' ADODB.Streamなどでデコードする
+End Function
+```
+
+## 送り出し側の罠
+
+送信側でも同じです。
+`Byte()`として宣言した変数を`http.send`へ渡すと、環境によって`E_INVALIDARG`になることがあります。
+
+```vb
+' ダメな例
+Dim payload() As Byte
+payload = Utf8Bytes(body)
+http.send payload
+```
+
+COM境界へ渡す直前は、`Variant`変数に入れてから渡します。
+
+```vb
+' 正しい例
+Dim payload As Variant
+payload = Utf8Bytes(body)
+http.send payload
+```
+
+覚え方は単純です。
+
+> COMとの境界を跨ぐ配列は、Variantで受ける、Variantに入れてから渡す。
+
+## デバッグしやすい書き方
+
+MSXMLのエラーは、どの処理で落ちたのかが分かりにくいです。
+段階名を`stage`へ入れて、エラー時に付け足すと切り分けが速くなります。
+
+```vb
+Private Function PostToGas(ByVal url As String, ByVal body As String) As String
+    Dim http As Object
+    Dim payload As Variant
+    Dim stage As String
+
+    On Error GoTo EH
+
+    stage = "オブジェクト生成"
+    Set http = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+
+    stage = "Open"
+    http.Open "POST", url, False
+
+    stage = "UTF-8変換"
+    payload = Utf8Bytes(body)
+
+    stage = "send"
+    http.send payload
+
+    stage = "応答デコード"
+    PostToGas = Utf8Decode(http.responseBody)
+    Exit Function
+
+EH:
+    Err.Raise Err.Number, Err.Source, "[" & stage & "] " & Err.Description
+End Function
+```
+
+## 注意点
+
+- VBA内部だけで完結する処理なら`Byte()`でよい
+- COMメソッドへ渡す、またはCOMメソッドから受ける境界では`Variant`に寄せる
+- `responseBody`は`responseText`より文字化けに強いが、UTF-8デコード処理が必要
+- 通信処理、UTF-8変換処理、GAS側処理は別々にテストする
+
+## 関連記事
+
+- [VBAのUTF-8エンコード・デコードをADODB.Streamで行う](/articles/vba/utf8bytes-utf8decode)
+- [Excel VBAからGAS Web APIへTSVでPOSTする実装定石](/articles/gas/excel-vba-gas-webapi-tsv-post)
+- [COMをDTO境界で分離してテストしやすい解析エンジンにする](/articles/code-analysis/com-dto-boundary)
+
+## まとめ
+
+VBAとCOMの境界では、配列を厳密な`Byte()`として扱うより、`Variant`で受け渡しした方が安定します。
+通信や文字コード処理のようにCOMをまたぐ箇所では、型境界を意識しておくと原因不明の`E_INVALIDARG`を避けやすくなります。

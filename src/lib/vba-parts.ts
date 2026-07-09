@@ -65,6 +65,7 @@ const categoryOverrides: Record<string, string> = {
   getcliptext: "file-clipboard",
   getfilelistinzip: "file-clipboard",
   selectfile: "file-clipboard",
+  "utf8bytes-utf8decode": "file-clipboard",
   "event-show-move-spin-button": "input-validation",
   "event-show-move-spin-button-value": "input-validation",
   "change-value-move-spin-button": "input-validation",
@@ -119,7 +120,8 @@ export function getVbaParts(articles: ArticleMeta[]): VbaPartArticle[] {
       (article) =>
         article.category === "vba" &&
         (article.tags.includes("汎用プロシージャ") ||
-          article.slug === "immediate-window-cui-procedure-generator")
+          article.slug === "immediate-window-cui-procedure-generator" ||
+          article.slug === "utf8bytes-utf8decode")
     )
     .map((article) => ({
       ...article,

@@ -1,0 +1,120 @@
+---
+title: "GAS Webアプリで本人限定表示をトークンURLで実現する"
+category: "gas"
+slug: "gas-webapp-private-token-url"
+tags: ["GAS", "Webアプリ", "トークン", "アクセス制御", "Googleスプレッドシート"]
+description: "GAS Webアプリでログインなしに本人用画面を見せるとき、氏名などの推測可能なURLではなく1人1トークンで表示対象を絞る考え方をまとめます。"
+date: "2026-07-09"
+---
+
+## はじめに
+
+<Term>Google Apps Script</Term>のWebアプリを使うと、メールでURLを送って個別の画面を見てもらう仕組みを作れます。
+ただし、`?name=sample`のように推測できる値で表示対象を切り替えると、URLを書き換えるだけで他人の情報が見えてしまいます。
+
+この記事では、ログイン不要のGAS Webアプリで「本人向け表示」を実現するための、トークンURL方式を整理します。
+
+## 推測可能な識別子をURLへ置かない
+
+次のようなURLは、実装は簡単ですがアクセス制御としては弱いです。
+
+```text
+https://script.google.com/macros/s/.../exec?name=sample-user
+```
+
+受け取った人が`name`を書き換えれば、別の人のデータへアクセスできる可能性があります。
+「メールで本人にしか送っていないから大丈夫」ではなく、URLに表示対象がそのまま入っていること自体がリスクです。
+
+## 1人1トークンにする
+
+公開URLには、氏名や社員番号ではなく推測困難なトークンだけを入れます。
+
+```text
+https://script.google.com/macros/s/.../exec?t=<利用者ごとのトークン>
+```
+
+<Term>Googleスプレッドシート</Term>側に、表示対象とトークンの対応表を持ちます。
+
+| 表示対象 | メール | トークン |
+|---|---|---|
+| サンプルA | sample-a.example.invalid | `t_7e00b2b1fd1a` |
+| サンプルB | sample-b.example.invalid | `t_a91c3f2b8d40` |
+
+トークンは、既存分を再生成しないことが重要です。
+一度メールで配ったURLが、勝手に無効化されてしまうためです。
+
+```js
+function newToken_() {
+  return "t_" + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+}
+
+function writeToken_(range) {
+  range.setNumberFormat("@");
+  range.setValue(newToken_());
+}
+
+function ensureTokens() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("設定");
+  const values = sheet.getDataRange().getValues();
+
+  for (let row = 1; row < values.length; row++) {
+    if (!values[row][2]) {
+      writeToken_(sheet.getRange(row + 1, 3));
+    }
+  }
+}
+```
+
+`setNumberFormat("@")`を先に入れる理由は、[GASでシートに書くトークンは書式なしテキストに固定する](/articles/gas/gas-sheet-token-plain-text)で詳しく整理しています。
+
+## doGetでトークンを逆引きする
+
+URLから受け取ったトークンを、設定シートの対応表で逆引きします。
+見つからない場合は、空画面やエラーメッセージを返します。
+
+```js
+function doGet(e) {
+  const token = e && e.parameter && e.parameter.t
+    ? String(e.parameter.t).trim()
+    : "";
+
+  const target = findTargetByToken_(token);
+  const payload = target
+    ? buildPrivateView_(target)
+    : { found: false, message: "URLが正しくありません。" };
+
+  const template = HtmlService.createTemplateFromFile("Index");
+  template.data = payload;
+  return template.evaluate()
+    .setTitle("個別表示")
+    .addMetaTag("viewport", "width=device-width, initial-scale=1");
+}
+```
+
+旧方式の`?name=`を互換のために残すと、そこが抜け穴になります。
+トークン方式へ移行する場合は、旧パラメータ経路を削除します。
+
+## `/dev`ではなく`/exec`をメールへ載せる
+
+`ScriptApp.getService().getUrl()`は、実行場所によって`/dev`を返すことがあります。
+`/dev`は編集権限者向けのURLなので、利用者へ送るメールには向きません。
+
+実務では、デプロイ済みの`/exec` URLを設定シートへ保存し、それを正としてメール本文を作る方が安全です。
+
+## 注意点
+
+この方式は、強いログイン認証ではありません。
+URLが転送されたり、ブラウザ履歴から見られたりすれば、トークンを持つ人として閲覧できます。
+
+機微度が高い情報では、Googleログイン必須の構成や、別の認証方式を検討します。
+
+## 関連記事
+
+- [GASでシートに書くトークンは書式なしテキストに固定する](/articles/gas/gas-sheet-token-plain-text)
+- [GAS公開Webアプリと管理者メニューダイアログの権限分離](/articles/gas/gas-webapp-admin-menu-permission-separation)
+- [GASのappsscript.jsonでWebアプリ公開設定を固定する](/articles/gas/appsscript-manifest-settings)
+
+## まとめ
+
+GAS Webアプリで本人用画面を見せるなら、氏名や番号のような推測可能な値をURLに置かず、1人1つのトークンで表示対象を決めます。
+「ログイン不要で簡単に見せる」要件と「URLを書き換えて他人の情報を見せない」要件の間を取る、現実的な実装パターンです。

@@ -1,0 +1,91 @@
+---
+title: "VBAのUTF-8エンコード・デコードをADODB.Streamで行う"
+category: "vba"
+slug: "utf8bytes-utf8decode"
+tags: ["Excel VBA", "UTF-8", "ADODB.Stream", "Web API", "汎用プロシージャ"]
+description: "VBAから日本語を含むWeb API通信を行うために、StringをUTF-8バイト配列へ変換し、responseBodyを文字列へ戻す汎用プロシージャを紹介します。"
+date: "2026-07-09"
+---
+
+## 概要
+
+`Utf8Bytes`と`Utf8Decode`は、<Term>Excel VBA</Term>から日本語を含む<Term>Web API</Term>通信を行うための汎用プロシージャです。
+VBAの文字列をそのままCOM通信へ渡すと文字化けすることがあるため、送信前に<Term>UTF-8</Term>バイト配列へ変換し、応答もUTF-8として復元します。
+
+## 使う場面
+
+- VBAからGASや外部Web APIへ日本語を含む本文をPOSTする
+- `http.responseBody`を文字化けさせずに読みたい
+- `MSXML2.ServerXMLHTTP.6.0`と組み合わせて通信処理を作る
+- テキストの入出力をUTF-8にそろえたい
+
+## 使用例
+
+```vba
+Dim payload As Variant
+Dim result As String
+
+payload = Utf8Bytes("日本語を含む送信本文")
+http.send payload
+result = Utf8Decode(http.responseBody)
+```
+
+`payload`は`Byte()`ではなく`Variant`で受けてからCOMへ渡します。
+詳しくは[VBAでCOMに配列を渡すときはVariantで受ける](/articles/vba/vba-com-array-variant-boundary)を参照してください。
+
+## コピー可能な実装コード
+
+<CopyCode language="vba" filename="Utf8Bytes_Utf8Decode.bas" src="/articles/vba/utf8bytes-utf8decode/Utf8Bytes_Utf8Decode.bas" />
+
+## 初心者向けコード解説
+
+`ADODB.Stream`は、バイナリとテキストの両方を扱えるCOMオブジェクトです。
+文字列をUTF-8へ変換する場合は、まずテキストモードで書き込みます。
+
+```vba
+stream.Type = adTypeText
+stream.Charset = "utf-8"
+stream.WriteText value
+```
+
+その後、バイナリモードへ切り替えて読み出します。
+
+```vba
+stream.Position = 0
+stream.Type = adTypeBinary
+stream.Position = 3
+Utf8Bytes = stream.Read(adReadAll)
+```
+
+`Position = 3`としているのは、ADODB.Streamが付けるUTF-8 BOMを読み飛ばすためです。
+BOMが本文の先頭に残ると、GAS側で`token`が一致しないなど、見えない不具合になります。
+
+デコード側では、COMから返ってきた`responseBody`を`Variant`として受け、バイナリとして書き込んでからテキストモードで読みます。
+
+```vba
+stream.Type = adTypeBinary
+stream.Write bytes
+stream.Position = 0
+stream.Type = adTypeText
+stream.Charset = "utf-8"
+Utf8Decode = stream.ReadText(adReadAll)
+```
+
+## 注意点
+
+- `.Read`や`.ReadText`には省略せず`-1`を渡す
+- `Type`を切り替える前に`Position = 0`へ戻す
+- エンコード時はBOMを取り除く
+- デコード側の引数は`Byte()`ではなく`Variant`にする
+- `Microsoft ActiveX Data Objects`の参照設定なしでも使えるよう、遅延バインディングにする
+
+## 関連記事
+
+- [Excel VBAからGAS Web APIへTSVでPOSTする実装定石](/articles/gas/excel-vba-gas-webapi-tsv-post)
+- [VBAでCOMに配列を渡すときはVariantで受ける](/articles/vba/vba-com-array-variant-boundary)
+- [PowerShell / bat運用で文字コードと改行コードを固定する](/articles/powershell/bat-ps1-encoding-line-ending)
+
+## まとめ
+
+VBAからWeb APIへ日本語を送るなら、UTF-8変換を小さな汎用プロシージャに切り出しておくと安定します。
+`Utf8Bytes`と`Utf8Decode`を共通部品にしておくことで、GAS連携や外部API連携のたびに文字化け対策を考え直さずに済みます。

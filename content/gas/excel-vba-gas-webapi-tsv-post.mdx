@@ -1,0 +1,180 @@
+---
+title: "Excel VBAからGAS Web APIへTSVでPOSTする実装定石"
+category: "gas"
+slug: "excel-vba-gas-webapi-tsv-post"
+tags: ["GAS", "Excel VBA", "Web API", "TSV", "UTF-8", "業務アプリ連携"]
+description: "Excel VBAからGAS WebアプリへTSVを直接POSTするときの認証、302リダイレクト、UTF-8、全行検証、LockServiceの定石をまとめます。"
+date: "2026-07-09"
+---
+
+## はじめに
+
+<Term>Excel VBA</Term>で作った入力ブックから、<Term>Google Apps Script</Term>の<Term>Web API</Term>へデータを直接渡したい場面があります。
+CSVを一度書き出してGoogle Driveへ置く方法でも動きますが、アップロード忘れ、置き場所ミス、読込タイミングのズレが起きやすくなります。
+
+この記事では、Excel VBAからGAS Webアプリへ<Term>TSV</Term>を直接POSTする実務向けの構成を整理します。
+
+## 先に押さえる定石
+
+| 論点 | 定石 | 理由 |
+|---|---|---|
+| 認証 | トークンを本文に入れる | GASの`doPost`では任意ヘッダーを前提にしにくいため |
+| HTTPクライアント | `MSXML2.ServerXMLHTTP.6.0` | GASの`/exec`で302リダイレクトが絡むため |
+| Content-Type | `text/plain;charset=utf-8` | 生文字列を`e.postData.contents`で受けやすい |
+| データ形式 | TSV | VBA側でJSONライブラリを増やさずに済む |
+| 応答 | `OK\t件数\t年月` のようなプレーンテキスト | VBA側のパースが簡単 |
+| 文字コード | UTF-8バイト配列 | 日本語をそのまま`send`すると文字化けしやすい |
+
+## リクエスト形式
+
+本文は、設定ヘッダーとTSV本体を`---`で分けます。
+
+```text
+token: <APIトークン>
+action: importRows
+---
+日付	担当者	開始	終了	区分1	区分2
+2026/02/01	サンプル担当者A	9:00	12:30	通常
+2026/02/01	サンプル担当者B	13:00	18:00	通常
+```
+
+日付は`2026/02/01`のようなスラッシュ形式にしておくと、JavaScript側でローカル日付として扱いやすくなります。
+`2026-02-01`はUTC解釈で日付がずれることがあるため、業務日付では注意が必要です。
+
+## GAS側の受け口
+
+GAS側では、本文を正規化してヘッダー部分とTSV部分へ分けます。
+UTF-8 BOMが残ると先頭キーが`token`ではなくなり認証に失敗するため、先頭BOMも除去します。
+
+```js
+function doPost(e) {
+  try {
+    const req = parseRequest_(e);
+    checkApiToken_(req.headers.token);
+
+    if (req.headers.action === "importRows") {
+      const result = importRows_(req.headerRow, req.dataRows);
+      return textOut_("OK\t" + result.imported + "\t" + result.month);
+    }
+
+    throw new Error("不明なactionです: " + req.headers.action);
+  } catch (error) {
+    return textOut_("NG\t" + (error && error.message ? error.message : error));
+  }
+}
+
+function parseRequest_(e) {
+  if (!e || !e.postData || !e.postData.contents) {
+    throw new Error("リクエストボディがありません");
+  }
+
+  const raw = String(e.postData.contents).replace(/^\uFEFF/, "");
+  const lines = raw.replace(/\r\n?/g, "\n").split("\n");
+  const sep = lines.findIndex((line) => line.trim() === "---");
+  if (sep < 0) throw new Error("区切り行がありません");
+
+  const headers = {};
+  for (let i = 0; i < sep; i++) {
+    const pos = lines[i].indexOf(":");
+    if (pos < 0) continue;
+    headers[lines[i].slice(0, pos).trim()] = lines[i].slice(pos + 1).trim();
+  }
+
+  const rows = lines
+    .slice(sep + 1)
+    .filter((line) => line.trim())
+    .map((line) => line.split("\t"));
+
+  if (rows.length < 2) throw new Error("データ行がありません");
+  return { headers, headerRow: rows[0], dataRows: rows.slice(1) };
+}
+```
+
+## 書き込みは全行検証のあと
+
+スプレッドシートへ1行ずつ書きながら検証すると、途中で失敗したときにデータが半端に壊れます。
+まず全行を配列上で検証し、問題がなければ`setValues`でまとめて書きます。
+
+```js
+function importRows_(headerRow, dataRows) {
+  const rows = dataRows.map((row, index) => {
+    if (!row[0]) throw new Error(index + 2 + "行目: 日付が空です");
+    return row;
+  });
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error("処理中です");
+
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("取込");
+    sheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+    SpreadsheetApp.flush();
+    return { imported: rows.length, month: "2026-02" };
+  } finally {
+    lock.releaseLock();
+  }
+}
+```
+
+## VBA側はServerXMLHTTPとUTF-8変換を使う
+
+`MSXML2.XMLHTTP`ではなく、`MSXML2.ServerXMLHTTP.6.0`を使います。
+また、送信する本文はUTF-8バイト配列へ変換し、応答も`responseBody`からUTF-8として戻します。
+
+```vb
+Private Function PostToGas(ByVal url As String, ByVal body As String) As String
+    Dim http As Object
+    Dim payload As Variant
+    Dim stage As String
+
+    On Error GoTo EH
+
+    stage = "オブジェクト生成"
+    Set http = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+
+    stage = "Open"
+    http.Open "POST", url, False
+
+    stage = "setRequestHeader"
+    http.setRequestHeader "Content-Type", "text/plain;charset=utf-8"
+
+    stage = "UTF-8変換"
+    payload = Utf8Bytes(body)
+
+    stage = "send"
+    http.send payload
+
+    If http.Status <> 200 Then
+        Err.Raise vbObjectError + 513, "PostToGas", "HTTP " & http.Status
+    End If
+
+    stage = "応答デコード"
+    PostToGas = Utf8Decode(http.responseBody)
+    Exit Function
+
+EH:
+    Err.Raise Err.Number, Err.Source, "[" & stage & "] " & Err.Description
+End Function
+```
+
+`payload`は`Byte()`ではなく`Variant`で受けます。この理由は、[VBAでCOMに配列を渡すときはVariantで受ける](/articles/vba/vba-com-array-variant-boundary)で整理しています。
+
+## 注意点
+
+- APIトークンは利用者向けURLのトークンと分ける
+- Webアプリを匿名公開する場合、トークン漏洩時の再発行手順を用意する
+- 日付と時刻は送信前後で形式を固定する
+- GAS側で行数上限、年月混在、必須列を検証する
+- Excel側、通信側、GAS側の単体テストを分けておく
+
+## 関連記事
+
+- [GASでGoogleスプレッドシートを簡易DB化し外部WebアプリからCRUDする構成](/articles/gas/spreadsheet-db-api-external-webapp)
+- [GASでシートに書くトークンは書式なしテキストに固定する](/articles/gas/gas-sheet-token-plain-text)
+- [Excelの時刻セルはDate型として扱い24:00を壊さず送る](/articles/vba/excel-time-cell-date-24hour)
+- [VBAのUTF-8エンコード・デコードをADODB.Streamで行う](/articles/vba/utf8bytes-utf8decode)
+
+## まとめ
+
+Excel VBAからGASへ直接POSTする場合は、通信、文字コード、認証、排他制御を最初に決めておくと安定します。
+TSVとプレーンテキスト応答に寄せることで、VBA側の依存を増やさず、業務ブックからGAS Web APIへ安全にデータを渡せます。

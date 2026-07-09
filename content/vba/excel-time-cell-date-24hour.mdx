@@ -1,0 +1,105 @@
+---
+title: "Excelの時刻セルはDate型として扱い24:00を壊さず送る"
+category: "vba"
+slug: "excel-time-cell-date-24hour"
+tags: ["Excel VBA", "時刻", "Date", "24:00", "業務アプリ連携"]
+description: "Excel VBAで時刻セルを読み取るとDate型になり、IsNumericだけでは24:00が壊れる問題と、安全なh:mm整形方法をまとめます。"
+date: "2026-07-09"
+---
+
+## 概要
+
+<Term>Excel VBA</Term>で時刻セルを読み取り、外部システムへ`9:00`のような文字列で渡すときは注意が必要です。
+セルの見た目は時刻でも、`.Value`で読むと`Date`型の`Variant`として返ることがあります。
+
+`IsNumeric`だけで判定すると、`24:00`が`1899/12/31`のような日付文字列へ化けることがあります。
+
+## なぜ壊れるか
+
+時刻セルを`.Value`で読むと、VBA側では`Date`型として扱われます。
+そして`IsNumeric(Date値)`は`False`です。
+
+| セルの見た目 | 内部値 | `.Value`の型 | `IsNumeric` | 文字列化 |
+|---|---:|---|---|---|
+| `9:00` | 0.375 | Date | False | `9:00:00` |
+| `23:59` | 0.9993... | Date | False | `23:59:00` |
+| `24:00` | 1.0 | Date | False | `1899/12/31` |
+
+`24:00`は、Excel内部では1日分のシリアル値です。
+そのため、Dateとして文字列化すると「時刻」ではなく「日付」として出てしまいます。
+
+## 使用例
+
+```vb
+Dim textValue As String
+textValue = FmtTime(Range("A1").Value)
+```
+
+## コピー可能な実装コード
+
+```vba
+Private Function FmtTime(ByVal value As Variant) As String
+    Dim serial As Double
+    Dim fraction As Double
+
+    If IsEmpty(value) Then Exit Function
+    If Len(Trim$(CStr(value))) = 0 Then Exit Function
+
+    If IsDate(value) Or IsNumeric(value) Then
+        serial = CDbl(CDate(value))
+    Else
+        FmtTime = Trim$(CStr(value))
+        Exit Function
+    End If
+
+    fraction = serial - Int(serial)
+
+    If Abs(serial - 1#) < 1E-7 Then
+        FmtTime = "24:00"
+    Else
+        FmtTime = Format$(fraction, "h:mm")
+    End If
+End Function
+
+Private Function FmtDate(ByVal value As Variant) As String
+    If IsDate(value) Then
+        FmtDate = Format$(value, "yyyy/mm/dd")
+    Else
+        FmtDate = Trim$(CStr(value))
+    End If
+End Function
+```
+
+## 初心者向けコード解説
+
+`IsDate(value) Or IsNumeric(value)`としているのは、時刻セルがDate型で返る場合と、数値として返る場合の両方を受けるためです。
+
+```vba
+serial = CDbl(CDate(value))
+```
+
+この1行で、Date型でも数値でもExcelの日数シリアルへそろえます。
+そのうえで、小数部だけを取り出すと時刻部分になります。
+
+```vba
+fraction = serial - Int(serial)
+```
+
+`24:00`は内部値がちょうど`1.0`なので、通常の小数部処理では`0:00`になってしまいます。
+そのため、`1.0`に近い場合だけ`24:00`として扱います。
+
+## 日付はスラッシュ形式で渡す
+
+外部のJavaScriptやGASへ日付を渡す場合、`yyyy-mm-dd`ではなく`yyyy/mm/dd`にする方が安全です。
+ハイフン形式はUTC日付として解釈され、タイムゾーンによって日付がずれることがあります。
+
+## 関連記事
+
+- [勤務時間の通常・深夜按分は区間の重なりで計算する](/articles/gas/work-time-normal-night-overlap)
+- [Excel VBAからGAS Web APIへTSVでPOSTする実装定石](/articles/gas/excel-vba-gas-webapi-tsv-post)
+- [SheetJSでExcel出力するときの日付・時間セルの扱い](/articles/nextjs/sheetjs-excel-export)
+
+## まとめ
+
+Excelの時刻セルは、見た目ではなく内部値とVBA側の型を前提に扱います。
+`IsNumeric`だけに頼らず、`IsDate`も見て日数シリアルへそろえることで、`24:00`を壊さず外部へ渡せます。
