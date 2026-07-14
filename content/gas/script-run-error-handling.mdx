@@ -121,6 +121,46 @@ function serverFunction(param1, param2) {
 - GASのサーバー関数には**最大6分のタイムアウト**があります。大量データを処理する場合は分割処理を検討してください
 - サーバー関数が返せるデータは**<Term>JSON</Term>互換の型のみ**です。`Date` 型はそのまま返せないので、`.toISOString()` などで文字列に変換してから返しましょう
 
+### `withFailureHandler` で拾えない呼び出し前エラー
+
+`withFailureHandler` は、GAS側のサーバー関数が実行されたあとに発生した例外を受け取るためのハンドラです。つまり、ブラウザ側で `google.script.run.xxx(payload)` を呼ぶ前後に同期的な例外が出た場合は、`withFailureHandler` まで届きません。
+
+特に、次のような値をそのまま渡すと、サーバー側の実行ログにも残らず、画面だけが止まったように見えることがあります。
+
+- DOM要素
+- 関数
+- `Date` オブジェクト
+- `undefined` を含む複雑なオブジェクト
+- 循環参照を含むオブジェクト
+
+この対策として、`google.script.run` の呼び出し全体を `try...catch` で囲み、画面の復帰処理も共通化しておくと安全です。
+
+```javascript
+function runSafe(payload) {
+  const button = document.getElementById('actionBtn');
+  button.disabled = true;
+  showLoading('処理中です...');
+
+  try {
+    google.script.run
+      .withSuccessHandler(function(result) {
+        button.disabled = false;
+        showMessage(result.message || '完了しました');
+      })
+      .withFailureHandler(function(error) {
+        button.disabled = false;
+        showMessage(error && error.message ? error.message : '処理に失敗しました');
+      })
+      .serverFunction(payload);
+  } catch (error) {
+    button.disabled = false;
+    showMessage(error && error.message ? error.message : '呼び出し前の処理で失敗しました');
+  }
+}
+```
+
+実務では「サーバー側のエラー」と「呼び出し前のブラウザ側エラー」を分けて考えるだけで、原因調査がかなり楽になります。
+
 ## 関連記事
 
 - [GASで二重送信を防ぐ実装パターン：LockServiceと失敗時ロールバック](/articles/gas/gas-lockservice-double-submit-rollback)

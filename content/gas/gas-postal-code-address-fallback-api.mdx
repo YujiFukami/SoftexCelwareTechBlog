@@ -1,0 +1,160 @@
+---
+title: "GASで郵便番号から住所補完するときは予備APIまで用意する"
+category: "gas"
+slug: "gas-postal-code-address-fallback-api"
+tags: ["GAS", "郵便番号", "住所補完", "UrlFetchApp", "Web API", "エラーハンドリング"]
+description: "GAS Webアプリで郵便番号から住所を自動補完するときに、外部APIの空レスポンスや非JSON応答で画面を止めないための防御策と、予備APIへのフォールバック設計をまとめます。"
+date: "2026-07-14"
+---
+
+<Term>Google Apps Script</Term>で入力フォームを作ると、郵便番号から住所を自動補完したくなる場面があります。顧客情報、取引先住所、現場報告、スマートフォン入力フォームなどでは、住所入力の手間をかなり減らせます。
+
+ただし、外部の<Term>郵便番号API</Term>をそのまま信じて呼び出すと危険です。APIが空レスポンスを返したり、HTMLやエラーページのような非<Term>JSON</Term>を返したりすると、`Unexpected end of JSON input` のようなエラーで処理が止まることがあります。
+
+この記事では、GASで郵便番号住所補完を実装するときの防御パターンと、予備APIへフォールバックする設計をまとめます。
+
+## まず郵便番号を正規化する
+
+フォーム入力では、`7940015`、`794-0015`、全角数字、空白混じりなどが入ることがあります。APIへ渡す前に、7桁の半角数字へそろえます。
+
+```javascript
+function normalizePostalCode(value) {
+  return String(value || '')
+    .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    .replace(/[-ー－\s]/g, '');
+}
+```
+
+この正規化を先に入れておくと、画面側の入力ゆれをサーバー側で吸収できます。
+
+## JSON.parseの前に応答を確認する
+
+`UrlFetchApp.fetch()` の結果をいきなり `JSON.parse()` するのは避けます。HTTPステータス、本文の有無、JSONとして読めるかを順番に確認します。
+
+```javascript
+function lookupPostalCode(postalCode) {
+  const code = normalizePostalCode(postalCode);
+  if (!/^\d{7}$/.test(code)) {
+    return { success: false, message: '郵便番号は7桁で入力してください。' };
+  }
+
+  const url = 'https://zipcloud.ibsnet.co.jp/api/search?zipcode=' + encodeURIComponent(code);
+  const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  const statusCode = response.getResponseCode();
+  const text = response.getContentText('UTF-8');
+
+  if (statusCode !== 200 || !String(text || '').trim()) {
+    return { success: false, message: '住所検索に失敗しました。住所を手入力してください。' };
+  }
+
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch (e) {
+    return { success: false, message: '住所検索に失敗しました。住所を手入力してください。' };
+  }
+
+  if (!json.results || !json.results.length) {
+    return { success: false, message: '該当する住所が見つかりません。' };
+  }
+
+  const result = json.results[0];
+  return {
+    success: true,
+    address: [result.address1, result.address2, result.address3].filter(Boolean).join('')
+  };
+}
+```
+
+`muteHttpExceptions: true` を付けておくと、404や500系のレスポンスでも例外で止めず、ステータスコードを見て自分で分岐できます。
+
+## 予備APIへのフォールバックを用意する
+
+郵便番号APIは、ブラウザからは正常でも、GASから呼ぶと不安定になることがあります。Google側のIPからのアクセスが制限されたり、レート制限の影響を受けたりすると、稼働中のWebアプリで突然「住所検索に失敗しました」が出ることがあります。
+
+そのため、本番運用では予備APIへのフォールバックを用意しておく方が安全です。予備として、GitHub Pagesで配信されている静的JSONの郵便番号データを使う構成も考えられます。
+
+```javascript
+function lookupAddress(postalCode) {
+  var code = normalizePostalCode(postalCode);
+  if (!/^\d{7}$/.test(code)) {
+    return { success: false, message: '郵便番号は7桁で入力してください。' };
+  }
+
+  var r = lookupZipcloud_(code);
+  if (r && r.success) return r;
+  if (r && r.notFound) {
+    return { success: false, message: '該当する住所が見つかりません。' };
+  }
+
+  var r2 = lookupPostalFallback_(code);
+  if (r2 && r2.success) return r2;
+  if (r2 && r2.notFound) {
+    return { success: false, message: '該当する住所が見つかりません。' };
+  }
+
+  return { success: false, message: '住所検索に失敗しました。住所を手入力してください。' };
+}
+
+function lookupPostalFallback_(code) {
+  try {
+    var url = 'https://madefor.github.io/postal-code-api/api/v1/' +
+      code.slice(0, 3) + '/' + code.slice(3) + '.json';
+    var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+    var status = res.getResponseCode();
+    if (status === 404) return { notFound: true };
+    if (status !== 200) return null;
+
+    var text = res.getContentText('UTF-8');
+    if (!String(text || '').trim()) return null;
+
+    var json;
+    try {
+      json = JSON.parse(text);
+    } catch (e) {
+      return null;
+    }
+
+    if (!json.data || !json.data.length) return { notFound: true };
+    var a = json.data[0].ja || {};
+    return {
+      success: true,
+      prefecture: a.prefecture || '',
+      city: (a.address1 || '') + (a.address2 || '') + (a.address3 || '')
+    };
+  } catch (e) {
+    return null;
+  }
+}
+```
+
+ポイントは、各APIの戻り値を「成功」「見つからない」「応答不良」の3種類に分けることです。
+
+| 戻り値 | 意味 | 次の処理 |
+| --- | --- | --- |
+| `success: true` | 住所が取得できた | そのまま画面へ返す |
+| `notFound: true` | 郵便番号に該当がない | 予備APIへ回さず、見つからないと返す |
+| `null` | API応答不良、JSON不正、通信失敗 | 予備APIへ回す |
+
+「見つからない」と「APIが壊れている」を分けると、無駄な再検索を避けられます。
+
+## エラーメッセージも切り分けやすくする
+
+画面に出すメッセージは、ユーザーに分かる範囲で整理します。ただし、開発者側が原因を切り分けられるように、内部的には意味を分けておくと便利です。
+
+- 「住所検索に失敗しました」: fetchは通ったが応答が不正。API側の問題を疑う。
+- 「住所検索でエラーが発生しました」: fetchが例外。権限やスコープの問題を疑う。
+
+初回実行時やスコープ変更後は、GASの外部接続権限が必要です。<Term>UrlFetchApp</Term>を使うため、`appsscript.json` や再承認の確認も忘れないようにします。
+
+## 今回の事例
+
+古物商の現場入力Webアプリでは、郵便番号7桁の入力時に住所補完を行いました。その後、農産物受注販売システムでは、zipcloudがGASからだけ失敗するケースに遭遇し、予備APIへのフォールバックを追加して運用を安定させました。
+
+住所補完は小さな便利機能に見えますが、外部API依存の機能です。APIが不安定でも入力作業を止めない設計にしておくことが重要です。
+
+## 関連記事
+
+- [GASのappsscript.jsonマニフェストでWebアプリ設定とOAuthスコープを固定する](/articles/gas/appsscript-manifest-settings)
+- [google.script.runのエラーハンドリング完全パターン【GAS Webアプリ】](/articles/gas/script-run-error-handling)
+- [GASで二重送信を防ぐ実装パターン](/articles/gas/gas-lockservice-double-submit-rollback)

@@ -1,0 +1,177 @@
+---
+title: "GASでShift-JIS CSVを入出力する方法: Drive保存・複数ファイル取込・桁落ち回避"
+category: "gas"
+slug: "gas-shift-jis-csv-import-file-reader"
+tags: ["GAS", "CSV", "Shift_JIS", "FileReader", "Google Drive", "業務システム"]
+description: "GASでShift-JISのCSVを書き出し、ブラウザ側のFileReaderでShift-JIS CSVを複数ファイル取り込む実装パターンをまとめます。長い伝票番号の科学表記化や桁落ちを避ける運用上の注意点も整理します。"
+date: "2026-07-14"
+---
+
+日本の業務系CSVでは、今でも<Term>Shift_JIS</Term>が前提になることがあります。送り状発行ソフト、会計ソフト、銀行、EDI、販売管理ソフトなどでは、<Term>UTF-8</Term>のCSVをそのまま渡すと文字化けや形式エラーになることがあります。
+
+以前の記事では、<Term>Googleスプレッドシート</Term>からShift_JIS CSVを出力する方法を整理しました。今回はもう少し実務寄りに、GASでShift_JIS CSVを書き出す処理に加えて、発行済みCSVを複数ファイル取り込む処理、そして長い伝票番号の桁落ちを防ぐ考え方までまとめます。
+
+## GAS標準のUtilitiesだけではShift-JISエンコードできない
+
+<Term>Google Apps Script</Term>の `Utilities` は便利ですが、`Utilities.Charset` で指定できる文字コードは限られます。`getContentText('Shift_JIS')` はデコードには使えますが、CSVを書き出すときのエンコード用途としては扱いづらいです。
+
+Shift_JISでCSVを書き出す場合は、`Blob.setDataFromString(text, 'Shift_JIS')` を使うのが実務上扱いやすいです。
+
+```javascript
+function saveCsvAsShiftJis_(csvText, fileName, folder) {
+  var blob = Utilities.newBlob('', 'text/csv')
+    .setDataFromString(csvText, 'Shift_JIS');
+  blob.setName(fileName);
+  blob.setContentType('text/csv');
+  return folder.createFile(blob);
+}
+```
+
+保存先をスプレッドシートと同じフォルダにしたい場合は、<Term>DriveApp</Term>で親フォルダを取得します。
+
+```javascript
+function getSpreadsheetFolder_() {
+  var ssId = SpreadsheetApp.getActiveSpreadsheet().getId();
+  var parents = DriveApp.getFileById(ssId).getParents();
+  return parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+}
+
+function getOrCreateSubfolder_(parent, name) {
+  var it = parent.getFoldersByName(name);
+  return it.hasNext() ? it.next() : parent.createFolder(name);
+}
+```
+
+## CSV文字列はCRLFと引用符を意識して作る
+
+CSVは、単にカンマでつなげるだけでは不十分です。値にカンマ、改行、ダブルクォートが含まれる可能性があるため、CSVのルールに従ってエスケープします。
+
+```javascript
+function toCsv_(rows) {
+  return rows.map(function (row) {
+    return row.map(function (v) {
+      var s = (v == null) ? '' : String(v);
+      if (/[",\r\n]/.test(s)) {
+        s = '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }).join(',');
+  }).join('\r\n');
+}
+```
+
+業務系CSVでは、改行コードを<Term>CRLF</Term>にしておく方が無難です。取り込み先が古いWindows系システムの場合、LFだけだと行として認識されないことがあります。
+
+## Shift-JIS CSVの取り込みはブラウザ側でデコードする
+
+CSVを取り込む場合、GASサーバー側でファイルを直接開くより、HTMLダイアログやWebアプリ画面の `<input type="file">` で選択し、ブラウザ側の<Term>FileReader</Term>で文字列化してからサーバーへ渡す方法が扱いやすいです。
+
+```html
+<input type="file" id="csvFile" accept=".csv" multiple onchange="onCsvSelected()">
+
+<script>
+function onCsvSelected() {
+  var files = document.getElementById('csvFile').files;
+  var texts = [];
+  var done = 0;
+
+  Array.prototype.forEach.call(files, function (f, idx) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      texts[idx] = reader.result;
+      if (++done === files.length) {
+        google.script.run
+          .withSuccessHandler(render)
+          .parseCsvOnServer(texts);
+      }
+    };
+    reader.readAsText(f, 'Shift_JIS');
+  });
+}
+</script>
+```
+
+この方法なら、複数ファイル選択にも対応できます。`readAsText(f, 'Shift_JIS')` の時点でブラウザ側がShift_JISを文字列へ変換し、サーバー側へは普通の文字列配列として渡せます。
+
+## サーバー側ではCSVパーサで読む
+
+サーバー側では、渡されたCSVテキストをパースします。引用符付きの値や改行に対応するため、簡易でもCSVルールを意識したパーサにしておきます。
+
+```javascript
+function parseCsv_(text) {
+  var rows = [];
+  var row = [];
+  var field = '';
+  var inQuotes = false;
+
+  text = String(text == null ? '' : text)
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+
+  for (var i = 0; i < text.length; i++) {
+    var c = text.charAt(i);
+    if (inQuotes) {
+      if (c === '"') {
+        if (text.charAt(i + 1) === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += c;
+      }
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',') {
+        row.push(field);
+        field = '';
+      } else if (c === '\n') {
+        row.push(field);
+        rows.push(row);
+        row = [];
+        field = '';
+      } else {
+        field += c;
+      }
+    }
+  }
+
+  if (field !== '' || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+```
+
+CSVの仕様は意外と細かいため、カンマ区切りだけで `split(',')` すると、住所や商品名にカンマが入ったときに壊れます。
+
+## 長い番号はExcelで開いて保存し直さない
+
+実務で特に注意したいのが、長い伝票番号や送り状番号です。12桁程度の番号をExcelやスプレッドシートで開くと、数値として解釈され、`4.88E+11` のような科学表記になることがあります。
+
+この状態で上書き保存すると、CSVの中身そのものが壊れます。コード側でどれだけ文字列として扱っても、壊れたCSVを取り込めば復元できません。
+
+運用上は、次を明記しておくと安全です。
+
+- ダウンロードした生CSVを、そのままコードに読ませる
+- 取込前にExcelで開いて上書き保存しない
+- コード側では伝票番号を `Number()` に通さない
+- シートへインポートしてから読む方式を避ける
+- 必要に応じて取込前のCSV先頭行や桁数をログに出す
+
+CSVは人間が確認しやすい形式に見えますが、表計算ソフトを経由するとデータ型変換で壊れることがあります。特に番号、コード、郵便番号、電話番号は文字列として扱う前提にします。
+
+## 今回の事例
+
+農産物受注販売システムで、ヤマトB2クラウドの取込用CSVをShift_JISでDriveへ出力し、発行後の送り状番号入りCSVを複数ファイルで取り込む流れを実装しました。
+
+テスト時に伝票番号が科学表記へ変わる事故があったため、表計算ソフトを経由せず、生CSVを直接読む方式に統一しました。
+
+## 関連記事
+
+- [GoogleスプレッドシートからShift_JISのCSVを出力する方法](/articles/gas/google-sheets-shift-jis-csv-export)
+- [GASのappsscript.jsonマニフェストでWebアプリ設定とOAuthスコープを固定する](/articles/gas/appsscript-manifest-settings)
+- [GAS数式シートを入力セル差し替えで使い回す](/articles/gas/gas-formula-sheet-input-cell-reuse)
+- [GASで2段ヘッダーの重複見出しを安全に扱う方法](/articles/gas/gas-two-row-header-composite-key)

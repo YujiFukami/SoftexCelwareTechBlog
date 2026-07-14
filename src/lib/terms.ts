@@ -1762,6 +1762,20 @@ export const terms: TermEntry[] = [
     references: [{ title: "Apps Script - UrlFetchApp", url: "https://developers.google.com/apps-script/reference/url-fetch/url-fetch-app" }],
   },
   {
+    slug: "postal-code-api",
+    title: "郵便番号API",
+    category: "Web API",
+    aliases: ["郵便番号検索API", "住所補完API"],
+    summary: "郵便番号を渡すと都道府県、市区町村、町域などの住所情報を返すWeb APIです。",
+    description: [
+      "郵便番号APIを使うと、入力フォームで郵便番号から住所を自動補完できます。",
+      "外部サービスに依存するため、空レスポンス、非JSON応答、制限、停止に備えて、失敗時のメッセージや予備APIを用意しておくと安全です。",
+    ],
+    useCases: ["住所入力フォーム", "顧客情報登録", "現場入力アプリの住所補完"],
+    related: ["urlfetchapp", "json", "rest-api"],
+    googleQuery: "郵便番号API 住所補完 とは",
+  },
+  {
     slug: "lockservice",
     title: "LockService",
     category: "Google Apps Script",
@@ -1818,6 +1832,21 @@ export const terms: TermEntry[] = [
     useCases: ["業務システムへのインポート", "表データのエクスポート", "Excelとのデータ受け渡し"],
     related: ["google-spreadsheet", "shift-jis", "utf-8"],
     googleQuery: "CSV とは",
+  },
+  {
+    slug: "filereader",
+    title: "FileReader",
+    category: "Web API",
+    aliases: ["FileReader API"],
+    summary: "ブラウザ上でユーザーが選択したファイルを文字列やData URLとして読み込むためのAPIです。",
+    description: [
+      "FileReaderを使うと、HTMLのfile inputで選択されたCSVや画像ファイルを、サーバーへ送る前にブラウザ側で読み込めます。",
+      "文字コードを指定してCSVを読み込む場合は、`readAsText(file, 'Shift_JIS')` のように指定できるため、古い業務CSVの取り込みでも役立ちます。",
+    ],
+    useCases: ["CSVファイルのブラウザ側読み込み", "アップロード前プレビュー", "Shift_JIS CSVの取り込み"],
+    related: ["javascript", "csv", "shift-jis"],
+    googleQuery: "FileReader API とは",
+    references: [{ title: "MDN - FileReader", url: "https://developer.mozilla.org/docs/Web/API/FileReader" }],
   },
   {
     slug: "shift-jis",

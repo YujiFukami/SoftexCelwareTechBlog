@@ -1,0 +1,202 @@
+---
+title: "GASで都道府県×タイプの2次元マスタを動的列で読む"
+category: "gas"
+slug: "gas-prefecture-type-matrix-master"
+tags: ["GAS", "Googleスプレッドシート", "マスタ管理", "動的列", "送料", "業務アプリ"]
+description: "都道府県ごと、商品タイプごとに値が変わる送料やクール区分を、固定列番号ではなく見出し名で読むGASの実装パターンをまとめます。列を増やしてもコード変更しないための2次元マスタ設計です。"
+date: "2026-07-14"
+image: "/articles/gas/gas-prefecture-type-matrix-master/matrix-structure.jpg"
+---
+
+業務システムでは、「都道府県ごとに値が変わる設定」がよく出てきます。送料、クール区分、手数料、配送日数、地域別の上限数などです。
+
+さらに実務では、同じ都道府県でも商品や配送タイプによって値が変わります。たとえば、小さい箱と大きい箱で送料が違う、商品によって冷蔵・冷凍の区分が違う、といったケースです。
+
+このような設定は、「都道府県 × タイプ」の2次元マスタとして持つと扱いやすくなります。ただし、GAS側で `getRange(4, 3)` のように列番号を固定すると、タイプ列を追加した瞬間にコード修正が必要になります。
+
+この記事では、<Term>Google Apps Script</Term>で2次元マスタを読み、列追加に強い形で値を引く実装パターンをまとめます。
+
+<figure>
+  <a href="/articles/gas/gas-prefecture-type-matrix-master/matrix-structure.jpg" target="_blank" rel="noreferrer">
+    <img src="/articles/gas/gas-prefecture-type-matrix-master/matrix-structure.jpg" alt="都道府県とタイプ列で構成された2次元マスタの構造" />
+  </a>
+  <figcaption>商品側で使うタイプ名を持ち、2次元マスタ側では都道府県行とタイプ列の交点から値を取得します。</figcaption>
+</figure>
+
+## 2次元マスタの考え方
+
+基本構造は次の通りです。
+
+```text
+商品一覧:
+  桃 → クール区分設定 = 区分1
+  みかん → クール区分設定 = 区分2
+
+クール区分設定:
+  北海道 行 × 区分1 列 → 2
+  北海道 行 × 区分2 列 → 1
+```
+
+商品マスタ側には、「どのタイプを使うか」を持たせます。2次元マスタ側には、都道府県を行、タイプを列として並べます。あとは、商品のタイプ名とお届け先都道府県の交点を読めばよい、という考え方です。
+
+## 列番号ではなく見出し名で読む
+
+タイプ列は、後から増える可能性があります。たとえば、`送料1`、`送料2` に加えて `送料3` を増やす場合です。
+
+このとき、コード側で列番号を固定していると、表の変更に弱くなります。そこで、見出しセルを起点に、右へ見出しを読み、下へデータを読む共通関数を作ります。
+
+```javascript
+function readTableAt_(sheet, startRow, startCol) {
+  var lastCol = sheet.getLastColumn();
+  if (!sheet || startRow < 1 || startCol < 1 || startCol > lastCol) {
+    return { headers: [], rows: [] };
+  }
+
+  var headerVals = sheet
+    .getRange(startRow, startCol, 1, lastCol - startCol + 1)
+    .getDisplayValues()[0];
+
+  var headers = [];
+  for (var c = 0; c < headerVals.length; c++) {
+    if (String(headerVals[c]).trim() === '') break;
+    headers.push(normalizeHeader_(headerVals[c]));
+  }
+  if (!headers.length) return { headers: [], rows: [] };
+
+  var maxRows = sheet.getMaxRows();
+  var block = sheet.getRange(startRow + 1, startCol, maxRows - startRow, headers.length).getValues();
+
+  var rows = [];
+  for (var r = 0; r < block.length; r++) {
+    if (String(block[r][0]).trim() === '') break;
+    var obj = {};
+    for (var i = 0; i < headers.length; i++) {
+      obj[headers[i]] = block[r][i];
+    }
+    rows.push(obj);
+  }
+  return { headers: headers, rows: rows };
+}
+
+function normalizeHeader_(v) {
+  return String(v || '')
+    .replace(/[（]/g, '(')
+    .replace(/[）]/g, ')')
+    .replace(/\s+/g, '')
+    .trim();
+}
+```
+
+見出しは、空白列が出たら終端とします。これにより、右側へ列を追加しても自動で読めます。
+
+## 起点は名前付き範囲で指定する
+
+表の開始位置は、<Term>名前付き範囲</Term>で指定するのが理想です。表の位置が変わっても、名前付き範囲が維持されていればコードを直さずに済みます。
+
+ただし、運用では名前付き範囲を作り忘れることもあります。そのため、名前付き範囲がない場合はシート内から見出し名を探すフォールバックを入れておくと便利です。
+
+```javascript
+function findHeaderCell_(sheet, headerName) {
+  if (!sheet) return null;
+  var target = normalizeHeader_(headerName);
+  var vals = sheet.getDataRange().getDisplayValues();
+  for (var r = 0; r < vals.length; r++) {
+    for (var c = 0; c < vals[r].length; c++) {
+      if (normalizeHeader_(vals[r][c]) === target) {
+        return { row: r + 1, col: c + 1 };
+      }
+    }
+  }
+  return null;
+}
+
+function readMatrix_(sheetName, namedRange, keyHeader) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet, startRow, startCol;
+
+  var rng = ss.getRangeByName(namedRange);
+  if (rng) {
+    sheet = rng.getSheet();
+    startRow = rng.getRow();
+    startCol = rng.getColumn();
+  } else {
+    sheet = ss.getSheetByName(sheetName);
+    if (!sheet) return { types: [], map: {} };
+    var cell = findHeaderCell_(sheet, keyHeader);
+    if (!cell) return { types: [], map: {} };
+    startRow = cell.row;
+    startCol = cell.col;
+  }
+
+  var t = readTableAt_(sheet, startRow, startCol);
+  var keyName = normalizeHeader_(keyHeader);
+  var types = t.headers.filter(function (h) { return h !== keyName; });
+  var map = {};
+
+  t.rows.forEach(function (r) {
+    var key = String(r[keyName] || '').trim();
+    if (!key) return;
+    var byType = {};
+    types.forEach(function (type) {
+      byType[type] = r[type];
+    });
+    map[key] = byType;
+  });
+
+  return { types: types, map: map };
+}
+```
+
+戻り値は、都道府県をキーにしたオブジェクトです。`map['北海道']['送料1']` のように、交点の値を取り出せます。
+
+## 商品側のタイプ名で値を引く
+
+商品マスタ側には、商品ごとにどのタイプを使うかを文字列で持たせます。プルダウンにしておくと、見出し名とのずれを防ぎやすくなります。
+
+```javascript
+var cool = readMatrix_('クール区分設定', 'クール区分設定_都道府県', '都道府県');
+var byPref = cool.map[prefecture];
+var value = (byPref && p.coolType) ? byPref[p.coolType] : '';
+```
+
+商品側の読み取り例です。
+
+```javascript
+function readProducts_() {
+  return readNamedTable_('設定_商品一覧').rows.map(function (r) {
+    return {
+      name: String(r['商品名'] || '').trim(),
+      coolType: normalizeHeader_(r['クール区分設定'] || ''),
+      shippingType: normalizeHeader_(r['送料タイプ'] || '')
+    };
+  });
+}
+```
+
+## 運用上の注意点
+
+この設計で大事なのは、表のルールを明確にしておくことです。
+
+- タイプ列は左から詰めて追加する
+- 途中に空白列を入れない
+- 表と表を横並びにする場合は、間に空列を1つ入れる
+- 商品側のタイプ名と2次元マスタ側の見出し名を一致させる
+- プルダウンでタイプ名を選ばせる
+- 値が引けない場合にエラーにするか、空欄で通すかを決める
+
+空白列を終端として読む設計なので、途中に空列があると、その右側は読まれません。これは欠点ではなく、複数の表を1シートに横並びするための区切りとしても使えます。
+
+## 今回の事例
+
+農産物受注販売システムで、送料とクール区分の2つを同じ仕組みで実装しました。
+
+送料は「都道府県 × 送料タイプ」、クール区分は「都道府県 × 区分」の2次元マスタです。依頼者が後から `送料3`、`送料4`、`区分3` のように列を追加しても、コードを直さずに反映できる構成にしました。
+
+GAS側は列番号を知らず、見出し名と都道府県名だけで値を引きます。業務側がシートの列を増やすだけで設定を拡張できるため、保守しやすくなります。
+
+## 関連記事
+
+- [GASで2段ヘッダーの重複見出しを安全に扱う方法](/articles/gas/gas-two-row-header-composite-key)
+- [GAS数式シートを入力セル差し替えで使い回す](/articles/gas/gas-formula-sheet-input-cell-reuse)
+- [スプレッドシートを簡易DBにするアイデア](/articles/design-philosophy/google-sheets-simple-db-mvp)
+- [GASで既存行から関連属性を一括反映する入力補助](/articles/gas/existing-row-attribute-suggestion)

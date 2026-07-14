@@ -1,0 +1,156 @@
+---
+title: "GAS数式シートを入力セル差し替えで使い回す: 変換ロジックをコードから分離する"
+category: "gas"
+slug: "gas-formula-sheet-input-cell-reuse"
+tags: ["GAS", "Googleスプレッドシート", "数式", "名前付き範囲", "CSV", "業務アプリ"]
+description: "外部システム向けCSVの項目マッピングをGASに書かず、スプレッドシートの数式へ寄せる設計をまとめます。GASは入力セルを差し替え、SpreadsheetApp.flush()後に出力シートを回収する役割にします。"
+date: "2026-07-14"
+---
+
+外部システムへ取り込むCSVを作るとき、項目マッピングをすべてGASに書くと、コードが巨大な対応表になりがちです。たとえば、外部システムの取込フォーマットが95項目ある場合、`row[0] = ...`、`row[1] = ...` のような変換処理が増え、後から保守しにくくなります。
+
+さらに、項目の意味や変換ルールは業務側の関心事です。商品名、配送区分、送料、備考、外部システム用のコードなどは、依頼者側が調整したいこともあります。これを毎回開発者がコード修正する形にすると、運用が重くなります。
+
+そこで、変換ロジックを<Term>Googleスプレッドシート</Term>の数式へ寄せ、<Term>Google Apps Script</Term>は入力セルを書き換えて結果を回収するだけにする設計が使えます。
+
+## 役割を分ける
+
+このパターンでは、GASとシートの役割を明確に分けます。
+
+| 役割 | 担当 |
+| --- | --- |
+| 変換ロジック | スプレッドシートの数式、VLOOKUP、XLOOKUP、入力規則 |
+| 入力値の差し替え | GAS |
+| 再計算の確定 | `SpreadsheetApp.flush()` |
+| 出力結果の回収 | GAS |
+| CSV保存 | GAS |
+
+イメージは次のような構成です。
+
+```text
+[中間処理シート]                  [出力シート]
+  受付番号   ← GASが書き込む       95項目が数式で組み上がる
+  明細番号   ← GASが1,2,3...と差し替え
+  商品情報   ← VLOOKUP等で自動計算
+                                      ↑
+                              GASはここを読むだけ
+```
+
+GASはマッピングの中身を知りません。項目が増減しても、出力シートの数式を業務側で直せば済むため、コード修正を減らせます。
+
+## 入力セルは名前付き範囲にする
+
+GASから書き換える入力セルは、A1表記で直接指定するより<Term>名前付き範囲</Term>にしておく方が安全です。セル位置が変わっても、名前が維持されていればコードが壊れにくくなります。
+
+```javascript
+ss.getRangeByName('中間処理_受付番号').setValue(orderNo);
+ss.getRangeByName('中間処理_注文明細番号').setValue(i);
+```
+
+名前は長くなっても、意味が分かる名前にします。あとから見たときに「どのシートの、何の入力セルか」が分かる方が保守しやすいです。
+
+## 実装パターン
+
+次の例では、親レコードの受付番号をセットし、明細番号を1件ずつ差し替えながら、出力用CSVシートを回収しています。
+
+```javascript
+function exportEachDetail(orderNo) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) {
+    throw new Error('処理中です。少し待って再実行してください。');
+  }
+
+  try {
+    ss.getRangeByName('中間処理_受付番号').setValue(orderNo);
+    SpreadsheetApp.flush();
+
+    var count = Number(ss.getRangeByName('中間処理_注文明細件数').getValue()) || 0;
+    if (count < 1) throw new Error('対象データがありません: ' + orderNo);
+
+    var noRange = ss.getRangeByName('中間処理_注文明細番号');
+    var outSheet = ss.getSheetByName('出力用CSV');
+    var files = [];
+
+    for (var i = 1; i <= count; i++) {
+      noRange.setValue(i);
+      SpreadsheetApp.flush();
+
+      var rows = outSheet.getDataRange().getDisplayValues();
+      while (rows.length && rows[rows.length - 1].join('').trim() === '') {
+        rows.pop();
+      }
+
+      files.push(saveCsv_(toCsv_(rows), buildFileName_(orderNo, i)));
+    }
+
+    return files;
+  } finally {
+    lock.releaseLock();
+  }
+}
+```
+
+ポイントは、`setValue()` の後に `SpreadsheetApp.flush()` を呼ぶことです。入力セルを書き換えた直後に出力シートを読むと、数式の再計算がまだ反映されておらず、前回の値を読んでしまうことがあります。
+
+## LockServiceで直列化する
+
+入力セルは、スプレッドシート全体で共有される1つの状態です。複数ユーザーが同時に実行すると、Aさんの受付番号を書いた直後にBさんの受付番号で上書きされる可能性があります。
+
+そのため、このパターンでは<Term>LockService</Term>が重要です。
+
+```javascript
+var lock = LockService.getScriptLock();
+if (!lock.tryLock(20000)) {
+  throw new Error('処理中です。少し待って再実行してください。');
+}
+
+try {
+  // 入力セル差し替えと回収
+} finally {
+  lock.releaseLock();
+}
+```
+
+シート上の入力セルを一時的に差し替える処理は、共有資源を触っているのと同じです。並行実行される可能性がある業務アプリでは、必ず直列化します。
+
+## getDisplayValuesで回収する
+
+外部システム向けCSVでは、内部値より表示値が重要なことがあります。日付、郵便番号、電話番号、コード番号、桁区切り、先頭ゼロなどです。
+
+このような場合は、`getValues()` ではなく `getDisplayValues()` で回収します。
+
+```javascript
+var rows = outSheet.getDataRange().getDisplayValues();
+```
+
+出力用シート側で表示形式を整えておけば、GAS側ではその見た目をそのままCSV化できます。変換ルールをコードではなくシートへ寄せる、という方針とも相性がよいです。
+
+## 向いている場面
+
+この設計は、次のような場面に向いています。
+
+- 外部システムの取込フォーマットが複雑
+- 出力項目が多い
+- 項目マッピングが業務都合で変わる
+- 1親レコードからN件の子レコードを出力する
+- 明細ごとの伝票、帳票、CSVを作る
+- 業務側が数式で変換ルールを調整したい
+
+逆に、件数が非常に多い場合は注意が必要です。1件ごとに `flush()` と再計算が走るため、シートの数式が重いとGASの実行時間上限に近づきます。`TODAY()` や `NOW()` のような揮発性関数、広範囲の `VLOOKUP`、全列参照などはできるだけ減らします。
+
+## 今回の事例
+
+農産物受注販売システムで、ヤマトB2クラウド向けの95項目CSVを作成する処理にこのパターンを使いました。
+
+GASは「受付番号」と「明細番号」を中間処理シートへ書き込み、`flush()` で数式を反映させ、出力用CSVシートを回収します。実際の95項目の組み立ては、依頼者側が保守できるスプレッドシート数式に任せました。
+
+この形にすると、外部フォーマットの項目変更が起きても、コードではなくシート側の数式を直すだけで対応しやすくなります。
+
+## 関連記事
+
+- [GASでShift-JIS CSVを入出力する方法](/articles/gas/gas-shift-jis-csv-import-file-reader)
+- [GASで二重送信を防ぐ実装パターン](/articles/gas/gas-lockservice-double-submit-rollback)
+- [GASで2段ヘッダーの重複見出しを安全に扱う方法](/articles/gas/gas-two-row-header-composite-key)
+- [GASで日付プレフィックスと日内連番のIDを採番する](/articles/gas/date-prefix-daily-sequence-id)
