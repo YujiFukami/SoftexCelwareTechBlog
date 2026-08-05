@@ -3617,6 +3617,48 @@ export const terms: TermEntry[] = [
     related: ["skill", "codex"],
     googleQuery: "automation workflow とは",
   },
+  {
+    slug: "vps",
+    title: "VPS",
+    category: "クラウド",
+    aliases: ["Virtual Private Server", "仮想専用サーバー"],
+    summary: "レンタルサーバー事業者が提供する仮想専用サーバーです。常時起動が必要な監視処理、Webアプリ、バッチ処理などの実行環境として使われます。",
+    description: [
+      "VPSは、クラウド上に用意した専用PCのように扱えるサーバー環境です。",
+      "自宅PCを常時起動しなくても、監視処理、APIサーバー、定期バッチなどを継続実行しやすくなります。",
+    ],
+    useCases: ["常時監視", "APIサーバー運用", "定期処理の実行"],
+    related: ["cloud", "windows-server", "linux", "nodejs"],
+    googleQuery: "VPS とは 常時起動 サーバー",
+  },
+  {
+    slug: "chrome-extension",
+    title: "Chrome拡張機能",
+    category: "ブラウザ自動化",
+    aliases: ["Chrome Extension", "Google Chrome拡張機能", "Manifest V3"],
+    summary: "Google Chromeに機能を追加する仕組みです。閲覧中ページの情報取得、入力補助、業務画面の操作支援などをブラウザ内で実装できます。",
+    description: [
+      "Chrome拡張機能は、ブラウザのタブ、ページ内容、保存領域などにアクセスして、通常のWebページだけでは難しい操作補助を実装できます。",
+      "業務画面の入力補助や通知連携では便利ですが、対象サービスの規約やセキュリティへの配慮が必要です。",
+    ],
+    useCases: ["業務画面の入力補助", "ページ上の情報検知", "ブラウザ操作支援"],
+    related: ["chrome", "javascript", "rest-api", "webhook"],
+    googleQuery: "Chrome拡張機能 Manifest V3 とは",
+  },
+  {
+    slug: "playwright",
+    title: "Playwright",
+    category: "ブラウザ自動化",
+    aliases: ["Microsoft Playwright"],
+    summary: "Chromium、Firefox、WebKitなどのブラウザをコードから操作する自動化ライブラリです。E2Eテスト、画面操作の検証、監視処理の試作などに使われます。",
+    description: [
+      "Playwrightは、ブラウザを起動してクリック、入力、スクリーンショット取得などを自動実行できるライブラリです。",
+      "WebアプリのE2Eテストや、ブラウザ画面を使う監視処理の検証に向いています。",
+    ],
+    useCases: ["E2Eテスト", "ブラウザ操作の自動化", "画面監視の検証"],
+    related: ["nodejs", "chrome", "javascript"],
+    googleQuery: "Playwright ブラウザ自動化 とは",
+  },
 ];
 
 const termsBySlug = new Map(terms.map((term) => [term.slug, term]));
