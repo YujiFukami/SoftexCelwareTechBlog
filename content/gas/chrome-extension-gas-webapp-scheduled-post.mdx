@@ -1,0 +1,416 @@
+---
+title: "Chrome拡張機能からGAS Webアプリへ安全に定期POSTする設計"
+category: "gas"
+slug: "chrome-extension-gas-webapp-scheduled-post"
+tags: ["Chrome拡張機能", "GAS", "Google Apps Script", "Googleスプレッドシート", "Web API", "定期実行", "業務自動化"]
+description: "Chrome拡張機能でログイン済み画面を定期確認し、GAS Webアプリへ安全にPOSTしてスプレッドシートへ追記する設計をまとめます。設定画面、実行状態、トークン認証、一括追記、納品手順まで整理します。"
+date: "2026-08-07"
+---
+
+ブラウザでログイン済みの業務画面からデータを取得し、<Term>Googleスプレッドシート</Term>へ定期的に保存したい場合があります。専用サーバーを用意するほどではない小規模ツールなら、<Term>Chrome拡張機能</Term>で画面側の処理を行い、<Term>Google Apps Script</Term>のWebアプリを受信APIとして使う構成が現実的です。
+
+この記事では、Chrome拡張機能からGAS Webアプリへ安全にPOSTし、受信側でタイムアウトしにくい形で一括追記する設計をまとめます。顧客向けに未パッケージ拡張機能として納品する場合の説明ポイントも含めます。
+
+## 想定する構成
+
+全体像は次のようになります。
+
+```text
+顧客PCのChrome
+  └ Chrome拡張機能
+      ├ 設定画面
+      ├ chrome.alarms による定期実行
+      ├ ログイン済み画面からのデータ取得
+      └ GAS WebアプリへPOST
+
+GAS Webアプリ
+  ├ APIトークン検証
+  ├ 重複判定
+  ├ LockService による排他制御
+  └ Googleスプレッドシートへ一括追記
+```
+
+サーバー側の定期実行ではなくChrome拡張機能を使う理由は、ログイン済みのブラウザ画面を前提にした処理を扱いやすいからです。反対に、ChromeやPCが終了している間は動きません。この制約は、最初に利用者へ説明しておく必要があります。
+
+## Chrome拡張機能側で持つ設定
+
+顧客ごとに変わる値は、コードへ直接書かず、設定画面から`chrome.storage.local`へ保存します。
+
+```js
+const DEFAULT_SETTINGS = {
+  urlsText: '',
+  scheduleTimesText: '00:00\n06:00\n12:00\n18:00',
+  apiEndpointUrl: '',
+  apiToken: '',
+  waitMs: 1200,
+  enabled: false
+};
+```
+
+設定画面には、少なくとも次を置きます。
+
+- 取得対象URL一覧
+- 実行時刻一覧
+- URLごとの待機ミリ秒
+- GAS WebアプリURL
+- APIトークン
+- 自動実行ON/OFF
+- 今すぐ実行
+- トリガー停止
+- 実行状態リセット
+- 最終実行結果
+- 最終アラーム発火時刻
+- 次回予定時刻
+
+「動いていない」と言われたときに、設定画面だけで原因を切り分けられるようにするのがポイントです。
+
+## Manifest V3とchrome.alarms
+
+Manifest V3では、Service Workerが常時起動し続ける前提では設計しません。定期実行には`chrome.alarms`を使い、設定変更時にアラームを作り直します。
+
+```json
+{
+  "manifest_version": 3,
+  "name": "業務用定期実行ツール",
+  "version": "1.0.0",
+  "permissions": ["alarms", "storage", "tabs", "scripting"],
+  "host_permissions": [
+    "https://example.com/*",
+    "https://script.google.com/*",
+    "https://script.googleusercontent.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "action": {
+    "default_popup": "src/options.html"
+  },
+  "options_page": "src/options.html"
+}
+```
+
+```js
+const ALARM_PREFIX = 'business-job-';
+
+async function ensureAlarms() {
+  const settings = await getSettings();
+  await clearScheduleAlarms();
+
+  if (!settings.enabled) return { createdCount: 0 };
+
+  const times = parseScheduleTimes(settings.scheduleTimesText);
+  for (let i = 0; i < times.length; i++) {
+    await chrome.alarms.create(ALARM_PREFIX + i, {
+      when: nextOccurrence(times[i]),
+      periodInMinutes: 24 * 60
+    });
+  }
+
+  await saveAlarmSnapshot();
+  return { createdCount: times.length };
+}
+```
+
+分単位で厳密なジョブ管理が必要な用途には向きません。Chrome拡張機能の定期実行は、軽量な業務補助と割り切る方が安定します。
+
+## 二重実行を避けるrunningフラグ
+
+手動実行とアラーム実行が重なると、同じデータを二重送信する可能性があります。実行中は`running`フラグを立て、同時実行を避けます。
+
+ただし、Service Workerは途中で終了する可能性があります。`running: true`だけを見て永久にスキップしないよう、開始時刻も保存し、古い実行中状態は解除します。
+
+```js
+const RUNNING_STALE_MS = 60 * 60 * 1000;
+
+async function shouldSkipOrRecoverRunning() {
+  const state = await chrome.storage.local.get(['running', 'lastRunStartedAt']);
+  if (!state.running) return false;
+
+  const startedAt = parseStoredDateTime(state.lastRunStartedAt);
+  const stale = !startedAt || Date.now() - startedAt.getTime() > RUNNING_STALE_MS;
+
+  if (stale) {
+    await chrome.storage.local.set({
+      running: false,
+      lastRunMessage: '古い実行中状態を解除して再実行します。'
+    });
+    return false;
+  }
+
+  await chrome.storage.local.set({
+    lastRunStatus: 'skipped',
+    lastRunMessage: '前回の処理が実行中のためスキップしました。'
+  });
+  return true;
+}
+```
+
+## GASへPOSTするときのContent-Type
+
+GAS Webアプリでは、一般的なWebサーバーのように任意ヘッダーを細かく扱いにくい場面があります。Chrome拡張機能からGASへ送る場合は、`Content-Type: text/plain;charset=utf-8`でJSON文字列を送り、APIトークンも本文に含めると実装しやすくなります。
+
+```js
+async function postRecordsToGas(gasWebAppUrl, apiToken, records, errors) {
+  const response = await fetch(gasWebAppUrl, {
+    method: 'POST',
+    headers: {
+      'content-type': 'text/plain;charset=utf-8'
+    },
+    body: JSON.stringify({
+      token: apiToken,
+      source: 'chrome-extension',
+      sentAt: formatDateTime(new Date()),
+      records,
+      errors
+    })
+  });
+
+  const text = await response.text();
+  const json = JSON.parse(text);
+  if (!response.ok || !json.ok) {
+    throw new Error(json.error || ('GAS HTTP ' + response.status));
+  }
+  return json;
+}
+```
+
+大量データを一度に送ると、GAS側の処理時間が伸びます。送信側では20件程度に分割すると扱いやすくなります。
+
+```js
+const GAS_POST_BATCH_SIZE = 20;
+
+function chunkArray(items, size) {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+```
+
+## APIトークンはスクリプトプロパティへ置く
+
+GAS側の認証トークンは、スプレッドシートのセルではなく<Term>スクリプトプロパティ</Term>に保存します。セルに置くと、共有範囲や閲覧権限によって見えてしまう可能性があります。
+
+```js
+function validatePayload_(payload) {
+  const expectedToken = PropertiesService
+    .getScriptProperties()
+    .getProperty('API_TOKEN');
+
+  if (!expectedToken) throw new Error('APIトークンが未設定です。');
+  if (!payload || payload.token !== expectedToken) throw new Error('APIトークンが一致しません。');
+  if (!Array.isArray(payload.records)) throw new Error('records が配列ではありません。');
+}
+```
+
+トークン生成はGAS側で行い、顧客側のChrome拡張機能設定画面へ貼り付けます。
+
+```js
+function generateApiToken_() {
+  return [
+    Utilities.getUuid(),
+    Utilities.getUuid()
+  ].join('-').replace(/-/g, '');
+}
+```
+
+## GAS受信側は一括追記にする
+
+`doPost(e)`で受け取ったレコードを1件ずつ`setValue()`すると、件数が増えたときに遅くなります。特に、各レコードごとに既存データを読み直す実装は避けます。
+
+悪い例は次のような形です。
+
+```js
+records.forEach(function(record) {
+  const existingKeys = getExistingDbKeys_(sheet); // 毎回全件読み直し
+  if (!existingKeys[key]) {
+    sheet.getRange(nextRow, 1).setValue(record.date);
+    sheet.getRange(nextRow, 2).setValue(record.name);
+    sheet.getRange(nextRow, 3).setValue(record.price);
+  }
+});
+```
+
+改善方針は、最初に既存キーを1回だけ読み、追加行を配列にため、最後に`setValues()`で一括追記することです。
+
+```js
+function doPost(e) {
+  const lock = LockService.getScriptLock();
+
+  try {
+    if (!lock.tryLock(30000)) {
+      throw new Error('別の受信処理が実行中です。');
+    }
+
+    const payload = parsePostPayload_(e);
+    validatePayload_(payload);
+    const result = appendRecords_(payload.records || []);
+    result.ok = true;
+    return jsonResponse_(result);
+  } catch (error) {
+    return jsonResponse_({
+      ok: false,
+      error: error.message || String(error)
+    });
+  } finally {
+    try {
+      lock.releaseLock();
+    } catch (lockError) {}
+  }
+}
+```
+
+```js
+function appendRecords_(records) {
+  const sheet = ensureDbSheet_();
+  const existingKeys = getExistingDbKeys_(sheet);
+  const payloadKeys = {};
+  const rowsToAppend = [];
+  const result = { added: 0, duplicate: 0, skipped: 0, failed: 0 };
+
+  records.forEach(function(record) {
+    const normalized = normalizeRecord_(record);
+    if (!normalized) {
+      result.skipped++;
+      return;
+    }
+
+    const key = buildDbKey_(normalized.date, normalized.name, normalized.price);
+    if (existingKeys[key] || payloadKeys[key]) {
+      result.duplicate++;
+      return;
+    }
+
+    payloadKeys[key] = true;
+    rowsToAppend.push([
+      normalized.date,
+      normalized.name,
+      normalized.price,
+      normalized.url
+    ]);
+    result.added++;
+  });
+
+  if (rowsToAppend.length) {
+    const nextRow = Math.max(2, sheet.getLastRow() + 1);
+    sheet
+      .getRange(nextRow, 1, rowsToAppend.length, rowsToAppend[0].length)
+      .setValues(rowsToAppend);
+  }
+
+  return result;
+}
+```
+
+`LockService`は同時書き込みを防ぐために使います。ただし、ロック待ち時間を長くしすぎると、今度は呼び出し側の待ち時間が伸びます。重い処理は受信前後に分け、受信中は短く終わるようにします。
+
+## 実行状況はリアルタイム表示する
+
+長時間処理では、ポップアップを開いた時点の状態だけ表示しても不十分です。Service Worker側で進捗を`chrome.storage.local`へ保存し、ポップアップ側で`chrome.storage.onChanged`を購読すると、開いている間だけ実行状況を更新できます。
+
+```js
+async function setRunProgress_(message) {
+  await chrome.storage.local.set({
+    lastRunMessage: message
+  });
+  await appendCurrentRunLog_(message);
+}
+```
+
+```js
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') return;
+
+  Object.keys(changes).forEach((key) => {
+    latestData[key] = changes[key].newValue;
+  });
+
+  renderStatus(latestData);
+});
+```
+
+このとき、入力中のURL欄やAPIトークン欄を再代入しないようにします。リアルタイム更新で書き換えるのは、表示専用の状態パネルだけに絞ります。
+
+表示するとよい項目は次の通りです。
+
+- 現在実行中か
+- 実行開始時刻
+- 取得中のURL
+- 取得成功件数
+- API送信成功件数
+- 重複件数
+- スキップ件数
+- 最後のエラー
+- 直近40件程度の実行ログ
+
+## 顧客向け納品時の説明
+
+Chromeウェブストアへ公開しない小規模案件では、未パッケージ拡張機能として納品することがあります。その場合、`manifest.json`が直下に入っている拡張機能フォルダーをZIP化して渡します。
+
+導入手順は次のように説明します。
+
+1. ZIPを解凍する
+2. Chromeで`chrome://extensions/`を開く
+3. 右上の「デベロッパーモード」をONにする
+4. 「パッケージ化されていない拡張機能を読み込む」をクリックする
+5. 解凍したフォルダーを選択する
+6. 拡張機能の設定画面を開く
+7. URL一覧、実行時刻、API URL、APIトークンを設定する
+8. 「今すぐ実行」で疎通確認する
+9. 問題なければ自動実行をONにして保存する
+
+ZIPそのものはChromeへ読み込めません。必ず解凍後の、`manifest.json`が直下にあるフォルダーを選んでもらいます。
+
+## 更新時に設定が消える場合
+
+設定や履歴は、納品フォルダー内のファイルには保存されません。保存先はChromeプロファイル内の`chrome.storage.local`です。
+
+そのため、更新版を渡すときは次を説明します。
+
+- 新しいZIPを解凍する
+- 既存フォルダーへ上書きする、または新しいフォルダーへ解凍する
+- `chrome://extensions/`で対象拡張機能の再読み込みボタンを押す
+- 同じ拡張機能IDとして認識される範囲では、通常は設定が残る
+- 拡張機能を削除して入れ直すと、設定や履歴が消える可能性がある
+
+納品前には`manifest.json`の`version`を更新し、設定画面にもバージョン表示を出しておくと、顧客側と話がしやすくなります。
+
+## 注意点
+
+この構成は便利ですが、万能ではありません。
+
+- Chromeが完全終了している間は動かない
+- PCがスリープ中も動かない
+- Service Workerは常時起動ではない
+- 定期実行の時刻はOSやChromeの状態に影響される
+- APIトークンやWebアプリURLをREADMEへ直書きしない
+- 顧客ごとにAPIトークンを分ける
+- GAS Webアプリを更新したら、新しいバージョンとして再デプロイする
+- 受信した全データをログ出力しすぎない
+- 対象サイトの規約や負荷には配慮する
+
+特に、ログイン済み画面から情報を取得する拡張機能は、対象サービスの規約や社内ルールに抵触しないかを事前に確認します。
+
+## まとめ
+
+Chrome拡張機能とGAS Webアプリを組み合わせると、顧客PC上のログイン済み画面を使った小規模な定期処理を比較的軽量に作れます。
+
+安定運用のためには、次の設計を最初から入れておくのが重要です。
+
+- 設定値は`chrome.storage.local`に保存する
+- `chrome.alarms`で定期実行する
+- `running`と開始時刻で二重実行を避ける
+- GASへのPOSTはトークン付きJSONにする
+- GAS側は`LockService`と`setValues()`で一括追記する
+- 実行状況を設定画面で見えるようにする
+- 納品・更新時のChrome拡張機能読み込み手順を明文化する
+
+この形にしておくと、単なるスクリプトではなく、顧客に渡して運用しやすい業務補助ツールになります。
+
+## 関連記事
+
+- [GASでGoogleスプレッドシートを簡易DB化し外部WebアプリからCRUDする構成](/articles/gas/spreadsheet-db-api-external-webapp)
+- [Excel VBAからGAS Web APIへTSVでPOSTする実装定石](/articles/gas/excel-vba-gas-webapi-tsv-post)
+- [1つのGAS doPostでLINE WebhookとアプリAPIを分岐する方法](/articles/gas/gas-dopost-line-webhook-app-routing)
+- [GAS Webアプリ納品時の導入サポート](/articles/summary/gas-webapp-delivery-onboarding-support)
