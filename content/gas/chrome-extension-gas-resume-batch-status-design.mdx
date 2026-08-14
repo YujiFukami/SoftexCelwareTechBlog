@@ -1,0 +1,353 @@
+---
+title: "Chrome拡張機能とGAS連携を止まりにくくする運用設計"
+category: "gas"
+slug: "chrome-extension-gas-resume-batch-status-design"
+tags: ["Chrome拡張機能", "GAS", "Google Apps Script", "Googleスプレッドシート", "定期実行", "再送設計", "運用設計"]
+description: "Chrome拡張機能からGAS Webアプリへ大量データを送る業務ツールで、中断再開、分割POST、シート自動拡張、履歴DBと最新値シートの分離、状態表示UI、バージョン情報をまとめて設計する方法を解説します。"
+date: "2026-08-14"
+---
+
+<Term>Chrome拡張機能</Term>と<Term>Google Apps Script</Term>を組み合わせると、ログイン済みブラウザ画面から取得したデータを<Term>Googleスプレッドシート</Term>へ保存する業務ツールを軽量に作れます。
+
+ただし、実際に顧客PCで運用すると、単に「取得してPOSTする」だけでは足りません。Chrome終了、PCスリープ、Manifest V3のService Worker停止、GAS Webアプリのタイムアウト、スプレッドシートの行不足、更新版の混乱など、運用中に起きる問題を先に潰しておく必要があります。
+
+この記事では、Chrome拡張機能とGAS Webアプリの連携を、納品後に止まりにくく、原因を切り分けやすい業務ツールにするための設計をまとめます。
+
+## 前提となる構成
+
+基本構成は、Chrome拡張機能がデータを集め、GAS WebアプリへPOSTし、GAS側でスプレッドシートへ保存する流れです。
+
+```text
+Chrome拡張機能
+  ├ 対象URLを順番に処理
+  ├ 取得結果を一時保存
+  ├ GAS Webアプリへ分割POST
+  ├ 進捗と履歴を chrome.storage.local に保存
+  └ 必要なら次回Chrome起動時に再開
+
+GAS Webアプリ
+  ├ APIトークン検証
+  ├ 履歴DBシートへ追記
+  ├ 最新値シートを上書き更新
+  └ 追加前に行・列不足を自動補正
+```
+
+前回の記事では、Chrome拡張機能からGAS Webアプリへ安全に定期POSTする基本設計を扱いました。今回は、その先の「途中で止まったときにどう戻すか」「大量データをどう分けるか」「シート側をどう壊れにくくするか」に焦点を当てます。
+
+## 1. 長時間処理はチェックポイントを残す
+
+Chrome拡張機能の長時間処理は、途中で止まる前提で設計します。Chromeを閉じる、PCがスリープする、Service Workerが停止する、といった状況では処理本体が中断されます。
+
+このとき`running: true`だけが残ると、画面上は実行中のまま固まったように見えます。そこで、処理の途中状態をチェックポイントとして`chrome.storage.local`に保存します。
+
+```js
+{
+  active: true,
+  runId: 'chrome-...',
+  source: 'manual',
+  startedAt: '2026/08/14 15:12:21',
+  urls: ['https://example.com/items/1'],
+  categories: ['A', 'B'],
+  nextUrlIndex: 12,
+  records: [],
+  errors: [],
+  gasResult: {},
+  postedRecordCount: 20,
+  stage: 'fetch' // fetch | post
+}
+```
+
+保存・削除は小さな関数にしておきます。
+
+```js
+async function saveRunCheckpoint_(checkpoint) {
+  await chrome.storage.local.set({ runCheckpoint: checkpoint });
+}
+
+async function clearRunCheckpoint_() {
+  await chrome.storage.local.remove(['runCheckpoint']);
+}
+```
+
+Chrome起動時に、実行中かつ有効なチェックポイントが残っていれば、少し待ってから再開します。
+
+```js
+chrome.runtime.onStartup.addListener(async () => {
+  const state = await chrome.storage.local.get(['running', 'runCheckpoint']);
+  if (!state.running || !state.runCheckpoint || !state.runCheckpoint.active) return;
+
+  setTimeout(() => {
+    runJob({ source: 'resume' }).catch(async (error) => {
+      await chrome.storage.local.set({
+        running: false,
+        lastRunStatus: 'error',
+        lastRunMessage: '自動再開に失敗しました: ' + (error.message || String(error))
+      });
+    });
+  }, 1500);
+});
+```
+
+重要なのは、1件の途中で止まった場合は、その1件を未完了扱いにすることです。取得済みかどうかが曖昧なデータを完了扱いにすると、欠落が起きます。
+
+## 2. GASへの送信は分割し、成功位置を保存する
+
+Chrome拡張機能からGAS Webアプリへ大量データを送る場合、1回のPOSTに詰め込みすぎないようにします。通信失敗時の影響範囲が大きくなり、GAS側の実行時間も伸びるためです。
+
+送信前にデータを配列として保存し、10件程度の小さな単位へ分割します。バッチ成功ごとに送信済み件数を保存すれば、再開時に未確認分から再送できます。
+
+```js
+const GAS_POST_BATCH_SIZE = 10;
+const GAS_POST_TIMEOUT_MS = 120 * 1000;
+
+async function postRecordsToGas(url, token, records, checkpoint = {}) {
+  const startIndex = Number(checkpoint.postedRecordCount || 0);
+  const pending = records.slice(startIndex);
+  const chunks = chunkArray(pending, GAS_POST_BATCH_SIZE);
+  let sentCount = startIndex;
+
+  for (const chunk of chunks) {
+    const result = await postBatch(url, token, chunk);
+    sentCount += chunk.length;
+
+    await chrome.storage.local.set({
+      runCheckpoint: {
+        ...checkpoint,
+        postedRecordCount: sentCount,
+        gasResult: result
+      }
+    });
+  }
+}
+```
+
+ここで注意したいのは、「送信失敗したバッチは、GAS側で書き込み済みかもしれない」という点です。ブラウザ側がレスポンスを受け取れなかっただけで、GAS側の書き込みは完了している可能性があります。
+
+そのため、再送前提の設計では、GAS側で重複排除できるキーが必須です。`runId + recordId`、`取得日時 + URL + 分類 + 値`など、業務上の一意性を説明できるキーを決めます。
+
+## 3. GAS側は1件ずつappendRowしない
+
+GAS Webアプリ側では、受け取ったレコードを1件ずつ`appendRow()`や`setValue()`で書くと遅くなります。既存キーも毎回読み直すと、数十件でもタイムアウトしやすくなります。
+
+基本は、既存キーを1回だけ読み、追加対象を配列にため、最後に`setValues()`で一括追記します。
+
+```js
+const rowsToAppend = [];
+records.forEach(function(record) {
+  const key = buildKey(record);
+  if (existingKeys[key]) return;
+  rowsToAppend.push([record.date, record.name, record.price]);
+});
+
+if (rowsToAppend.length) {
+  sheet.getRange(nextRow, 1, rowsToAppend.length, rowsToAppend[0].length)
+    .setValues(rowsToAppend);
+}
+```
+
+同時実行対策として<Term>LockService</Term>も使います。Chrome側で分割送信していると、ユーザー操作や再送で近いタイミングのPOSTが起きることがあるためです。
+
+## 4. シート下端に達する前に行・列を確保する
+
+スプレッドシートは、見た目上の最大行数や最大列数を超えて`getRange()`や`setValues()`を実行すると失敗します。たとえば3000行までしかないシートで3001行目に書こうとする場合、先に行を追加する必要があります。
+
+書き込み前に必要な行数・列数を確認し、不足していれば追加します。
+
+```js
+function ensureSheetSize_(sheet, requiredRows, requiredColumns) {
+  const rows = Math.max(1, Number(requiredRows || 1));
+  const columns = Math.max(1, Number(requiredColumns || 1));
+  const maxRows = sheet.getMaxRows();
+  const maxColumns = sheet.getMaxColumns();
+
+  if (maxRows < rows) {
+    sheet.insertRowsAfter(maxRows, rows - maxRows);
+  }
+
+  if (maxColumns < columns) {
+    sheet.insertColumnsAfter(maxColumns, columns - maxColumns);
+  }
+}
+```
+
+一括追記では、次のように使います。
+
+```js
+const nextRow = Math.max(2, sheet.getLastRow() + 1);
+const requiredLastRow = nextRow + rowsToAppend.length - 1;
+const columnCount = rowsToAppend[0].length;
+
+ensureSheetSize_(sheet, requiredLastRow, columnCount);
+
+sheet.getRange(nextRow, 1, rowsToAppend.length, columnCount)
+  .setValues(rowsToAppend);
+```
+
+これは、あくまで「現在用意されている行数・列数が足りない」問題への対策です。スプレッドシート全体のセル数上限に達した場合は、古い履歴の退避、月別シート分割、BigQueryなどへの移行を検討します。
+
+## 5. 履歴DBと最新値シートを分ける
+
+時系列でデータを蓄積するDBシートは、分析や監査には向いています。一方で、顧客へ見せる最新一覧やグラフ用のデータとしては扱いにくいことがあります。
+
+そこで、役割を分けます。
+
+| シート | 役割 | 更新方法 |
+| --- | --- | --- |
+| `DB` | 履歴保存、監査、分析 | 取得のたびに追記 |
+| `最新取得` | 顧客提示、グラフ、現在値確認 | キー単位で上書き |
+
+キーは業務によって変えます。
+
+- `URL`
+- `商品ID`
+- `商品ID + 分類`
+- `顧客ID + 対象年月`
+
+最新値シートは、既存行をキーで探して上書きします。なければ末尾へ追加します。
+
+```js
+function updateLatestRecords_(sheet, records) {
+  const lastRow = sheet.getLastRow();
+  const rows = lastRow >= 2
+    ? sheet.getRange(2, 1, lastRow - 1, 5).getValues()
+    : [];
+
+  const rowIndexByKey = {};
+  rows.forEach(function(row, index) {
+    const key = buildLatestKey_(row[3], row[4]); // URL + 分類
+    if (key && rowIndexByKey[key] == null) rowIndexByKey[key] = index;
+  });
+
+  records.forEach(function(record) {
+    const key = buildLatestKey_(record.url, record.category);
+    const row = [record.acquiredAt, record.name, record.price, record.url, record.category];
+
+    if (rowIndexByKey[key] == null) {
+      rowIndexByKey[key] = rows.length;
+      rows.push(row);
+    } else {
+      rows[rowIndexByKey[key]] = row;
+    }
+  });
+
+  if (rows.length) {
+    sheet.getRange(2, 1, rows.length, 5).setValues(rows);
+  }
+}
+```
+
+履歴DBは、再送があっても二重登録しないように重複判定します。最新値シートは、同じキーなら上書きします。この違いを明確にしておくと、画面表示と監査ログを両立できます。
+
+## 6. 状態表示UIは4ブロックに分ける
+
+定期実行ツールでは、単純なログ文字列だけを出しても、顧客は状況を判断しにくいです。状態表示は、次の4ブロックに分けると見やすくなります。
+
+1. 設定状況
+2. 現在実行中の処理状況
+3. 次回実行予定
+4. 実行履歴
+
+設定状況では、次のような「動かせる状態か」を表示します。
+
+- 自動実行: 有効 / 無効
+- 対象データ: 何件設定済み
+- 実行時刻: `00:00 / 06:00 / 12:00 / 18:00`
+- 連携先URL: 設定済み / 未設定
+- APIトークン: 設定済み / 未設定
+- 連携準備: 準備OK / 未完了
+- 現在状態: 待機中 / 実行中 / 停止中 / 再開待ち / エラー
+
+実行中ログは、Service Worker側が`chrome.storage.local`へ書き、ポップアップ側が`chrome.storage.onChanged`で再描画します。
+
+```js
+async function appendCurrentRunLog_(message) {
+  const current = await chrome.storage.local.get(['currentRunLog']);
+  const logs = Array.isArray(current.currentRunLog) ? current.currentRunLog : [];
+
+  await chrome.storage.local.set({
+    currentRunLog: [
+      { at: formatDateTime(new Date()), message },
+      ...logs
+    ].slice(0, 40)
+  });
+}
+```
+
+```js
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') return;
+  if (!changes.currentRunLog) return;
+  renderCurrentRunLog(changes.currentRunLog.newValue || []);
+});
+```
+
+注意点は、APIトークンなどの秘匿値を画面に直接表示しないことです。「設定済み / 未設定」だけ見せれば十分です。
+
+## 7. バージョン情報と変更履歴を画面から確認できるようにする
+
+未パッケージChrome拡張を顧客へZIP納品する場合、今どの版を使っているかが分からなくなりがちです。ファイル名だけに頼ると、更新時の問い合わせで認識がずれます。
+
+`manifest.json`の`version`を正とし、オプション画面に「バージョン情報」ボタンを置きます。クリック時だけモーダルで現在バージョンと変更履歴を表示します。
+
+```js
+const VERSION_HISTORY = [
+  {
+    version: '0.2.1',
+    date: '2026/08/14',
+    changes: [
+      '中断された処理の自動再開に対応',
+      '送信バッチごとの進捗保存に対応'
+    ]
+  },
+  {
+    version: '0.2.0',
+    date: '2026/08/12',
+    changes: ['分類別取得に対応']
+  }
+];
+
+function showVersionDialog() {
+  const manifest = chrome.runtime.getManifest();
+  versionContent.innerHTML = renderVersionHistory(manifest.version, VERSION_HISTORY);
+  versionDialog.classList.remove('hidden');
+}
+```
+
+納品ZIP名も`tool_v0.2.1.zip`のようにバージョン入りにすると、顧客とのやり取りがかなり楽になります。
+
+## 導入時の優先順位
+
+すべてを一度に作り込む必要はありません。実務では、次の順番で入れると効果が出やすいです。
+
+1. GAS側の一括追記と重複排除
+2. Chrome側の分割POST
+3. 送信済み件数のチェックポイント保存
+4. Chrome起動時の再開処理
+5. シート行・列の自動確保
+6. 履歴DBと最新値シートの分離
+7. 状態表示UI
+8. バージョン情報と変更履歴
+
+最初に守るべきなのは、データ欠落と二重登録を避けることです。その後で、顧客が状態を確認しやすいUIや、問い合わせ時のバージョン確認を整えていきます。
+
+## まとめ
+
+Chrome拡張機能とGAS Webアプリの連携は、小規模な業務自動化では使いやすい構成です。ただし、長時間処理や大量データを扱うなら、停止・再送・重複・シート上限・利用者への説明まで設計に入れる必要があります。
+
+次の6点を入れておくと、納品後の運用トラブルをかなり減らせます。
+
+- チェックポイントを保存して中断後に再開する
+- GASへのPOSTは小さく分割する
+- GAS側は重複排除して一括追記する
+- 書き込み前にシート行・列を確保する
+- 履歴DBと最新値シートを分ける
+- 状態表示UIとバージョン情報を用意する
+
+動くコードだけでなく、止まったときに戻せる設計、利用者が状況を読める画面、更新版を確認できる仕組みまで含めると、業務ツールとして運用しやすくなります。
+
+## 関連記事
+
+- [Chrome拡張機能からGAS Webアプリへ安全に定期POSTする設計](/articles/gas/chrome-extension-gas-webapp-scheduled-post)
+- [GASでGoogleスプレッドシートを簡易DB化し外部WebアプリからCRUDする構成](/articles/gas/spreadsheet-db-api-external-webapp)
+- [Excel VBAからGAS Web APIへTSVでPOSTする実装定石](/articles/gas/excel-vba-gas-webapi-tsv-post)
+- [GAS Webアプリ納品時の導入サポート](/articles/summary/gas-webapp-delivery-onboarding-support)
