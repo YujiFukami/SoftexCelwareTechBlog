@@ -1,0 +1,305 @@
+---
+title: "GAS Webアプリの差分取込で取りこぼしと二重登録を防ぐ設計"
+category: "gas"
+slug: "gas-watermark-differential-import-audit-log"
+tags: ["GAS", "Google Apps Script", "Googleスプレッドシート", "差分取込", "重複排除", "監査ログ", "APIトークン"]
+description: "GAS Webアプリで外部クライアントから定期データを受けるとき、前回取得日時、相対時刻の推定範囲、1対1重複照合、0件記録、監査ログ、APIトークン管理を組み合わせて安全に差分取込する設計をまとめます。"
+date: "2026-08-26"
+---
+
+<Term>Google Apps Script</Term>のWebアプリを受信APIとして使い、外部クライアントから履歴データや価格データを繰り返し保存する場合、単純な全件追記ではすぐに限界が来ます。
+
+毎回同じ範囲のデータが届く、画面上の日時が`44分前`や`1時間前`のような相対表記しかない、同じ値のレコードが複数存在する、正常に確認した0件と取得失敗を区別したい。こうした条件が重なると、単純な`Set`による完全一致判定では、取りこぼしや二重登録を避けきれません。
+
+この記事では、GAS Webアプリで定期データを受けるときの差分取込設計をまとめます。対象サイトや取得方法の固有事情ではなく、受信側の<Term>Googleスプレッドシート</Term>設計、判定ロジック、監査ログ、APIトークン管理に絞ります。
+
+## 基本方針
+
+差分取込では、次の役割を分けます。
+
+| 要素 | 役割 |
+| --- | --- |
+| 履歴DBシート | 保存済みデータを時系列で蓄積する |
+| 前回取得日時シート | 対象条件ごとのウォーターマークを保持する |
+| データなしシート | 正常確認した0件を独立して記録する |
+| 監査ログ | 追加・除外の判定過程を人間が追える形で残す |
+| APIトークン | 外部クライアントからのPOSTを最小限保護する |
+
+重要なのは、ウォーターマークを先に進めないことです。DB保存や0件記録が成功した後でだけ、前回取得日時を更新します。先に更新してから保存に失敗すると、その範囲のデータを永久に取りこぼす可能性があります。
+
+## 相対時刻は一点ではなく範囲にする
+
+外部画面では、絶対日時ではなく`44分前`や`1時間前`のような相対表記しか取れないことがあります。これを「取得日時からちょうど1時間前」の一点に変換すると、次回取得時に同じ出来事の推定日時がずれます。
+
+相対表記は、切り捨てられた区間として扱います。
+
+- `N分前`: `取得日時 - (N + 1)分` から `取得日時 - N分`
+- `N時間前`: `取得日時 - (N + 1)時間` から `取得日時 - N時間`
+
+```js
+function buildRelativeTimeRange_(retrievedAt, displayText) {
+  const retrievedMs = new Date(retrievedAt).getTime();
+  if (!Number.isFinite(retrievedMs)) return null;
+
+  const text = String(displayText || '').trim();
+  let match = text.match(/^(\d+)分前$/);
+  if (match) return buildRange_(retrievedMs, Number(match[1]), 60 * 1000);
+
+  match = text.match(/^(\d+)時間前$/);
+  if (match) return buildRange_(retrievedMs, Number(match[1]), 60 * 60 * 1000);
+
+  return null;
+}
+
+function buildRange_(retrievedMs, amount, unitMs) {
+  return {
+    startMs: retrievedMs - (amount + 1) * unitMs,
+    endMs: retrievedMs - amount * unitMs
+  };
+}
+```
+
+前回取得日時との関係は3つに分けます。
+
+```js
+function classifyRangeByWatermark_(range, previousFetchedAt) {
+  const watermarkMs = new Date(previousFetchedAt).getTime();
+  if (!range || !Number.isFinite(watermarkMs)) return 'unavailable';
+  if (range.endMs <= watermarkMs) return 'old';
+  if (range.startMs > watermarkMs) return 'new';
+  return 'boundary';
+}
+```
+
+`old`は除外、`new`は追加候補、`boundary`だけ第二判定へ進めます。境界を即重複扱いしないことで、新規データの取りこぼしを減らせます。
+
+## 前回取得日時は条件込みのキーで持つ
+
+前回取得日時は、対象IDだけで持つと危険です。検索条件や分類によって結果が変わる場合、対象IDが同じでも別のウォーターマークが必要になります。
+
+```text
+対象ID | 条件1 | 条件2 | 条件3
+```
+
+```js
+function buildWatermarkKey_(record) {
+  return [
+    record.targetId,
+    record.condition1,
+    record.condition2,
+    record.condition3
+  ].map(normalizeKeyPart_).join('|');
+}
+
+function loadWatermarkIndex_(sheet) {
+  const lastRow = sheet.getLastRow();
+  const rows = lastRow >= 2
+    ? sheet.getRange(2, 1, lastRow - 1, 6).getValues()
+    : [];
+
+  const index = {};
+  rows.forEach(function(row, offset) {
+    const key = [row[0], row[2], row[3], row[4]]
+      .map(normalizeKeyPart_).join('|');
+    if (!key) return;
+    index[key] = {
+      rowNumber: offset + 2,
+      fetchedAt: row[5]
+    };
+  });
+  return index;
+}
+
+function normalizeKeyPart_(value) {
+  return String(value == null ? '' : value).trim().toLowerCase();
+}
+```
+
+更新ルールは固定しておきます。
+
+- 履歴あり: DB保存成功後に更新する
+- 履歴なし: 0件記録の保存成功後に更新する
+- 取得失敗: 更新しない
+- 同一キーが1回の受信に複数ある: 最も新しい取得日時を採用する
+- 既存値より古い取得日時が届いた: 上書きしない
+
+## 同値レコードは1対1で照合する
+
+`対象 + 条件 + 値 + 時刻`を`Set`に入れるだけでは、同じ値の正当な複数レコードまで1件に潰してしまいます。
+
+たとえば、既存DBに同条件・同価格が3件あり、今回の受信に同条件・同価格が5件あるなら、3件は重複、残り2件は新規として扱う必要があります。
+
+この場合は、集合比較ではなく多重集合の1対1照合として考えます。
+
+```js
+function findOneToOneMatch_(group, incoming, thresholdMs) {
+  let bestIndex = -1;
+  let bestDifference = Infinity;
+
+  group.forEach(function(candidate, index) {
+    if (candidate.used) return;
+
+    const difference = Math.abs(
+      incoming.estimatedAt.getTime() - candidate.estimatedAt.getTime()
+    );
+    const rangesOverlap = hasRangeOverlap_(incoming.range, candidate.range);
+
+    if ((rangesOverlap || difference <= thresholdMs) && difference < bestDifference) {
+      bestIndex = index;
+      bestDifference = difference;
+    }
+  });
+
+  if (bestIndex < 0) return null;
+  group[bestIndex].used = true;
+  return {
+    candidate: group[bestIndex],
+    differenceMs: bestDifference
+  };
+}
+
+function hasRangeOverlap_(a, b) {
+  if (!a || !b) return false;
+  return a.startMs <= b.endMs && b.startMs <= a.endMs;
+}
+```
+
+候補を使用済みにしないと、既存1件が受信複数件へ何度も一致してしまいます。同一POST内で新規追加した行も比較候補へ入れ、payload内重複を防ぎます。
+
+## 正常な0件は独立して記録する
+
+結果配列が空だったとき、何も保存しない設計では、次の状態を区別できません。
+
+- 正常に確認したが0件だった
+- 条件が存在しなかった
+- ページ読込やAPI呼び出しに失敗した
+- 処理が途中で中断した
+
+正常確認した0件は、`DB_履歴なし`のようなシートへ独立記録します。
+
+```js
+function shouldCreateNoDataRecord_(executionResult) {
+  return executionResult.loaded === true &&
+    executionResult.conditionSelected === true &&
+    executionResult.completed === true &&
+    executionResult.records.length === 0;
+}
+```
+
+```js
+function buildNoDataKey_(record) {
+  return [
+    record.targetId,
+    record.condition1,
+    record.condition2,
+    record.condition3,
+    formatDateTimeKey_(record.noDataStartAt),
+    formatDateTimeKey_(record.noDataEndAt)
+  ].join('|');
+}
+```
+
+0件記録も再送で増えないように、条件と確認期間を含めたキーで冪等にします。0件記録の保存が成功した場合だけ、その条件の前回取得日時を更新します。
+
+## 判定ログは人間が読める形にする
+
+複数段階の判定がある場合、JSONを1行出すだけでは運用担当者が原因を追いにくくなります。通常の判定ログは日本語の複数行、例外や連携ログは検索しやすい構造化JSONに分けます。
+
+```js
+function logDecision_(context) {
+  const lines = [
+    '【データ判定 #' + context.recordNumber + '】 requestId=' + context.requestId,
+    '対象　　　　　　：' + context.targetLabel,
+    '取得日時　　　　：' + context.retrievedAt,
+    '画面表示　　　　：' + context.relativeText,
+    '推定時間範囲　　：' + context.rangeStart + ' ～ ' + context.rangeEnd,
+    '前回取得日時　　：' + (context.previousFetchedAt || '登録なし'),
+    '第一判定　　　　：' + context.firstDecision,
+    '第二判定　　　　：' + context.secondDecision,
+    '最終結果　　　　：' + context.result
+  ];
+  console.log(lines.join('\n'));
+}
+```
+
+最後に件数サマリも出します。
+
+```text
+受信　　　　　　　：100件
+確実に古く除外　　：72件
+境界範囲　　　　　：18件
+  第二判定で重複　：12件
+  第二判定で新規　：6件
+確実に新規　　　　：10件
+DB追加　　　　　　：16件
+```
+
+顧客から「この行が追加されなかった理由」を聞かれたとき、Apps Scriptの実行画面だけで一次調査できる状態にしておくと、保守がかなり楽になります。
+
+## APIトークン管理は自己完結ダイアログにする
+
+Chrome拡張機能など外部クライアントからGAS Webアプリを呼ぶ場合、APIトークンの発行・確認・削除が必要になります。
+
+小規模な管理画面であれば、別HTMLファイルに分けず、`Code.gs`内で自己完結したダイアログを生成すると、納品時の貼り間違いを減らせます。
+
+```js
+const API_TOKEN_PROPERTY = 'EXTERNAL_CLIENT_API_TOKEN';
+
+function generateAndShowApiToken() {
+  const token = [Utilities.getUuid(), Utilities.getUuid()]
+    .join('').replace(/-/g, '');
+  PropertiesService.getScriptProperties()
+    .setProperty(API_TOKEN_PROPERTY, token);
+  showTokenDialog_(token, 'APIトークンを発行しました');
+}
+```
+
+```js
+function escapeHtml_(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+```
+
+トークンはログへ出しません。再発行すると既存クライアント設定が無効になることも、画面上で明示します。
+
+## 検証観点
+
+実装後は、正常系よりも境界条件を厚めに確認します。
+
+- 初回は全対象が保存され、キーごとの前回取得日時が作成される
+- 2回目は前回以前のデータが除外される
+- 相対時刻が`59分前`から`1時間前`に変わっても取りこぼさない
+- 境界範囲だけ第二判定へ進む
+- 既存3件・受信5件なら2件だけ追加される
+- 正常取得0件のときだけ0件記録が保存される
+- 取得失敗時は0件記録もウォーターマーク更新も行われない
+- 同じpayloadを再送しても二重登録されない
+- APIトークン削除後は古いトークンで受信できない
+- 監査ログの集計値が受信件数と一致する
+
+## まとめ
+
+GAS Webアプリを外部クライアントの受信口にする場合、単純な追記処理だけでは、運用中の再送、相対時刻、同値データ、0件確認を正しく扱いにくくなります。
+
+安全に差分取込するには、次の設計を組み合わせます。
+
+- 相対時刻を推定時間範囲として扱う
+- 対象条件ごとに前回取得日時を持つ
+- 同値レコードを1対1で照合する
+- 正常な0件を独立記録する
+- 判定過程を人間向けログで残す
+- APIトークン管理を自己完結させる
+
+これらを入れておくと、データ欠落と二重登録を避けながら、あとから理由を説明できるGAS受信基盤になります。
+
+## 関連記事
+
+- [Chrome拡張機能とGAS連携を止まりにくくする運用設計](/articles/gas/chrome-extension-gas-resume-batch-status-design)
+- [Chrome拡張機能からGAS Webアプリへ安全に定期POSTする設計](/articles/gas/chrome-extension-gas-webapp-scheduled-post)
+- [GASでGoogleスプレッドシートを簡易DB化し外部WebアプリからCRUDする構成](/articles/gas/spreadsheet-db-api-external-webapp)
+- [1つのGAS doPostでLINE WebhookとアプリAPIを分岐する方法](/articles/gas/gas-dopost-line-webhook-app-routing)

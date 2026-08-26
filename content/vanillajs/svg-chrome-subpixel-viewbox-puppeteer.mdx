@@ -1,0 +1,197 @@
+---
+title: "Chrome更新でSVGの細線が霞む問題とviewBoxズームの実機検証"
+category: "vanillajs"
+slug: "svg-chrome-subpixel-viewbox-puppeteer"
+tags: ["SVG", "Vanilla JS", "Chrome", "Puppeteer", "viewBox", "Canvas", "ブラウザ検証"]
+description: "Chrome更新後にSVGの1px未満の線が霞む原因、devicePixelRatio基準の線幅下限、viewBoxズーム・パンのクランプ、インストール済みChromeをPuppeteerで検証する方法をまとめます。"
+date: "2026-08-26"
+---
+
+<Term>SVG</Term>で作図ツールを作っていると、コードを変えていないのに、<Term>Chrome</Term>更新後に線が急に霞んで見えることがあります。特に`stroke-width`へ`0.05`のような1px未満の値を指定している場合に起きやすい症状です。
+
+同時に、`viewBox`を書き換えてズーム・パンするビューアでは、縮小しすぎて図の外側の余白が見えたり、ドラッグで描画範囲外まで移動できたりする問題も出ます。
+
+この記事では、SVG作図ツールで起きやすい2つの表示問題と、<Term>Puppeteer</Term>で実際にインストール済みChromeを使って検証する方法をまとめます。
+
+## 1px未満の線はブラウザ更新で見え方が変わる
+
+SVGの`stroke-width`に1px未満の値を指定すると、ブラウザの描画実装によって見え方が変わることがあります。
+
+今回の症状では、以前のChromeでは1デバイスピクセル未満の線幅が、実質的に1pxの不透明な線として描かれていました。現在のChromeでは、指定幅に比例した薄いアルファで描かれるため、`0.05px`なら非常に薄く表示され、霞んだように見えます。
+
+| 経路 | 挙動 |
+| --- | --- |
+| 画面表示のSVG | 1px未満の線が薄いアルファで描かれ、霞む |
+| Canvas経由の画像書き出し | 1pxに切り上がることがあり、くっきり見える |
+
+「画面は汚いのに、書き出したPNGはきれい」という場合、この差を疑います。
+
+## 線幅はデバイスピクセル基準で下限を設ける
+
+画面の物理ピクセルより細い線は、安定して描けません。線幅はCSSピクセルへ変換し、最低1デバイスピクセルを保証します。
+
+```js
+const AppConfig = {
+  line: {
+    widthScale: 20,
+    minDevicePixels: 1
+  }
+};
+
+function resolveStrokeWidth(lineWidth) {
+  const devicePixelRatio = window.devicePixelRatio || 1;
+  const cssWidth = lineWidth * AppConfig.line.widthScale;
+  return Math.max(cssWidth, AppConfig.line.minDevicePixels / devicePixelRatio);
+}
+
+path.setAttribute('stroke-width', resolveStrokeWidth(userValue));
+path.setAttribute('vector-effect', 'non-scaling-stroke');
+```
+
+`vector-effect="non-scaling-stroke"`を併用すると、拡大縮小しても線幅が一定に保たれます。線幅スライダーの値も、画面上の見た目に反映されやすくなります。
+
+| 設定値 | 修正前の実効幅 | 修正後の目安 |
+| --- | --- | --- |
+| `0.01` | ほぼ不可視 | 1px相当 |
+| `0.05` | 霞む | 1px相当 |
+| `0.10` | 薄い | 2px相当 |
+| `0.20` | 薄い | 4px相当 |
+
+細い印象を出したい場合は、1px未満の線幅に頼るより、1pxのまま`stroke-opacity`や色を調整する方が安定します。
+
+## viewBoxのズームは最小倍率を1にする
+
+`viewBox`の幅を`width / zoomScale`にしてズームする方式では、`zoomScale < 1`にすると図より広い範囲を映すため、必ず外側の余白が見えます。
+
+```js
+const zoom = {
+  minScale: 1,
+  maxScale: 100
+};
+```
+
+最小倍率を1にすれば、縮小方向では全体表示より外へ出ません。ズームアウトボタンは、1未満へ下げるのではなく、1で止めます。
+
+## パン位置は描画範囲内へクランプする
+
+拡大中にドラッグできる場合は、表示範囲が描画範囲の外へ出ないように`viewBox`の`x`と`y`を丸めます。
+
+表示範囲は`[x, x + width / scale]`です。これが`[0, width]`に収まる条件は次の通りです。
+
+```text
+0 <= x <= width * (1 - 1 / scale)
+```
+
+```js
+function clampViewBox() {
+  const maxX = Math.max(vb.width * (1 - 1 / zoomScale), 0);
+  const maxY = Math.max(vb.height * (1 - 1 / zoomScale), 0);
+  vb.x = Math.min(Math.max(vb.x, 0), maxX);
+  vb.y = Math.min(Math.max(vb.y, 0), maxY);
+}
+```
+
+`zoomScale = 1`のとき`maxX = 0`になるため、自然に`x = 0`へ固定されます。
+
+## viewBox更新の全経路で呼ぶ
+
+クランプ処理は、`viewBox`を更新する全経路の直前で呼びます。1箇所でも漏れると、そこから枠外へ移動できてしまいます。
+
+```text
+setZoom()    -> clampViewBox() -> updateViewBox()
+pan()        -> clampViewBox() -> updateViewBox()
+initialize() -> clampViewBox() -> updateViewBox()
+```
+
+特に、パラメータ変更後に拡大位置を維持する実装では、前回位置をそのまま復元すると描画範囲外へ飛ぶことがあります。再描画時も必ずクランプを通します。
+
+## Puppeteerはインストール済みChromeを指定する
+
+「Chrome更新後に壊れた」問題を<Term>Puppeteer</Term>で再現する場合、バンドルChromiumでは再現できないことがあります。Puppeteerはバージョンごとに固定のChromiumを使うため、ユーザーが実際に使っているChromeの挙動とずれるためです。
+
+PCにインストール済みのChromeを`executablePath`で指定します。
+
+```js
+const puppeteer = require('puppeteer');
+
+const browser = await puppeteer.launch({
+  headless: 'new',
+  executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  userDataDir: 'C:/path/to/scratchpad/chrome-profile'
+});
+```
+
+`userDataDir`は一時フォルダにします。普段使いのChromeプロファイルと衝突させないためです。
+
+## 画面表示と書き出し画像を分けて検証する
+
+Puppeteerでは、属性値、JavaScriptエラー、画面スクリーンショット、書き出し画像をまとめて検証できます。
+
+```js
+const state = await page.evaluate(() => {
+  const curve = document.querySelector('#lissajous-svg polyline');
+  return {
+    strokeWidth: curve.getAttribute('stroke-width'),
+    viewBox: document.getElementById('lissajous-svg').getAttribute('viewBox'),
+    zoom: document.getElementById('zoomLevel').textContent,
+    dpr: window.devicePixelRatio
+  };
+});
+```
+
+```js
+page.on('pageerror', (error) => errors.push(String(error)));
+page.on('console', (message) => {
+  if (message.type() === 'error') errors.push(message.text());
+});
+```
+
+要素単位でスクリーンショットを撮ると、描画エリアだけを比較できます。
+
+```js
+const el = await page.$('#svgContainer');
+await el.screenshot({ path: 'screen_after.png' });
+```
+
+書き出しボタンを実際に押さず、生成されたdata URLを取り出す検証も有効です。
+
+```js
+const dataUrl = await page.evaluate(async () => {
+  await FileExportManager.prepareDownload('png');
+  return document.getElementById('downloadLinkPNG').href;
+});
+fs.writeFileSync('export_after.png', Buffer.from(dataUrl.split(',')[1], 'base64'));
+```
+
+これにより、画面表示とCanvas経由の書き出しで結果が違う問題を、同じテスト内で比較できます。
+
+## 検証観点
+
+- `stroke-width`が1デバイスピクセル未満になっていない
+- 線幅スライダーの値が画面上の見た目に反映される
+- ズームアウトしても`zoomScale = 1`で止まる
+- 拡大後に強くドラッグしても`viewBox`が範囲外へ出ない
+- パラメータ変更後の再描画でも位置が範囲内に収まる
+- 実機Chromeで画面表示と書き出し画像を比較できる
+- JavaScriptエラーが出ていない
+
+## まとめ
+
+SVG作図ツールでは、1px未満の線幅と`viewBox`操作が表示崩れの原因になりやすいです。
+
+安定させるポイントは次の通りです。
+
+- 線幅はデバイスピクセル基準で下限を設ける
+- 細さは線幅だけでなく透明度や色で調整する
+- ズームの最小倍率は1にする
+- パン位置は描画範囲内にクランプする
+- `viewBox`更新の全経路でクランプする
+- Chrome更新起因の不具合は、インストール済みChromeをPuppeteerへ指定して検証する
+
+ブラウザ更新で見え方が変わった場合は、コードの論理だけでなく、実際の描画エンジンで再現確認することが重要です。
+
+## 関連記事
+
+- [SVGだけでfaviconを作り、PNGも用意する方法](/articles/vanillajs/svg-favicon-png)
+- [Canvasで画像を書き出すときのサイズと背景色の注意点](/articles/vanillajs/canvas-export)
+- [スライダー入力でプレビューだけ軽く更新するデバウンス設計](/articles/vanillajs/slider-preview-debounce)

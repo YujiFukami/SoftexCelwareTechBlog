@@ -1,0 +1,171 @@
+---
+title: "Render静的サイト公開でnode_modulesを晒さないための確認手順"
+category: "summary"
+slug: "render-static-site-repo-exposure-deploy-error"
+tags: ["Render", "GitHub", "静的サイト", "デプロイ", "セキュリティ", "node_modules"]
+description: "Render Static Siteでリポジトリの中身をそのまま公開してしまうリスクと、node_modulesやバックアップの公開確認、git rm --cachedでの整理、internal system error時のGitHubアクセス権確認をまとめます。"
+date: "2026-08-26"
+---
+
+<Term>Render</Term>のStatic Siteは手軽ですが、設定次第ではリポジトリの中身をそのまま公開ディレクトリとして配信します。`node_modules/`や過去版バックアップをうっかりコミットしていると、それらも外部からダウンロード可能になる可能性があります。
+
+さらに、Renderのデプロイ失敗で`internal system error`と表示されても、実際にはGitHubリポジトリへのアクセス権が外れているだけ、というケースがあります。
+
+この記事では、Renderで静的サイトを公開するときに確認したい公開範囲、不要ファイルの除去、デプロイ失敗時の切り分けをまとめます。
+
+## Static Siteは公開ディレクトリを必ず確認する
+
+Render Static SiteでビルドコマンドやPublish Directoryの設定が曖昧だと、意図しないファイルまで公開対象になることがあります。
+
+特に危険なのは次のようなファイルです。
+
+- `node_modules/`
+- `backup_versions/`
+- 過去版のZIPやバックアップフォルダ
+- `.env`や設定ファイル
+- 作業メモ、URLショートカット、ローカル確認用ファイル
+- 顧客名や個人情報を含むスクリーンショット
+
+静的サイトは「見せたいHTMLだけが公開される」と思い込まず、公開URLから直接叩いて確認します。
+
+## curlで公開状態を確認する
+
+推測ではなく、実際のURLへアクセスしてHTTPステータスを見ます。
+
+```bash
+B="https://<your-app>.onrender.com"
+curl -s -o /dev/null -w "%{http_code}  node_modules\n" "$B/node_modules/nodemon/package.json"
+curl -s -o /dev/null -w "%{http_code}  backup\n" "$B/backup_versions/VERSION_HISTORY.md"
+```
+
+`200`が返れば公開されています。`404`なら、そのURLでは取得できません。
+
+不要ファイルを消した後は、逆に必要なファイルが`200`で返ることも確認します。消しすぎを防ぐためです。
+
+## .gitignoreとgit rm --cachedで追跡から外す
+
+既にコミット済みの不要ファイルは、`.gitignore`へ追加するだけでは追跡から外れません。`git rm --cached`でGitの追跡だけを外します。ローカルのファイル自体は消しません。
+
+```bash
+cat > .gitignore <<'GITIGNORE'
+node_modules/
+backup_versions/
+*Zone.Identifier
+*.url
+Thumbs.db
+desktop.ini
+GITIGNORE
+
+git rm -r --cached node_modules backup_versions
+git add .gitignore
+git commit -m "Remove node_modules and local backups from version control"
+git push origin main
+```
+
+実行前後に、ローカルファイルが残っていることと、ステージされた削除対象が想定通りであることを確認します。
+
+```bash
+git diff --cached --name-status | awk '{print $1}' | sort | uniq -c
+git ls-files
+```
+
+`git rm --cached`は現在以降のコミットから追跡を外すだけです。過去コミットには残ります。完全に履歴から消すには履歴書き換えが必要ですが、影響が大きいため慎重に判断します。
+
+## ビルドコマンドが空でもnpm installが走ることがある
+
+Renderでは、ビルドコマンドが空でも`package.json`を見つけると依存インストールが走ることがあります。
+
+```text
+up to date, audited 30 packages in 471ms
+==> Empty build command; skipping build
+==> Uploading build...
+==> Your site is live
+```
+
+この場合、`skipping build`と表示されていても、その前に`npm install`が実行されています。Publish Directoryがリポジトリ直下だと、生成された`node_modules`も配信対象に含まれる可能性があります。
+
+静的サイトなら、公開用ファイルを`public/`や`dist/`にまとめ、RenderのPublish Directoryをそこへ向ける構成が安全です。
+
+## 不要なdevDependenciesは消す
+
+ローカル開発でしか使っていない`nodemon`などがある場合、Node.js 18以降の`--watch`で代替できることがあります。
+
+```json
+{
+  "scripts": {
+    "dev": "node --watch app.js"
+  }
+}
+```
+
+依存が空になれば、Render側で余計なパッケージをインストールする余地を減らせます。
+
+## internal system errorはEventsの詳細を見る
+
+Renderでpush後のデプロイが失敗し、Eventsに次のような表示が出ることがあります。
+
+```text
+Exited with status 1 because of an internal system error. Our team has been notified.
+```
+
+この文言だけを見ると、Render側の障害やビルド失敗に見えます。しかし、ソース取得前に失敗している場合、ビルドログは存在しません。
+
+この場合は、Events一覧の失敗行をクリックし、モーダルに表示される本当の理由を確認します。
+
+```text
+We are unable to access to your GitHub repository.
+```
+
+この表示なら、原因はRenderのGitHub Appが対象リポジトリへアクセスできないことです。
+
+## GitHubアクセス権を確認する
+
+GitHub側でRender AppのRepository accessを確認します。
+
+1. `https://github.com/settings/installations`を開く
+2. Renderの`Configure`を開く
+3. Repository accessを確認する
+4. `Only select repositories`なら対象リポジトリが含まれているか確認する
+5. 漏れていれば追加して保存する
+
+Render側では、サービス画面のSettingsからRepository接続を更新または再接続します。
+
+`Manual Deploy -> Clear build cache & deploy`は、この原因には効きません。リポジトリを読めない状態なので、キャッシュを消しても同じ箇所で失敗します。
+
+## Public化は応急処置として扱う
+
+Privateリポジトリのアクセス権問題を避けるために、リポジトリをPublic化すると解決する場合があります。ただし、Public化する前に、公開してよいファイルだけが残っているかを必ず確認します。
+
+特にRender Static Siteでリポジトリ直下を公開している場合、Public化と不要ファイル配信が重なるとリスクが大きくなります。
+
+## 確認チェックリスト
+
+- `.gitignore`が最初から用意されている
+- `node_modules/`がGit追跡対象に入っていない
+- バックアップフォルダがGit追跡対象に入っていない
+- Publish Directoryが公開用フォルダに向いている
+- 公開URLから不要ファイルが`404`になる
+- 必要なHTML、CSS、JS、画像が`200`になる
+- Render Eventsの失敗行モーダルを確認した
+- GitHub AppのRepository accessに対象リポジトリが含まれている
+- キャッシュ削除ではなく、アクセス権を直してから再デプロイしている
+
+## まとめ
+
+Render Static Siteは便利ですが、公開範囲の設定を誤ると、リポジトリ内の不要ファイルまで見える状態になります。また、`internal system error`という表示でも、実際にはGitHubアクセス権が原因のことがあります。
+
+安全に運用するための要点は次の通りです。
+
+- 公開URLから`curl`で不要ファイルの公開状態を確認する
+- `.gitignore`と`git rm --cached`で不要ファイルを追跡から外す
+- Publish Directoryを公開専用フォルダへ向ける
+- ビルドコマンドが空でも`npm install`が走る可能性を考慮する
+- デプロイ失敗時はLogsだけでなくEventsの詳細モーダルを見る
+- GitHub AppのRepository accessを確認する
+
+公開後に気づくより、初回デプロイ前に公開範囲を検査する方が確実です。
+
+## 関連記事
+
+- [Webアプリ開発を依頼するときのアカウント所有設計](/articles/summary/webapp-contract-account-ownership)
+- [公開アプリ更新時にREADME・仕様書・画面導線を同時に揃える](/articles/codex/public-app-docs-links-sync)

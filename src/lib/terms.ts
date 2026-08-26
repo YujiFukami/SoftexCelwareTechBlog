@@ -3659,6 +3659,46 @@ export const terms: TermEntry[] = [
     related: ["nodejs", "chrome", "javascript"],
     googleQuery: "Playwright ブラウザ自動化 とは",
   },
+  {
+    slug: "svg",
+    title: "SVG",
+    category: "Web開発",
+    aliases: ["Scalable Vector Graphics", "SVG画像"],
+    summary: "線、図形、文字などをベクター形式で表現する画像形式です。拡大縮小しても劣化しにくく、Web上のアイコンや図形描画に使われます。",
+    description: [
+      "SVGはXMLベースの画像形式で、HTML内に直接書いたり、CSSやJavaScriptから属性を変更したりできます。",
+      "図形ビューア、作図ツール、アイコン、チャートなど、ブラウザ上で拡大縮小や色変更を行う用途に向いています。",
+    ],
+    useCases: ["アイコン作成", "作図ツール", "Web上のベクター描画"],
+    related: ["javascript", "canvas", "chrome"],
+    googleQuery: "SVG とは Web ベクター画像",
+  },  {
+    slug: "puppeteer",
+    title: "Puppeteer",
+    category: "ブラウザ自動化",
+    aliases: ["パペッティア"],
+    summary: "ChromeやChromiumをNode.jsから操作するためのブラウザ自動化ライブラリです。画面検証、スクリーンショット取得、E2Eテストなどに使われます。",
+    description: [
+      "Puppeteerは、ページ遷移、クリック、入力、JavaScript実行、スクリーンショット取得などをコードから操作できます。",
+      "ブラウザ更新による表示差分の確認では、インストール済みChromeを指定して実機に近い状態で検証することがあります。",
+    ],
+    useCases: ["画面表示の自動検証", "スクリーンショット取得", "E2Eテスト"],
+    related: ["chrome", "javascript", "nodejs"],
+    googleQuery: "Puppeteer Chrome 自動操作 とは",
+  },  {
+    slug: "render",
+    title: "Render",
+    category: "デプロイ",
+    aliases: ["Render.com", "Render Static Site"],
+    summary: "Webアプリ、API、静的サイトなどをGitHub連携で公開できるクラウドホスティングサービスです。",
+    description: [
+      "Renderは、GitHubリポジトリと連携して、静的サイトやWebサービスをビルド・デプロイできます。",
+      "Static Siteでは公開ディレクトリの設定が重要で、意図しないファイルを配信しないように確認が必要です。",
+    ],
+    useCases: ["静的サイト公開", "Webアプリ公開", "GitHub連携デプロイ"],
+    related: ["github", "vercel", "cloud"],
+    googleQuery: "Render Static Site デプロイ とは",
+  },
 ];
 
 const termsBySlug = new Map(terms.map((term) => [term.slug, term]));
