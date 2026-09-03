@@ -1,0 +1,220 @@
+﻿---
+title: "深夜営業GASアプリの営業日設計と大量行upsert"
+category: "gas"
+slug: "gas-night-business-day-bulk-upsert"
+tags: ["GAS", "Google Apps Script", "Googleスプレッドシート", "深夜営業", "営業日", "upsert", "LockService"]
+description: "深夜営業を扱うGAS業務アプリで、営業日と実時刻を分けて保存し、24時超え時刻を扱いながら、大量行をMap索引とバッチ書き込みでupsertする実装方針をまとめます。"
+date: "2026-09-03"
+---
+
+深夜営業を扱う<Term>Google Apps Script</Term>アプリでは、「日付」と「時刻」を素直に保存すると、集計や採番がずれやすくなります。
+
+たとえば、営業日は9月1日でも、実際の発生時刻は9月2日1時40分というケースがあります。これを単純に9月2日のデータとして保存すると、営業日別集計、伝票番号、部別集計が全部ずれます。
+
+さらに、外部データを数百行まとめて取り込む場合、毎行`getRange()`と`setValue()`を繰り返すと遅くなります。この記事では、深夜営業の営業日設計と、大量行upsertを<Term>Googleスプレッドシート</Term>で安定させる方法をまとめます。
+
+## 営業日と発生日時は別の列にする
+
+深夜営業では、業務上の「日付」と実際のタイムスタンプを分けます。
+
+| 列 | 役割 | 例 |
+| --- | --- | --- |
+| 営業日 | 集計、採番、検索に使う業務上の日付 | 2026-09-01 |
+| 発生日時 | 実際に発生した日時 | 2026-09-02 01:40 |
+| 表示時刻 | 利用者に見せる24時超え表記 | 25:40 |
+
+営業日を主キーや検索キーに使い、発生日時は時系列確認用として持たせます。これにより、深夜1時のデータを前営業日の枠に残せます。
+
+## 24時超え設定は表示値で読む
+
+<Term>Googleスプレッドシート</Term>で`24:00`や`33:00`のような値を設定セルに置く場合、`getValue()`で読むと日付型に変換され、`0:00`や`9:00`のように見えることがあります。
+
+深夜営業の区切り時刻は、表示された文字列として読む方が安全です。
+
+```js
+function readSettingTime_(range) {
+  return range.getDisplayValue().trim();
+}
+
+function timeTextToMinutes_(text) {
+  const normalized = String(text).trim();
+  const match = normalized.match(/^(\d{1,2})(?::?(\d{2}))?$/);
+  if (!match) throw new Error(`時刻形式が不正です: ${text}`);
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2] || '0');
+  return hours * 60 + minutes;
+}
+```
+
+`1:40`、`25:40`、`2540`のような入力を許可する場合も、内部では分に統一します。
+
+## 営業日は締め時刻から逆算する
+
+2部終了が`33:00`、つまり翌9時なら、営業日の切り替え時刻は9時です。実時刻がその時刻より前なら、前日を営業日として扱います。
+
+```js
+function toBusinessDate_(occurredAt, closeMinutes) {
+  const cutoffMinutes = closeMinutes % 1440;
+  const minutesOfDay = occurredAt.getHours() * 60 + occurredAt.getMinutes();
+  const businessDate = new Date(occurredAt);
+
+  if (minutesOfDay < cutoffMinutes) {
+    businessDate.setDate(businessDate.getDate() - 1);
+  }
+
+  return Utilities.formatDate(businessDate, 'Asia/Tokyo', 'yyyy-MM-dd');
+}
+```
+
+表示側では、翌日未明の時刻を24時超えとして戻します。
+
+```js
+function formatBusinessTime_(occurredAt, businessDateText) {
+  const base = new Date(`${businessDateText}T00:00:00+09:00`);
+  const diffMinutes = Math.round((occurredAt.getTime() - base.getTime()) / 60000);
+  const hours = Math.floor(diffMinutes / 60);
+  const minutes = diffMinutes % 60;
+  return `${hours}:${String(minutes).padStart(2, '0')}`;
+}
+```
+
+この設計にすると、保存データは実時刻で正確に追え、業務画面では`25:40`のような表記もできます。
+
+## 採番は営業日を含める
+
+深夜営業で日跨ぎがあるなら、採番も実日付ではなく営業日ベースにします。
+
+```js
+function buildSaleId_(businessDate, sequence) {
+  return `${businessDate.replaceAll('-', '')}-${String(sequence).padStart(4, '0')}`;
+}
+```
+
+このIDなら、9月2日1時40分に登録されたデータでも、9月1日営業分として採番できます。
+
+## 大量行upsertはMap索引を先に作る
+
+次に、大量行の更新または追加です。スプレッドシートで遅くなる典型は、1行ずつ検索して1セルずつ書く実装です。
+
+対策は、最初に既存行をまとめて読み、キーから行番号を引ける`Map`を作ることです。
+
+```js
+function buildRowIndex_(values, keyColumns) {
+  const index = new Map();
+
+  values.forEach((row, i) => {
+    const key = buildKey_(row, keyColumns);
+    if (key) index.set(key, i + 2); // 1行目がヘッダーの場合
+  });
+
+  return index;
+}
+
+function buildKey_(row, keyColumns) {
+  return keyColumns.map((col) => normalizeKeyValue_(row[col])).join('\t');
+}
+```
+
+キーの連結にはカンマよりタブを使う方が安全です。案件名や住所などにはカンマが入りやすいためです。
+
+## 日付キーは必ず正規化する
+
+upsertで特に危ないのは日付です。シート上では同じ`2026-09-01`に見えても、内部値がDate型のセルと文字列のセルが混在することがあります。
+
+```js
+function normalizeKeyValue_(value) {
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, 'Asia/Tokyo', 'yyyy-MM-dd');
+  }
+  return String(value ?? '').trim();
+}
+```
+
+この正規化をしないと、同じデータを2回取り込んだときに、2回目も追加扱いになり、重複行が増えます。
+
+## 更新行は連続範囲にまとめてsetValuesする
+
+更新対象が100行あっても、100回`setValues()`を呼ぶ必要はありません。更新行を行番号順に並べ、連続している範囲はまとめて書きます。
+
+```js
+function writeGroupedUpdates_(sheet, updates) {
+  const sorted = [...updates].sort((a, b) => a.rowNumber - b.rowNumber);
+  let group = [];
+
+  for (const item of sorted) {
+    const last = group.at(-1);
+    if (!last || item.rowNumber === last.rowNumber + 1) {
+      group.push(item);
+      continue;
+    }
+    flushGroup_(sheet, group);
+    group = [item];
+  }
+
+  if (group.length) flushGroup_(sheet, group);
+}
+
+function flushGroup_(sheet, group) {
+  const startRow = group[0].rowNumber;
+  const values = group.map((item) => item.values);
+  sheet.getRange(startRow, 1, values.length, values[0].length).setValues(values);
+}
+```
+
+追加行は末尾にまとめて挿入します。必要なら事前に行数を増やしてから1回で書き込みます。
+
+## 二重実行はLockServiceで止める
+
+外部連携や複数ユーザー操作がある場合、同じスクリプトが同時に動くことがあります。upsert中に別のupsertが走ると、Map索引を作った直後に他方が行を追加し、行番号がずれることがあります。
+
+書き込み全体は<Term>LockService</Term>で囲みます。
+
+```js
+function importRows_(rows) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30_000);
+
+  try {
+    return upsertRows_(rows);
+  } finally {
+    lock.releaseLock();
+  }
+}
+```
+
+さらに、外部から同じリクエストが再送される可能性がある場合は、requestId単位の処理済み記録も持たせます。
+
+## 検証は同じデータを2回流す
+
+upsertの検証は、1回成功しただけでは足りません。必ず同じデータを2回流します。
+
+期待値は次の通りです。
+
+| 回数 | 期待結果 |
+| --- | --- |
+| 1回目 | 新規追加または既存更新が行われる |
+| 2回目 | 追加0件、必要な更新のみ |
+
+2回目に追加が発生する場合、キー正規化、日付型、空白、全角半角、改行のどれかが揺れています。
+
+## まとめ
+
+深夜営業と大量行upsertは、どちらも「見た目の値」と「内部処理の値」を分けることが重要です。
+
+- 営業日と発生日時は別列にする
+- 24時超え時刻は`getDisplayValue()`で読み、内部では分に変換する
+- 営業日判定、表示時刻、採番は営業日ベースで統一する
+- upsertは既存行をまとめて読んでMap索引を作る
+- 日付キーは`yyyy-MM-dd`へ正規化する
+- 更新は連続範囲ごとにまとめて`setValues()`する
+- 同時実行はLockServiceで守る
+- 検証は同じデータを2回流し、2回目に追加が出ないことを見る
+
+この形にしておくと、深夜をまたぐ現場データでも、集計、検索、採番、再取込が崩れにくくなります。
+
+## 関連記事
+
+- [通常時間・深夜時間・休憩時間が重なる勤務時間計算をGASで整理する](/articles/gas/work-time-normal-night-overlap)
+- [日付プレフィックス付き連番IDを安全に採番する](/articles/gas/date-prefix-daily-sequence-id)
+- [2段ヘッダーのスプレッドシートを複合キーで扱うGAS設計](/articles/gas/gas-two-row-header-composite-key)

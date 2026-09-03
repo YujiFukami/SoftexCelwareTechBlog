@@ -1,0 +1,232 @@
+﻿---
+title: "Node製ローカルアプリをWindowsでオフライン配布する起動設計"
+category: "powershell"
+slug: "windows-node-offline-launcher-distribution"
+tags: ["PowerShell", "bat", "Node.js", "Windows", "オフライン配布", "ローカルサーバー", "ZIP"]
+description: "Node製ローカルWebアプリを、管理者権限やインターネットなしのWindows PCへ配布するために、bat/ps1ランチャー、PowerShellの戻り値対策、Node同梱、ZIP検証をまとめます。"
+date: "2026-09-03"
+---
+
+<Term>Node.js</Term>製のローカルWebアプリを、現場スタッフや顧客PCで動かしてもらう場合、`npm install`や`npm start`を打ってもらう前提は現実的ではありません。
+
+さらに、配布先PCがインターネットにつながっていない、管理者権限がない、Node.jsが入っていない、という条件もあります。
+
+この記事では、Node製ローカルアプリをWindowsで配布するときの、bat/ps1ランチャー、<Term>PowerShell</Term>の戻り値の罠、Node本体同梱、ZIP配布の検証方法をまとめます。
+
+## 配布物はダブルクリック起動にする
+
+非エンジニア向けの配布では、次のように番号付きのbatを置くと伝わりやすくなります。
+
+```text
+1_セットアップ.bat      初回のみ。ネット環境でnpm installする場合
+2_起動.bat              サーバーを起動してブラウザを開く
+3_初期状態に戻す.bat    データを作り直す
+```
+
+batは最小限にし、日本語メッセージや複雑な処理はps1側へ寄せます。
+
+```bat
+@echo off
+cd /d "%~dp0"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start.ps1"
+```
+
+batはASCII、CRLF改行にします。ps1は日本語メッセージを出すならUTF-8 BOM付きにします。詳しくは[PowerShellスクリプトとbatランチャーの文字コード・改行コード対策](/articles/powershell/bat-ps1-encoding-line-ending)でも扱っています。
+
+## サーバーは専用ウィンドウで起動する
+
+ランチャーと同じウィンドウでサーバーを動かすと、ブラウザを開く処理がブロックされます。サーバーは別ウィンドウに出し、タイトルに止め方を書きます。
+
+```powershell
+$inner = @"
+`$Host.UI.RawUI.WindowTitle = 'ローカルサーバー（このウィンドウを閉じると停止します）'
+Set-Location '$ProjectRoot'
+node src/index.js
+Write-Host ''
+Write-Host 'サーバーが停止しました。このウィンドウは閉じてかまいません。'
+"@
+
+Start-Process -FilePath 'powershell.exe' `
+  -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-NoExit', '-Command', $inner
+```
+
+`-NoExit`を付けると、サーバーが即終了してもウィンドウが残り、エラーを読めます。配布先では「一瞬で閉じたので原因不明」が一番困ります。
+
+## ポート応答を待ってからブラウザを開く
+
+サーバー起動直後にブラウザを開くと、まだ待ち受け開始前で接続エラーになることがあります。`TcpClient`でポートが開くまで待ってから開きます。
+
+```powershell
+function Test-PortOpen {
+  param([int]$Port)
+
+  $client = New-Object System.Net.Sockets.TcpClient
+  try {
+    $async = $client.BeginConnect('127.0.0.1', $Port, $null, $null)
+    $waited = $async.AsyncWaitHandle.WaitOne(300)
+    if ($waited -and $client.Connected) {
+      $client.EndConnect($async)
+      return $true
+    }
+    return $false
+  } catch {
+    return $false
+  } finally {
+    $client.Close()
+  }
+}
+
+for ($i = 0; $i -lt 60; $i++) {
+  Start-Sleep -Milliseconds 500
+  if (Test-PortOpen -Port $Port) { $ready = $true; break }
+}
+```
+
+同じ関数で二重起動も検出できます。すでにポートが開いているなら、新しくサーバーを起動せずブラウザだけ開きます。
+
+## PowerShell関数の戻り値に出力を混ぜない
+
+PowerShellの関数は、`return`した値だけでなく、関数内で出力されたものをすべてパイプラインへ流します。
+
+```powershell
+function Invoke-Npm {
+  param([string[]]$Arguments)
+  & $npm.Source @Arguments
+  return $LASTEXITCODE
+}
+
+$code = Invoke-Npm @('install')
+```
+
+この`$code`は`0`ではなく、npmの出力行と終了コードを含む配列になることがあります。その結果、成功しているのに失敗判定になることがあります。
+
+外部コマンドの表示は`Out-Host`へ流し、戻り値には終了コードだけを残します。
+
+```powershell
+function Invoke-Npm {
+  param([string[]]$Arguments)
+
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    & $npm.Source @Arguments | Out-Host
+    return $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previous
+  }
+}
+```
+
+`$ErrorActionPreference = 'Stop'`にしているスクリプトでは、npmの警告が標準エラーへ出るだけで異常終了扱いになることもあります。外部コマンド実行区間だけ`Continue`へ戻すと安全です。
+
+## オフライン配布ではNode本体を同梱する
+
+`node_modules`だけをZIPに入れても、配布先のNode.jsバージョンが違うとネイティブモジュールが動かないことがあります。`better-sqlite3`、`sharp`、`canvas`のような<Term>Node.js モジュール</Term>は、NodeのABIバージョンに依存するためです。
+
+配布先でNode.jsをインストールさせないなら、`node.exe`本体も同梱します。
+
+```text
+配布ZIP
+  起動.bat
+  node
+    node.exe
+    NODEJS-LICENSE.txt
+  node_modules
+  src
+  public
+  data
+  はじめにお読みください.txt
+```
+
+起動スクリプトでは、同梱版を最優先で使います。
+
+```powershell
+function Get-NodeExe {
+  $bundled = Join-Path $ProjectRoot 'node\node.exe'
+  if (Test-Path $bundled) { return $bundled }
+
+  $found = Get-Command node -ErrorAction SilentlyContinue
+  if ($null -ne $found) { return $found.Source }
+
+  return $null
+}
+```
+
+配布パッケージでは、起動だけでなく初期化処理も`npm run`に依存しないようにします。
+
+```powershell
+$node = Get-NodeExe
+& $node 'src/db/seed.js' '--force' | Out-Host
+```
+
+## ZIP化は.NETのZipFileを使う
+
+`node_modules`はファイル数が多いため、PowerShellの`Compress-Archive`では極端に遅くなることがあります。配布ZIP作成では.NETの`ZipFile`を使うと安定します。
+
+```powershell
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::CreateFromDirectory(
+  $stageDir,
+  $zipPath,
+  [System.IO.Compression.CompressionLevel]::Optimal,
+  $true
+)
+```
+
+第4引数を`$true`にすると、ZIPの中にトップフォルダが作られます。展開時にファイルが散らばらないので、利用者が扱いやすくなります。
+
+## 配布検証はNodeなし、ネットなし、ZIP展開後で行う
+
+開発フォルダで動いても、配布物が動く証明にはなりません。最低限、次を確認します。
+
+| 確認 | 目的 |
+| --- | --- |
+| PATHからNode.jsを外す | 同梱Nodeだけで動くか確認する |
+| ZIPを別フォルダへ展開する | 開発フォルダ依存を検出する |
+| 機内モードにする | npmやCDNへの依存を検出する |
+| `git archive`相当で展開する | Download ZIP時の改行コード問題を確認する |
+
+Node.jsをPATHから外す例です。
+
+```powershell
+$env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notmatch 'nodejs' }) -join ';'
+Start-Process -FilePath "$dir\起動.bat" -WorkingDirectory $dir -Wait
+```
+
+期待する表示は、同梱版Nodeを使っていること、サーバーが起動したこと、ブラウザが開けることです。
+
+```text
+[OK] Node.js v20.15.0（同梱版を使用。インストール不要）
+[OK] サーバーが起動しました。
+```
+
+## 利用者向けREADMEに書くこと
+
+配布物には、技術説明よりも運用上の注意を短く書きます。
+
+- USBメモリ上で直接動かさず、PCへコピーしてから起動する
+- Windowsの保護画面が出たら、詳細情報から実行する
+- セキュリティソフトが未知の`node.exe`として警告する可能性がある
+- 停止するときはサーバーウィンドウを閉じる
+- フォルダを削除すればアンインストールできる
+- Node.jsのライセンスファイルを同梱している
+
+## まとめ
+
+Node製ローカルアプリをWindowsで配布するときは、アプリ本体だけでなく、起動、停止、復旧、オフライン動作まで含めて設計する必要があります。
+
+- batは最小限にし、複雑な処理はps1へ寄せる
+- サーバーは専用ウィンドウで起動し、エラーを読めるようにする
+- ポート応答を待ってからブラウザを開く
+- PowerShell関数の戻り値に外部コマンド出力を混ぜない
+- オフライン配布ではNode本体とnode_modulesを同梱する
+- npm依存を起動経路から外す
+- ZIP展開後、Nodeなし、ネットなしで検証する
+
+ここまで確認しておくと、「開発PCでは動いたのに、現場PCでは動かない」という事故を大きく減らせます。
+
+## 関連記事
+
+- [PowerShellスクリプトとbatランチャーの文字コード・改行コード対策](/articles/powershell/bat-ps1-encoding-line-ending)
+- [OneDrive上のNodeプロジェクトが遅いときのCドライブ退避運用](/articles/powershell/onedrive-node-build-slow-c-dev-workflow)
+- [ElectronアプリをGitHubから直接配布する構成](/articles/electron/github-source-delivery)

@@ -1,0 +1,265 @@
+﻿---
+title: "ローカルLANの2画面同期と座席レイアウトUIを安定させる設計"
+category: "vanillajs"
+slug: "local-lan-seat-layout-socketio-canvas-grid"
+tags: ["Vanilla JS", "Socket.IO", "ローカルLAN", "座席レイアウト", "Canvas", "SQLite", "UI設計"]
+description: "ローカルLAN内で操作画面と表示専用画面を同期し、座標DB方式の座席レイアウトとCanvasグリッドで、現場向け表示システムを安定させる設計をまとめます。"
+date: "2026-09-03"
+---
+
+受付PCで操作し、別の大型モニターに結果をすぐ表示したい現場システムがあります。座席受付、順番待ち、呼び出し番号、残席表示のような用途です。
+
+クラウドを挟まずローカルLANだけで完結させたい、ビルド工程を増やしたくない、現場のPCでそのまま動かしたい。こういう条件では、<Term>Vanilla JS</Term>、<Term>Node.js</Term>、<Term>SQLite</Term>、Socket.IOの小さな構成が扱いやすくなります。
+
+この記事では、ローカルLANの2画面同期、座標DB方式の座席レイアウト、`transform: scale()`時のグリッド描画まで、現場表示システムで効いた設計をまとめます。
+
+## 全体構成
+
+1台のPCをサーバー兼操作端末にし、操作画面と表示専用画面を別URLで配信します。
+
+```text
+受付PC
+  Express + Socket.IO + SQLite
+  /admin    操作画面
+  /display  表示専用画面
+
+表示PC
+  Chrome kiosk modeで /display を開く
+```
+
+同じNodeサーバーがAPI、静的ファイル、Socket.IOを配信します。外部CDNは使いません。Socket.IOクライアントも`/socket.io/socket.io.js`としてサーバーから配信できます。
+
+## DBを唯一の正にする
+
+Socketイベントに全データを詰め込むと、切断、再接続、複数端末操作のどこかで状態がずれます。
+
+安定させるには、DBを唯一の正とし、Socket.IOは「変わったので取り直してください」という通知に留めます。
+
+```js
+// サーバー側
+const updated = seatService.setStatus(ids, status);
+writeLog('SEAT_CONFIRM', `${ids.length}件を${status}に変更`);
+io.emit('seat.updated', { ids: updated.map((seat) => seat.id) });
+```
+
+画面側はイベントを受けたらAPIで全体または必要範囲を再取得します。
+
+```js
+socket.on('seat.updated', async () => {
+  const seats = await fetchJson('/api/seats');
+  renderSeats(seats);
+});
+```
+
+イベントを取りこぼしても、再接続時に全取得すれば復旧できます。
+
+## 再接続時は必ず全取得する
+
+Socket.IOの`connect`は初回接続だけでなく、再接続時にも発火します。ここで必ず最新状態を取り直します。
+
+```js
+const socket = io({
+  reconnection: true,
+  reconnectionDelay: 5000,
+  reconnectionDelayMax: 5000,
+  randomizationFactor: 0
+});
+
+socket.on('connect', async () => {
+  setConnectionBadge(true);
+  await reloadAll();
+});
+
+socket.on('disconnect', () => {
+  setConnectionBadge(false);
+});
+```
+
+現場システムでは、指数バックオフで再接続間隔が伸びるより、5秒固定の方が分かりやすいことがあります。復旧後に長く待たされないためです。
+
+表示専用画面には接続状態バッジを常時出します。大型モニターが古い表示のまま固まっていると、操作側からは気づきにくいためです。
+
+## 時刻で変わる表示はサーバー側で判定する
+
+「現在開催中の会場だけ出す」「時間になったら表示を切り替える」といった処理を各クライアントに任せると、端末の時計差やタブ停止でずれます。
+
+サーバー側が定期的に再計算し、前回結果と変わったときだけ通知します。
+
+```js
+let last = JSON.stringify(listCurrentItems(new Date()));
+
+setInterval(() => {
+  const current = JSON.stringify(listCurrentItems(new Date()));
+  if (current === last) return;
+  last = current;
+  io.emit('display.updated', {});
+}, 30_000);
+```
+
+判定関数は、現在時刻を引数で受ける純粋関数にしておくと、境界時刻をテストしやすくなります。
+
+## 座席は仮想ステージ座標で持つ
+
+現地の座席表を画面で再現する場合、CSS GridやFlexboxで無理に組むより、仮想ステージ上の座標として持つ方が調整しやすいことがあります。
+
+```text
+seats
+  id
+  name
+  x
+  y
+  width
+  height
+  rotation
+  status
+```
+
+描画側はDBの`x / y / width / height / rotation`を絶対配置するだけです。
+
+```js
+function renderSeat(seat) {
+  const el = document.createElement('button');
+  el.className = `seat seat-${seat.status}`;
+  el.style.left = `${seat.x}px`;
+  el.style.top = `${seat.y}px`;
+  el.style.width = `${seat.width}px`;
+  el.style.height = `${seat.height}px`;
+  el.style.transform = `rotate(${seat.rotation || 0}deg)`;
+  return el;
+}
+```
+
+受付画面と表示画面は、同じ描画関数を`readOnly`フラグ違いで使います。状態によってクリックできるかだけを変えれば、見た目の差分が出にくくなります。
+
+## 写真資料の傾きは遠近ゆがみを疑う
+
+現地写真だけを資料にすると、モニターを斜めから撮ったせいで座席表が台形や扇形に見えることがあります。それを忠実に再現すると、実際の画面とは違う「傾いたUI」になります。
+
+写真からレイアウトを起こすときは、次を確認します。
+
+| 見る点 | 判断 |
+| --- | --- |
+| モニター外枠が台形に写っている | 中身の傾きも撮影角度の可能性が高い |
+| 傾きが片側だけに出ている | 遠近ゆがみを疑う |
+| 業務画面なのに扇状配置に見える | まず整列グリッド版を作って確認する |
+
+写真に寄せすぎるより、まず整列版を作り、現場確認で微調整する方が早いです。
+
+## ステージ全体をscaleでフィットさせる
+
+仮想座標を固定し、表示領域に合わせて全体を縮小します。
+
+```css
+.stage-wrap {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+```
+
+```js
+function fitStage(wrapEl, stageEl) {
+  const rect = wrapEl.getBoundingClientRect();
+  const scale = Math.min(rect.width / STAGE_W, (rect.height || Infinity) / STAGE_H);
+  stageEl.style.transform = `scale(${scale})`;
+  wrapEl.style.height = `${STAGE_H * scale}px`;
+  return scale;
+}
+```
+
+これで、ノートPCでも大型モニターでも同じ仮想座標を使えます。
+
+## scale内のCSSグリッド線は不揃いになる
+
+編集画面で背景グリッドを出す場合、`transform: scale()`されたステージ内にCSSの`repeating-linear-gradient`で線を描くと、間隔や濃さが不揃いになります。
+
+たとえば8px間隔のグリッドを0.833倍に縮小すると、画面上は6.664px間隔になります。線の位置がサブピクセルに乗り、Chromeの丸め方によって太い線と細い線が混ざります。
+
+対策は、scaleされない外側の<Term>Canvas</Term>に、画面座標で描くことです。
+
+```html
+<div class="canvas-wrap">
+  <canvas class="grid-canvas"></canvas>
+  <div class="stage"></div>
+</div>
+```
+
+```js
+function drawGrid(canvas, scale) {
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = STAGE_W * scale;
+  const cssH = STAGE_H * scale;
+
+  canvas.style.width = `${cssW}px`;
+  canvas.style.height = `${cssH}px`;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const step = GRID_SIZE * scale;
+  if (step < 3) return;
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+
+  for (let x = 0; x <= STAGE_W; x += GRID_SIZE) {
+    const px = Math.round(x * scale * dpr) + 0.5;
+    ctx.moveTo(px, 0);
+    ctx.lineTo(px, canvas.height);
+  }
+
+  for (let y = 0; y <= STAGE_H; y += GRID_SIZE) {
+    const py = Math.round(y * scale * dpr) + 0.5;
+    ctx.moveTo(0, py);
+    ctx.lineTo(canvas.width, py);
+  }
+
+  ctx.stroke();
+}
+```
+
+`Math.round()`してから`+0.5`することで、1pxの線をデバイスピクセルの中心に置けます。高DPI画面では、canvasの描画バッファを`devicePixelRatio`込みで確保します。
+
+## レイアウト更新は座標だけ差し替える
+
+現場運用中に「座席を1つ増やす」「配置を少し直す」という要望は起きます。このとき営業中データを消す再シードは危険です。
+
+レイアウトだけを更新するコマンドを分けておきます。
+
+```text
+npm run relayout  座席状態を保ったまま x, y, width, height, rotation だけ更新
+npm run reset     席数や初期状態を作り直すときだけ使う
+```
+
+座標設定の係数はモジュール先頭にまとめます。写真合わせの作業は必ず微調整が発生するためです。
+
+## まとめ
+
+ローカルLANの現場表示システムでは、派手な仕組みよりも、復旧しやすい状態管理と調整しやすい描画方式が重要です。
+
+- Socketイベントは通知に留め、DBを唯一の正にする
+- 再接続時は必ず全取得して画面を復旧する
+- 時刻で変わる表示はサーバー側で判定する
+- 座席レイアウトはDB上の仮想ステージ座標で持つ
+- 写真資料の傾きは遠近ゆがみを疑う
+- scaleされた領域のグリッド線はCSSではなくCanvasで描く
+- レイアウト更新と初期化を別コマンドにする
+
+この設計なら、ビルド不要の小さなWeb構成でも、受付PCと表示PCを分けた実用的な現場システムにできます。
+
+## 関連記事
+
+- [Chrome更新でSVGの細線が霞む問題とviewBoxズームの実機検証](/articles/vanillajs/svg-chrome-subpixel-viewbox-puppeteer)
+- [Canvasの内容を画像として保存する実装パターン](/articles/vanillajs/canvas-export)
+- [タップしやすいグリッドUIを作る](/articles/vanillajs/mobile-tap-grid)
