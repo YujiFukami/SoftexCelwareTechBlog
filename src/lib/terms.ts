@@ -1,4 +1,4 @@
-export type TermReference = {
+﻿export type TermReference = {
   title: string;
   url: string;
 };
@@ -1230,6 +1230,35 @@ export const terms: TermEntry[] = [
     related: ["github-releases", "github-pages", "pyinstaller"],
     googleQuery: "GitHub Actions とは",
     references: [{ title: "GitHub Docs - GitHub Actions", url: "https://docs.github.com/actions" }],
+  },
+  {
+    slug: "ffmpeg",
+    title: "FFmpeg",
+    category: "動画・音声処理",
+    summary: "動画や音声の変換、抽出、結合などを行うためのコマンドラインツールです。",
+    description: [
+      "FFmpegは、MP4から音声を取り出す、WAVへ変換する、動画形式を変換するなど、動画・音声処理で広く使われるツールです。",
+      "Pythonツールから呼び出す場合は、PATH上のffmpeg.exeを確認し、空白や日本語を含むパスでも壊れないよう引数配列で実行します。",
+    ],
+    useCases: ["MP4から音声抽出", "文字起こし前の音声変換", "動画ファイルの形式変換"],
+    related: ["python", "whisper"],
+    googleQuery: "FFmpeg とは",
+    references: [{ title: "FFmpeg", url: "https://ffmpeg.org/" }],
+  },
+  {
+    slug: "whisper",
+    title: "Whisper",
+    category: "音声認識",
+    aliases: ["OpenAI Whisper", "faster-whisper"],
+    summary: "音声をテキストへ変換する音声認識モデルです。",
+    description: [
+      "Whisperは、録音や動画音声から発話内容を文字起こしするための音声認識モデルです。",
+      "ローカル実行ではfaster-whisperなどの実装を使い、モデルサイズ、言語、CPU/GPUの使い方を設定できるようにしておくと扱いやすくなります。",
+    ],
+    useCases: ["会議録画の文字起こし", "字幕生成", "音声メモのテキスト化"],
+    related: ["python", "ffmpeg"],
+    googleQuery: "Whisper 文字起こし とは",
+    references: [{ title: "OpenAI Whisper", url: "https://github.com/openai/whisper" }],
   },
   {
     slug: "python",

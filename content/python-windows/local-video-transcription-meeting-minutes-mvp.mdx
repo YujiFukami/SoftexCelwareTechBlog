@@ -1,0 +1,279 @@
+﻿---
+title: "ローカルPCで動画から文字起こし議事録を作るPythonツール設計"
+category: "python-windows"
+slug: "local-video-transcription-meeting-minutes-mvp"
+tags: ["Python", "文字起こし", "Whisper", "FFmpeg", "Windows", "議事録", "Markdown"]
+description: "MP4録画から音声を抽出し、Whisper系モデルで日本語文字起こしを行い、時間付きMarkdown議事録へ出力するPythonツールのMVP設計をまとめます。"
+date: "2026-09-08"
+---
+
+ビデオ会議の録画を後から見返して議事録を作る作業は、地味に時間を取られます。録画ファイルが手元にあるなら、まずはローカルPC上で文字起こしし、時間付きの発言記録をMarkdownとして残せるだけでもかなり楽になります。
+
+この記事では、MP4録画から音声を抽出し、<Term>Whisper</Term>系モデルで日本語文字起こしを行い、時間付き議事録を出力する<Term>Python</Term>ツールのMVP設計をまとめます。
+
+## まず作る範囲を絞る
+
+最初からGUI、話者分離、AI要約、専門用語補正、SRT出力まで全部入れようとすると、依存関係と失敗パターンが一気に増えます。
+
+初期版では、次だけを完成条件にします。
+
+| 優先 | 機能 | 方針 |
+| --- | --- | --- |
+| 1 | MP4入力 | Windowsの日本語パスと空白入りパスに対応する |
+| 2 | 音声抽出 | FFmpegで一時WAVへ変換する |
+| 3 | 日本語文字起こし | faster-whisperなどを使い、言語は日本語指定できるようにする |
+| 4 | タイムスタンプ | 発話ごとの開始・終了時刻を保持する |
+| 5 | Markdown出力 | 時間付きの発言記録を保存する |
+
+話者分離や要約は、文字起こし本体が安定してから追加します。
+
+## 処理フロー
+
+全体は、動画ファイルを加工しながら最終的に構造化データへ寄せる流れにします。
+
+```text
+MP4ファイル
+  ↓
+FFmpegで音声抽出
+  ↓
+Whisper系モデルで文字起こし
+  ↓
+発話単位のJSONを作成
+  ↓
+TXT / Markdown / SRTを生成
+  ↓
+一時ファイルを削除
+```
+
+重要なのは、Markdownを直接組み立てながら処理しないことです。まず内部データを作り、TXTやMarkdownはそこから生成します。
+
+```json
+[
+  {
+    "start": 12.4,
+    "end": 30.2,
+    "speaker": "SPEAKER_UNKNOWN",
+    "text": "こんにちは。本日はよろしくお願いします。"
+  }
+]
+```
+
+この形にしておくと、後から話者名変更、SRT出力、AI要約、検索用DB保存を追加しやすくなります。
+
+## ディレクトリ構成は小さく始める
+
+MVPでは、責務だけ分けた小さな構成にします。
+
+```text
+transcription-tool/
+  main.py
+  requirements.txt
+  README.md
+  config.py
+  src/
+    audio.py
+    transcription.py
+    formatter.py
+    utils.py
+  output/
+  temp/
+```
+
+話者分離を後から追加するなら、`src/diarization.py`を追加します。最初から空の抽象化を増やすより、失敗時の切り分けが必要になった段階で分ける方が扱いやすいです。
+
+## FFmpegは存在確認を先に行う
+
+MP4から音声を取り出す処理は<Term>FFmpeg</Term>に任せます。ただし、配布先でFFmpegがPATHに入っているとは限りません。処理開始時に必ず確認します。
+
+```python
+import shutil
+
+
+def find_ffmpeg() -> str:
+    path = shutil.which("ffmpeg")
+    if not path:
+        raise RuntimeError("FFmpegが見つかりません。ffmpeg.exeの配置またはPATHを確認してください。")
+    return path
+```
+
+音声抽出は、元動画を直接変更せず、一時フォルダへWAVを作ります。
+
+```python
+import subprocess
+from pathlib import Path
+
+
+def extract_audio(input_mp4: Path, output_wav: Path) -> None:
+    ffmpeg = find_ffmpeg()
+    command = [
+        ffmpeg,
+        "-y",
+        "-i", str(input_mp4),
+        "-vn",
+        "-ac", "1",
+        "-ar", "16000",
+        str(output_wav),
+    ]
+    subprocess.run(command, check=True)
+```
+
+パスは文字列連結せず、`Path`と引数配列で扱います。Windowsの空白入りパスや日本語ファイル名で壊れにくくなります。
+
+## Whisper呼び出しは設定で切り替える
+
+文字起こしモデルは、PC性能によって適切な重さが変わります。モデル名や実行デバイスはコードに直書きせず、設定に出します。
+
+```python
+# config.py
+MODEL_NAME = "large-v3"
+LANGUAGE = "ja"
+DEVICE = "auto"  # auto / cpu / cuda
+```
+
+```python
+from faster_whisper import WhisperModel
+
+
+def transcribe(audio_path: str, model_name: str, language: str):
+    model = WhisperModel(model_name, device="auto", compute_type="auto")
+    segments, info = model.transcribe(audio_path, language=language)
+
+    return [
+        {
+            "start": segment.start,
+            "end": segment.end,
+            "speaker": "SPEAKER_UNKNOWN",
+            "text": segment.text.strip(),
+        }
+        for segment in segments
+    ]
+```
+
+GPUが使える環境では高速化できますが、GPU前提にすると使えるPCが限られます。MVPではCPUでも動くことを優先し、GPUは自動利用できれば使う、くらいにしておきます。
+
+## 話者分離は失敗しても全体を止めない
+
+話者分離は便利ですが、依存関係やモデル条件が重くなりがちです。初期版では、話者分離に失敗しても文字起こし結果は出力します。
+
+```python
+def apply_speakers(segments, diarization_result=None):
+    if diarization_result is None:
+        return segments
+
+    # ここで時間範囲を照合してspeakerを付与する
+    return merged_segments
+```
+
+話者が分からない場合は`SPEAKER_UNKNOWN`で十分です。ユーザーが後から`SPEAKER_00 = 司会`のように置換できる余地を残します。
+
+## Markdownは発言記録として出す
+
+初期版の議事録は、要約ではなく「話者 + 時間 + 発言全文」を優先します。
+
+```python
+def format_time(seconds: float) -> str:
+    total = int(seconds)
+    h = total // 3600
+    m = (total % 3600) // 60
+    s = total % 60
+    return f"{h:02}:{m:02}:{s:02}"
+
+
+def to_markdown(source_name: str, segments: list[dict]) -> str:
+    lines = [
+        "# 打ち合わせ議事録",
+        "",
+        "## 基本情報",
+        "",
+        f"- 元ファイル: {source_name}",
+        f"- 発言数: {len(segments)}",
+        "",
+        "## 発言記録",
+        "",
+    ]
+
+    for item in segments:
+        start = format_time(item["start"])
+        end = format_time(item["end"])
+        speaker = item.get("speaker") or "SPEAKER_UNKNOWN"
+        lines.extend([
+            f"### {start} - {end} / {speaker}",
+            "",
+            item["text"],
+            "",
+        ])
+
+    return "\n".join(lines)
+```
+
+1時間を超える録画でも崩れないよう、時刻は必ず`HH:MM:SS`で出します。
+
+## エラーは段階名つきで出す
+
+長い動画処理では、どこで止まったか分からないと再実行しづらくなります。最低限、処理段階を表示します。
+
+```text
+[1/5] 動画確認
+[2/5] 音声抽出
+[3/5] 文字起こし
+[4/5] ファイル出力
+[5/5] 一時ファイル削除
+```
+
+例外にも段階名を付けます。
+
+```python
+try:
+    print("[2/5] 音声抽出")
+    extract_audio(input_path, temp_wav)
+except Exception as error:
+    raise RuntimeError(f"音声抽出に失敗しました: {error}") from error
+```
+
+話者分離だけは補助機能なので、失敗時に警告へ落とし、文字起こし自体は出力します。
+
+## ドラッグ&ドロップ起動も考える
+
+Windows向けに使いやすくするなら、CLIだけでなく、MP4をbatへドラッグ&ドロップする導線も有効です。
+
+```bat
+@echo off
+cd /d "%~dp0"
+python main.py %1
+pause
+```
+
+ただし、配布用では文字コード、改行コード、Pythonの有無、仮想環境、モデルファイルの配置を別途考える必要があります。まずCLIで安定させ、その後にbatやGUIへ広げる方が安全です。
+
+## 将来拡張はJSONを起点にする
+
+MVPで発話JSONを作っておくと、後から次の機能を足しやすくなります。
+
+| 拡張 | JSONを使う理由 |
+| --- | --- |
+| SRT字幕 | start/end/textから生成できる |
+| 話者名変更 | speakerだけ置換すればよい |
+| AI要約 | 発話単位でプロンプトへ渡せる |
+| 専門用語補正 | textに辞書置換をかけられる |
+| GUI表示 | 発話一覧として表示できる |
+
+AI要約は便利ですが、最初の成果物に入れると検証対象が増えます。まずは全文文字起こしの精度とファイル出力を固める方が、後工程の品質も安定します。
+
+## まとめ
+
+動画から議事録を作るツールは、最初に欲張らず、次の順に積み上げるのが現実的です。
+
+- MP4を受け取り、FFmpegで音声を抽出する
+- Whisper系モデルで日本語文字起こしを行う
+- 発話開始、終了、話者、本文をJSONとして保持する
+- TXTとMarkdownはJSONから生成する
+- 話者分離は失敗しても文字起こし全体を止めない
+- CLIで安定させてから、bat、GUI、AI要約へ進む
+
+この構成なら、ローカルPCだけで動く無料ベースの文字起こしツールとして始めつつ、後から実用機能を足しやすくなります。
+
+## 関連記事
+
+- [Windows EXE配布ZIPの構成テンプレート](/articles/python-windows/windows-exe-zip-template)
+- [tkinterで別スレッド処理とroot.afterによるログ更新を行う](/articles/python-windows/tkinter-thread-after-log)
+- [Node製ローカルアプリをWindowsでオフライン配布する起動設計](/articles/powershell/windows-node-offline-launcher-distribution)
