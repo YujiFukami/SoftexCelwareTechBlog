@@ -1,0 +1,83 @@
+﻿---
+title: "Chrome拡張のポップアップから入力欄へ確実に文字を挿入する"
+category: "vanillajs"
+slug: "chrome-extension-reliable-input-injection"
+tags: ["Chrome拡張機能", "JavaScript", "入力欄", "Vue", "React", "content script"]
+description: "ポップアップのフォーカス問題、VueやReactの入力イベント、同じclassの別textareaを考慮して、Chrome拡張からページの入力欄へ文字を確実に挿入する方法を解説します。"
+date: "2026-09-24"
+---
+
+Chrome拡張のポップアップから、開いているページのtextareaへ定型文を挿入したいことがあります。しかしポップアップを開くとページ側のフォーカスが外れ、`execCommand("insertText")`が成功を返しても値が変わらない場合があります。
+
+さらに、VueやReactが管理する入力欄では、DOMの`value`を書き換えるだけではフレームワーク側の状態が更新されません。同じclassのメモ欄が存在すると、別の欄へ誤挿入する危険もあります。
+
+## 期待値と実値を比較する
+
+まず元の値、選択範囲、挿入後に期待する値を作ります。`execCommand`を試した後に実値を比較し、一致すればそのまま使います。
+
+```js
+function insertIntoInput(input, text) {
+  const before = input.value;
+  const start = input.selectionStart ?? before.length;
+  const end = input.selectionEnd ?? start;
+  const expected = before.slice(0, start) + text + before.slice(end);
+
+  input.focus();
+  input.setSelectionRange(start, end);
+  let executed = false;
+  try { executed = document.execCommand('insertText', false, text); } catch (_) {}
+
+  if (executed && input.value === expected) return 'execCommand';
+  if (input.value !== before) return 'execCommand';
+
+  setNativeValue(input, expected);
+  input.setSelectionRange(start + text.length, start + text.length);
+  return 'nativeValue';
+}
+```
+
+`execCommand`が別の形で値を入れていた場合は、二重挿入を避けるため、その時点で成功扱いにします。
+
+## フレームワークのsetterとイベントを使う
+
+```js
+function setNativeValue(element, value) {
+  const proto = element.tagName === 'TEXTAREA'
+    ? HTMLTextAreaElement.prototype
+    : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(proto, 'value').set.call(element, value);
+  element.dispatchEvent(new Event('input', { bubbles: true }));
+  element.dispatchEvent(new Event('change', { bubbles: true }));
+}
+```
+
+ネイティブsetterで値を設定し、`input`と`change`を発火します。送信ボタンを押したときにフレームワークが挿入文字を認識しているか、実際の画面で確認します。
+
+## 表示中の入力欄を優先する
+
+入力欄をclassだけで決めず、候補セレクタを順番に試します。`getClientRects().length > 0`で表示中の要素を優先し、メモ欄などの除外条件もセレクタへ含めます。
+
+```js
+function findVisibleFirst(selectors) {
+  let first = null;
+  for (const selector of selectors) {
+    for (const element of document.querySelectorAll(selector)) {
+      if (element.getClientRects().length > 0) return element;
+      first = first || element;
+    }
+  }
+  return first;
+}
+```
+
+成功後にポップアップ側で`window.close()`を呼ぶと、ページへフォーカスを戻し、そのまま続きを入力できます。
+
+## 入力欄の近くにパネルを置く発展形
+
+ポップアップを閉じる運用が合わない場合は、入力欄のそばにShadow DOMのパネルを置く方法があります。パネルの`mousedown`で`preventDefault()`を呼ぶと、ボタンを押しても入力欄のフォーカスが外れにくく、通常のUndo履歴も維持できます。
+
+ページ遷移や自動リサイズには、`tabs.onUpdated`、`scroll`、`resize`、`input`を使って追従します。再注入されてもリスナーが二重にならないよう、ホスト要素や登録済みフラグを確認します。
+
+## まとめ
+
+入力挿入は「値を代入するだけ」の処理ではありません。期待値との比較、ネイティブsetter、inputイベント、表示中要素の選択、挿入後のフォーカス復帰を一つの処理として設計すると、ページ側のフレームワークや複数欄の存在に強くなります。

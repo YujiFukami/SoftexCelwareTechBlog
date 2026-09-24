@@ -1,0 +1,64 @@
+﻿---
+title: "並行チャット開発で共有ファイルと通知を安全に扱う方法"
+category: "codex"
+slug: "parallel-chat-shared-worktree-operations"
+tags: ["Claude Code", "Codex", "並行開発", "Git", "PowerShell", "開発運用"]
+description: "同じ作業フォルダで複数のAI開発チャットを動かすときに、通知音の識別と共有ファイルの部分コミットを実現する運用パターンをまとめます。"
+date: "2026-09-24"
+---
+
+複数のAI開発チャットを同じフォルダで並行して動かすと、どのチャットが確認待ちなのか分からなくなり、共有ファイルを誤ってまとめてコミットする事故も起こります。
+
+この問題は、通知の識別とGitのステージングを別々に対策します。通知はセッションIDを音声へ対応付け、共有ファイルはHEADと自分の変更だけからインデックスを作ります。
+
+## session_idを音声通知へ対応付ける
+
+フックのstdin JSONに含まれる`session_id`をキーにして、チャット名と読み上げ文の対応表をJSONで持ちます。PowerShell側はASCIIだけにし、日本語はUTF-8のJSONへ置くと、Windows PowerShell 5.1の文字コード問題を避けやすくなります。
+
+```powershell
+$raw = [Console]::In.ReadToEnd()
+$sid = ($raw | ConvertFrom-Json).session_id
+$map = Get-Content $mapPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$entry = $map.sessions.$sid
+if ($entry) {
+  Add-Type -AssemblyName System.Speech
+  $s = New-Object System.Speech.Synthesis.SpeechSynthesizer
+  $s.Speak($entry.stop)
+}
+```
+
+対応表に無いセッションは既存の通知音だけにします。StopとNotificationで文言を分け、フックは`async: true`にして開発処理を止めないようにします。英字のセッション名をそのまま読ませると不自然なので、読み上げ用のカタカナ名を別に持たせます。
+
+## 共有ファイルはgit addで丸ごと追加しない
+
+worktreeを分けずに並行開発すると、`FEATURES.md`のような共有ファイルへ別チャットの未コミット変更が混ざります。`git add FEATURES.md`を実行すると、関係ない行まで自分のコミットに入ります。
+
+対話操作ができない環境では、HEADの内容へ自分の変更だけを適用したblobを作り、`update-index --cacheinfo`でインデックスへ置きます。
+
+```python
+head = subprocess.run(
+    ['git', 'show', 'HEAD:FEATURES.md'],
+    capture_output=True, check=True
+).stdout.decode('utf-8')
+updated = head.replace(old_line, new_line)
+blob = subprocess.run(
+    ['git', 'hash-object', '-w', '--stdin', '--path', 'FEATURES.md'],
+    input=updated.encode('utf-8'), capture_output=True, check=True
+).stdout.decode().strip()
+subprocess.run([
+    'git', 'update-index', '--cacheinfo',
+    '100644,' + blob + ',FEATURES.md'
+], check=True)
+```
+
+この方法は作業コピーを書き戻さないため、他チャットの変更は未ステージのまま残ります。コミット前に`git diff --cached FEATURES.md`で自分の行だけが入っていること、`git diff FEATURES.md`で他チャットの変更が残っていることを確認します。
+
+## 運用ルールを先に決める
+
+通知名、共有ファイル、担当チャット、変更依頼の場所をリポジトリへ記録します。新しいチャットを始めるたびにルールを説明するのではなく、共通のREADMEや引き継ぎファイルを先に読ませます。
+
+新規ファイルや自分だけが触るファイルは通常の`git add`で問題ありません。この部分コミット手順は、共有ファイルへ限定して使います。置換対象がHEADと作業コピーにちょうど1つあることを確認してから実行し、曖昧な場合は止めます。
+
+## まとめ
+
+並行チャット開発では、AIが別チャットの作業を自動で理解していると考えないことが重要です。セッションIDを使った通知、共有ファイルの部分コミット、リポジトリ内の引き継ぎ資料を組み合わせると、同じ作業フォルダでも確認漏れと誤コミットを減らせます。

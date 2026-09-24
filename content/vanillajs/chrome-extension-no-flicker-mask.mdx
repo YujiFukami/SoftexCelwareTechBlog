@@ -1,0 +1,68 @@
+﻿---
+title: "Chrome拡張の画面マスクをdocument_start CSSでちらつかせない"
+category: "vanillajs"
+slug: "chrome-extension-no-flicker-mask"
+tags: ["Chrome拡張機能", "content scripts", "CSS", "画面マスク", "プライバシー", "Shadow DOM"]
+description: "画面共有やスクリーンショット向けの目隠しを、document_startのCSSと安全側の初期状態で実装し、SPAやShadow DOMにも追従させる考え方を解説します。"
+date: "2026-09-24"
+---
+
+画面共有やスクリーンショット用に金額や利用者情報を隠すChrome拡張では、ページが開いた直後に一瞬だけ本来の値が見える「ちらつき」が問題になります。後からJavaScriptで隠す設計では、処理が間に合わないことがあります。
+
+また、`textContent`を伏せ字へ書き換えると、同じページを読む履歴保存や集計処理まで伏せ字を取得してしまいます。
+
+## 初期状態を隠す側にする
+
+manifestのcontent scriptへCSSを登録し、`run_at: "document_start"`で読み込みます。
+
+```json
+{
+  "content_scripts": [{
+    "matches": ["https://example.com/*"],
+    "css": ["mask.css"],
+    "js": ["mask-boot.js"],
+    "run_at": "document_start"
+  }]
+}
+```
+
+CSSは解除クラスが無い状態を「隠す」にします。storageの読み込みやページ側の描画が遅れても、漏れる方向のちらつきが起きません。
+
+```css
+html:not(.mask-off) .price {
+  visibility: hidden !important;
+  position: relative;
+}
+html:not(.mask-off) .price::after {
+  content: "非表示";
+  visibility: visible;
+  position: absolute;
+  inset: 0;
+  color: #6b7280;
+}
+```
+
+要素の箱を残す`visibility`は、レイアウトを崩しにくい方法です。グラフや画像は`filter: blur()`や覆いを使い、下のリンクを押す必要があれば`pointer-events`も設計します。
+
+## DOMを書き換えずに表示だけ変える
+
+CSSの擬似要素とクラスの付け外しだけで表示を切り替えると、ページ本来のテキストや数値は変わりません。SPAが再描画しても、対象要素へCSSが自動的に適用されます。MutationObserverを使うのは、CSSだけでは判定できない特殊な要素に限定します。
+
+「自分の名前だけ表示する」のような判定が必要な場合は、JSで対象要素へ`data-self`を付け、CSSの`:not([data-self])`で隠します。印が付く前は隠れている状態にしておきます。
+
+## 状態保存はsessionを検討する
+
+ブラウザを開き直したときに再びマスクを有効にしたいなら、`chrome.storage.session`が候補です。content scriptから読めるようにする場合は、Service Workerで`setAccessLevel`を設定します。読めない場合は隠す側へ倒します。
+
+初期値をlocal storageへ置くと、Service Workerが起動して状態を戻す前に古い値を読む競合が起きることがあります。表示の安全性を優先し、解除は明示的な操作にします。
+
+## Shadow DOMには別の対策が必要
+
+content scriptのCSSはShadow DOM内部まで届きません。open shadow rootなら`host.shadowRoot`へ専用の`style`を追加し、`media`を`all`と`not all`で切り替えられます。
+
+遅れて生成されるコンポーネントや入れ子のshadow rootは、起動後の短時間ポーリングとMutationObserverで検出します。observerのコールバック内で同期的にstyleを差し込むと、追加直後の描画でも隠し状態を維持しやすくなります。
+
+## まとめ
+
+画面マスクは「後から隠す」より、「最初から隠れていて、許可したときだけ解除する」方が安全です。document_startのCSS、DOMを書き換えない表示制御、session状態、Shadow DOM対応を組み合わせると、画面共有向けの漏えいリスクを抑えられます。
+

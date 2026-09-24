@@ -1,0 +1,74 @@
+﻿---
+title: "claspでGASを安全にpushし、既存のWebアプリURLを維持して再デプロイする"
+category: "gas"
+slug: "clasp-gas-push-redeploy-safe"
+tags: ["GAS", "clasp", "Google Apps Script", "Webアプリ", "デプロイ", "運用設計"]
+description: "GASの複数ファイルをclaspで反映し、pushによる全置換事故とデプロイ更新の見落としを防ぎながら既存のexec URLを維持する手順をまとめます。"
+date: "2026-09-24"
+---
+
+Google Apps Script（GAS）のWebアプリを手貼りで更新していると、ファイルの貼り忘れや再デプロイ忘れが起きます。`clasp`を使うとローカルから反映できますが、単に`clasp push`を実行するだけでは安全とは言えません。
+
+この記事では、リモートの現状確認、全ファイルを揃えたpush、既存デプロイの更新、反映結果の再確認までを一つの運用として整理します。
+
+## pushの前にcloneする
+
+`clasp push`はローカルにあるファイルの集合をリモートへ反映します。ローカルに無いリモートファイルが消える可能性があるため、空のASCIIパスへ先にcloneします。
+
+```powershell
+mkdir gas-project
+cd gas-project
+clasp clone <SCRIPT_ID>
+clasp show-file-status
+```
+
+clone後に、`.gs`、`.html`、`appsscript.json`など、現在のプロジェクトに必要なファイルが揃っているか確認します。手元にある一部のファイルだけを別フォルダへコピーしてpushする運用は避けます。
+
+## pushとデプロイ更新を分ける
+
+pushはコードをApps Scriptプロジェクトへ反映する操作です。安定版WebアプリのURLを更新する操作とは分けて考えます。
+
+```powershell
+clasp push --force
+clasp create-version "ver 1.2.0"
+clasp list-deployments --json
+clasp update-deployment -V <VERSION_NUMBER> <DEPLOYMENT_ID>
+```
+
+既存のデプロイIDを更新すれば、利用者が使っている`/exec` URLを変えずに新しいコードを反映できます。`clasp deploy`で新規デプロイを作るとURLが変わるため、既存URLを維持したい運用では使い分けが必要です。
+
+## 成功メッセージだけで判断しない
+
+デプロイ更新コマンドが`Redeployed`と表示されても、直後の一覧で古いバージョンのままになっている場合があります。更新後は必ずJSONで読み直します。
+
+```powershell
+clasp list-deployments --json
+clasp list-versions --json
+```
+
+期待するデプロイIDの`versionNumber`が作成したバージョンと一致していることを確認してから、ブラウザや外部クライアントで`/exec`をテストします。
+
+## マニフェストと実行者設定
+
+Webアプリとしてシートへ書き込む場合、`appsscript.json`の実行者設定も確認します。匿名アクセスで利用者として実行する設定になっていると、想定した権限で書き込めないことがあります。実行者、アクセス権、OAuth同意の状態を本番反映前に確認します。
+
+また、`.clasp.json`にはScript IDが入るため、リポジトリへ含める必要がない場合は`.gitignore`で管理対象外にします。
+
+## 反映手順のチェックリスト
+
+1. 空の作業フォルダへ`clasp clone`する
+2. リモートの全ファイルとマニフェストを確認する
+3. 変更を反映し、`clasp show-file-status`で対象を確認する
+4. `clasp push --force`を実行する
+5. バージョンを作成する
+6. 既存のデプロイIDを更新する
+7. `list-deployments --json`でバージョン番号を読み直す
+8. `/exec`へ実際にアクセスして動作を確認する
+
+この順序にすると、「コードは直したのに本番の動きが変わらない」「別のファイルを消してしまった」「URLを利用者へ再案内することになった」という事故を減らせます。
+
+## まとめ
+
+claspの導入効果は、貼り付け作業を省くことだけではありません。cloneで現状を揃え、pushの全置換を理解し、既存デプロイを更新し、最後にJSONで結果を確認するところまでを標準手順にすることが重要です。
+
+

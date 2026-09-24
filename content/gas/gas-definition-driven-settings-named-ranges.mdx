@@ -1,0 +1,108 @@
+﻿---
+title: "GASの設定シートと名前付き範囲を定義配列から冪等に構築する"
+category: "gas"
+slug: "gas-definition-driven-settings-named-ranges"
+tags: ["GAS", "Google Apps Script", "Googleスプレッドシート", "設定管理", "名前付き範囲", "入力規則"]
+description: "設定項目の定義配列を唯一の正として、設定シートの行、名前付き範囲、プルダウン、説明列を安全に自動構築する設計を解説します。"
+date: "2026-09-24"
+---
+
+GASの業務アプリでは、Webhook URLやON/OFFスイッチなど、利用者が変更する値をスプレッドシートの設定シートへ置くことがあります。項目が増えるたびに手作業で行や名前付き範囲を追加すると、作り忘れや参照先のずれが起きます。
+
+解決策は、設定項目を定義配列へ集約し、シートをその定義から生成することです。シートを直接編集するのではなく、定義を更新してセットアップ関数を再実行します。
+
+## 定義配列を唯一の正にする
+
+```js
+const CONFIG_DEFINITIONS = [
+  {
+    key: 'discordWebhookUrl',
+    label: 'Discordチャンネルwebhook',
+    name: 'CFG_DISCORD_WEBHOOK_URL',
+    defaultValue: '',
+    type: 'text',
+    plainText: true,
+    note: '通知先チャンネルのWebhook URL。'
+  },
+  {
+    key: 'notifyEnabled',
+    label: '通知実行',
+    name: 'CFG_NOTIFY_ENABLED',
+    defaultValue: 'OFF',
+    type: 'list',
+    choices: ['ON', 'OFF'],
+    note: 'OFFの間は送信しない。'
+  }
+];
+```
+
+この配列から、B列の項目名、C列の値、D列の説明、名前付き範囲、入力規則を生成します。項目追加は配列への追加とセットアップ関数の再実行で完了します。
+
+## セットアップは何度実行しても壊れないようにする
+
+初回だけ動く初期化ではなく、何度実行しても同じ状態へ近づく同期処理として設計します。既存の設定値や利用者が書いた説明は上書きしません。
+
+```js
+function setupProject() {
+  const spreadsheet = getSpreadsheet_();
+  const messages = [];
+  const sheet = ensureConfigSheet_(spreadsheet, messages);
+  ensureConfigRows_(sheet, messages);
+  ensureNamedRanges_(spreadsheet, sheet, messages);
+  Logger.log(messages.join('\n'));
+}
+```
+
+設定シートが無ければ作り、足りない行だけ追加します。項目名はそのまま比較せず、空白を除去して小文字化するなどの正規化を行います。`Webhook URL`と`Webhook　URL`を別項目として扱わないためです。
+
+## 値を入れる前に書式を決める
+
+URLやトークンのような長い英数字は、値を入れた後に書式を変更すると意図しない変換が残る場合があります。書式なしテキストを先に設定してから値を入れます。
+
+```js
+const valueCell = sheet.getRange(row, CONFIG_VALUE_COLUMN);
+if (definition.plainText) valueCell.setNumberFormat('@');
+valueCell.setValue(definition.defaultValue);
+```
+
+プルダウンは定義の`choices`から入力規則を作ります。ON/OFFのような値でも、読み出し側では`ON`、`TRUE`、`1`、`有効`などの表記ゆれを吸収すると、手入力による事故に強くなります。
+
+## 名前付き範囲はずれていたら張り直す
+
+`setNamedRange`は同名の名前付き範囲を上書きしません。既存範囲が別セルを指している場合は、いったん削除して正しいセルへ作り直します。
+
+```js
+const current = existing[definition.name];
+if (current) {
+  const range = current.getRange();
+  const sameCell = range.getSheet().getName() === sheet.getName()
+    && range.getRow() === row
+    && range.getColumn() === CONFIG_VALUE_COLUMN;
+  if (!sameCell) current.remove();
+}
+if (!current || !sameCell) {
+  spreadsheet.setNamedRange(definition.name, sheet.getRange(row, CONFIG_VALUE_COLUMN));
+}
+```
+
+実装では`sameCell`のスコープを整理し、削除後に必ず新しい範囲を作るようにします。名前付き範囲を手で直す運用にしないことがポイントです。
+
+## 読み出しは二重のフォールバックにする
+
+設定シートの項目名と名前付き範囲の両方から読めるようにすると、片方が壊れても復旧しやすくなります。まずシートのB列とC列を一括で読み、値が空または無ければ名前付き範囲を試します。
+
+```js
+let raw = byLabel[normalizeLabel_(definition.label)];
+if (raw === undefined || raw === '') {
+  raw = readNamedRange_(spreadsheet, definition.name);
+}
+config[definition.key] = castConfigValue_(raw, definition);
+```
+
+設定シートの行を1件ずつ読み取るのではなく、対象範囲を一度に取得することで、GASの呼び出し回数も抑えられます。
+
+## エディタ実行とWeb実行を分けて考える
+
+`SpreadsheetApp.getUi()`はスプレッドシート画面から実行した場合には使えますが、エディタやトリガーからの実行では例外になることがあります。セットアップの本体はUIに依存させず、結果をログへ残し、UI通知は`try/catch`で補助的に行います。
+
+定義配列を唯一の正にし、既存値を守る冪等なセットアップにすれば、開発中の項目追加と顧客環境への初回構築を同じ仕組みで扱えます。

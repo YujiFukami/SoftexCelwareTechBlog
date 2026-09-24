@@ -1,0 +1,66 @@
+﻿---
+title: "Chrome拡張のクリップボードコピーをオフスクリーン文書へ集約する"
+category: "vanillajs"
+slug: "chrome-extension-offscreen-clipboard"
+tags: ["Chrome拡張機能", "Clipboard API", "offscreen", "Service Worker", "Manifest V3"]
+description: "タブ移動や待機後でもChrome拡張から確実にコピーできるよう、オフスクリーン文書とService Workerへクリップボード処理を集約する方法を解説します。"
+date: "2026-09-24"
+---
+
+拡張機能のサイドパネルや設定画面から`navigator.clipboard.writeText()`を呼ぶと、クリック直後でフォーカスがあるときだけ成功し、別タブを開いて待った後には失敗することがあります。
+
+この制約を画面ごとに回避するのではなく、クリップボード処理をオフスクリーン文書へ集約します。画面に表示されない拡張ページでtextareaへ値を入れ、`document.execCommand('copy')`を実行する構成です。
+
+## オフスクリーン文書でコピーする
+
+manifestへ`offscreen`と`clipboardWrite`を追加し、専用HTMLとスクリプトを用意します。
+
+```js
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type !== 'offscreen.copyText') return false;
+  const area = document.getElementById('clipboard');
+  area.value = String(message.payload?.text ?? '');
+  area.select();
+  const ok = document.execCommand('copy');
+  area.value = '';
+  sendResponse({ ok });
+  return false;
+});
+```
+
+Service Workerからオフスクリーン文書を作成し、そこへメッセージを送ります。オフスクリーン文書は拡張全体で1つしか作れないため、作成処理を機能ごとに持たせないことが重要です。
+
+## 作成競合をPromiseで防ぐ
+
+複数のボタンや機能が同時にコピーを要求すると、作成処理が競合します。作成中のPromiseを共有し、同じ文書を待つようにします。
+
+```js
+let creating = null;
+async function ensureOffscreenDocument() {
+  const contexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL('src/offscreen/offscreen.html')]
+  });
+  if (contexts.length) return;
+  if (!creating) {
+    creating = chrome.offscreen.createDocument({
+      url: 'src/offscreen/offscreen.html',
+      reasons: ['CLIPBOARD'],
+      justification: 'コピー処理を実行するため'
+    }).finally(() => { creating = null; });
+  }
+  await creating;
+}
+```
+
+画面側の共通関数は`true`/`false`を返し、例外を利用者へそのまま見せないようにします。失敗時には、もう一度コピーする導線や通常のClipboard APIへのフォールバックを残します。
+
+## テストの注意点
+
+ヘッドレスChromeは常にフォーカスがあるように動くことがあり、元の失敗を再現できません。「クリックせず数秒待ってからコピーする」テストを入れ、新方式が時間経過後にも成功することを確認します。
+
+読み返し比較では、Windowsの改行が`\n`から`\r\n`へ変わることがあります。内容の意味が同じでも文字列比較だけでは失敗に見えるため、比較前に改行を正規化します。
+
+## まとめ
+
+クリップボードは各画面の都合で直接呼ぶのではなく、Service Workerと1つのオフスクリーン文書へ集約すると扱いやすくなります。作成競合、フォーカス切れ、ヘッドレス特有のテスト差を先に設計へ含めることがポイントです。

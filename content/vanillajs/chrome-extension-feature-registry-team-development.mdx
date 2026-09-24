@@ -1,0 +1,77 @@
+﻿---
+title: "多機能Chrome拡張を機能登録とチャット分業で保守する設計"
+category: "vanillajs"
+slug: "chrome-extension-feature-registry-team-development"
+tags: ["Chrome拡張機能", "Manifest V3", "JavaScript", "機能分割", "チーム開発", "バージョン管理"]
+description: "多数の機能を持つChrome拡張を、機能登録、名前空間、共有ドキュメント、版管理で分割し、複数の開発チャットでも保守しやすくする設計をまとめます。"
+date: "2026-09-24"
+---
+
+ブックマークレットや画面補助を一つのChrome拡張へ集約すると、最初は便利でも、やがて巨大なスクリプト、機能同士の衝突、変更範囲の不明確さが問題になります。複数の開発チャットや担当者で並行して作る場合は、機能の境界と共有ルールを先に決める必要があります。
+
+## 機能をregistryへ登録する
+
+各機能を`src/features/<id>/index.js`へ置き、`registry.js`には機能定義を登録します。ダッシュボードのカード表示やService Workerの初期化を、登録情報から組み立てられます。
+
+```js
+export default {
+  id: 'coconala.detect',
+  code: 'C1',
+  title: '新着検知',
+  group: 'monitoring',
+  kind: 'action',
+  status: 'ready',
+  run: runDetect
+};
+```
+
+registry読み込み時にID重複、`ready`なのに`run`が無い、といった不備を検査します。登録漏れを画面が真っ白になってから気づくより、起動時に明確なエラーにした方が原因を追いやすくなります。
+
+## ページ内処理は名前で呼ぶ
+
+ページ内へ常駐スクリプトを大量に注入する代わりに、必要な関数を`globalThis.CST`の名前空間へ登録します。拡張側はパスで関数を呼び出し、結果をJSON互換の値で受け取ります。
+
+```js
+async function invokeByPath(fnPath, args) {
+  const fn = fnPath.split('.').reduce((obj, key) => obj == null ? undefined : obj[key], globalThis);
+  if (typeof fn !== 'function') return { ok: false, error: { code: 'NOT_FOUND' } };
+  try { return { ok: true, data: await fn(...args) }; }
+  catch (error) { return { ok: false, error: { code: error.code || 'UNKNOWN', message: String(error.message || error) } }; }
+}
+```
+
+ページ側の例外をそのまま投げるのではなく、`ok`と`error.code`へ包むと、拡張側で利用者向けメッセージや再試行を統一できます。ページ内関数は何度注入されても二重登録や副作用が起きないようにします。
+
+## storageとメッセージに機能名を付ける
+
+機能ごとに`feature:<id>:<key>`のようなstorageキー、`<id>.<action>`のようなメッセージ種別、`<id>:<name>`のようなアラーム名を使います。共通名の`settings`や`run`を乱用すると、別機能の設定を上書きしやすくなります。
+
+## チャット間の共有はファイルで行う
+
+自動で共有される記憶を前提にせず、リポジトリに次の情報を置きます。
+
+- `CLAUDE.md`やREADMEの共通ルール
+- `docs/features/<機能>.md`の要件・完了条件・テスト項目
+- 共通部分の変更依頼票
+- 対象サイトのDOMセレクタと確認日
+- 新しいチャットを開始するときの引き継ぎテンプレート
+
+小さな部品は同じチャットにまとめ、不確実性の高い新着判定や外部API調査は専用チャットに分けると、変更の責任範囲が見えやすくなります。
+
+## バージョンと変更履歴は自動更新する
+
+`manifest.json`のバージョンと画面に表示する変更履歴を手で別々に直すと、番号と履歴がずれます。変更履歴をJSONとして管理し、`bump-version.mjs`のようなスクリプトでmanifestと同時に更新します。
+
+更新前後に次を自動検査します。
+
+- manifestのバージョンと履歴の最新番号が一致する
+- 履歴が新しい順になっている
+- 日付形式が正しい
+- 変更種別が許可された値である
+
+新機能はminor、改善や修正はpatch、内部整理だけなら版を上げない、というルールを決めておくと、複数チャットでも番号の衝突を減らせます。
+
+## まとめ
+
+多機能Chrome拡張の保守性は、ファイルを分けるだけでは上がりません。機能をregistryへ登録し、ページ内APIとstorageを名前空間で分離し、共有ドキュメントと版管理を自動検査することが重要です。これにより、機能追加と担当分けを同じ拡張の中で安全に進められます。
+

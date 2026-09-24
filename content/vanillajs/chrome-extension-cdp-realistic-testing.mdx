@@ -1,0 +1,80 @@
+﻿---
+title: "Chrome拡張の画面を実物に近い状態でCDP検証する"
+category: "vanillajs"
+slug: "chrome-extension-cdp-realistic-testing"
+tags: ["Chrome拡張機能", "Chrome DevTools Protocol", "CDP", "headless Chrome", "E2Eテスト", "サイドパネル"]
+description: "chrome.* APIを最小スタブで補い、実物の拡張ページをCDPで待機・クリック・撮影する検証方法と、サイドパネルのタブ別設定を確認する要点をまとめます。"
+date: "2026-09-24"
+---
+
+Chrome拡張の設定画面や分析画面は、普通のHTMLとして開くだけでは検証できません。`chrome.*` API、IndexedDB、非同期初期化、ユーザー操作が必要なAPIがあるためです。
+
+一方で、毎回本物のChromeへ手動インストールして確認するだけでは、並行開発や回帰確認に時間がかかります。最小限のAPIスタブ、ローカルHTTPサーバー、Chrome DevTools Protocol（CDP）を組み合わせると、実物の画面コードを使った自動確認ができます。
+
+## 実物のHTMLとJavaScriptを読み込む
+
+確認用のHTMLには、その画面が使う範囲だけ`window.chrome`のスタブを置きます。画面本体をコピーせず、実物のHTMLをfetchし、実物のJavaScriptをdynamic importします。
+
+```html
+<script>
+const memory = {};
+window.chrome = {
+  storage: {
+    local: {
+      get: async key => key === null ? { ...memory } : { [key]: memory[key] },
+      set: async values => Object.assign(memory, values),
+      remove: async key => { delete memory[key]; }
+    },
+    onChanged: { addListener() {}, removeListener() {} }
+  },
+  runtime: { sendMessage: async () => ({ ok: true, data: {} }) }
+};
+</script>
+<script type="module">
+const html = await (await fetch('/src/features/example/page.html')).text();
+document.body.append(new DOMParser().parseFromString(html, 'text/html').querySelector('main'));
+await import('/src/features/example/page.js');
+</script>
+```
+
+`file://`ではなく、`python -m http.server`などでHTTP配信します。ES ModuleやIndexedDBの挙動を実際の画面に近づけるためです。
+
+## 要素が出るまで待ってから撮影する
+
+`chrome --headless --screenshot`は、IndexedDBや非同期処理の完了を待たずに白い画面を撮ることがあります。CDPの`Runtime.evaluate`で対象要素が出るまで待ち、必要なクリックを送ってから`Page.captureScreenshot`を実行します。
+
+```js
+for (let i = 0; i < 60; i++) {
+  const ready = await evaluate("!!document.querySelector('.dashboard')");
+  if (ready) break;
+  await sleep(250);
+}
+await evaluate("document.querySelector('[data-action=next]').click()");
+await send('Page.captureScreenshot', { format: 'png' });
+```
+
+スクリーンショットだけでなく、画面内のテキスト、ボタンの表示、クリック後の状態も`Runtime.evaluate`で確認します。
+
+## サイドパネルはpathを省略しない
+
+`chrome.sidePanel.setOptions({ tabId, enabled: true })`のようにタブ単位で有効化すると、manifestの`default_path`を引き継がないことがあります。対象タブには必ず`path`を渡します。
+
+```js
+await chrome.sidePanel.setOptions({
+  tabId: tab.id,
+  path: 'src/dashboard/dashboard.html',
+  enabled: true
+});
+```
+
+`getOptions({ tabId })`で`path`が入っていることを確認します。`sidePanel.open()`はユーザー操作中だけ許可されるため、CDP検証では一時ボタンへ本物のクリックイベントを送る必要があります。
+
+## ログインが必要なページを模擬する
+
+実際のアカウントへログインできない画面は、CDPの`Fetch.fulfillRequest`で同じURLへ模擬HTMLを返します。URLが本物と同じなので、content scriptの`matches`や`document_start`の注入を確認できます。
+
+検証用HTMLへ金額などの対象要素を置き、パース中の`getComputedStyle`を記録すれば、初回描画前にCSSが適用されたかを自動判定できます。
+
+## まとめ
+
+拡張ページの自動確認では、モックを作り直すことより実物の画面コードを読むことが重要です。最小スタブ、HTTP配信、要素待機付きCDP、ユーザー操作の再現を組み合わせると、真っ白なスクリーンショットや「設定は有効なのに開かない」問題を早期に発見できます。
