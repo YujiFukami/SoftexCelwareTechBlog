@@ -1,0 +1,40 @@
+﻿---
+title: "Chrome拡張からFile System Access APIでローカル保存する"
+category: "vanillajs"
+slug: "chrome-extension-filesystem-save"
+tags: ["Chrome拡張機能", "File System Access API", "IndexedDB", "ファイル保存"]
+description: "利用者が選んだフォルダーへChrome拡張から保存する際のハンドル保管、権限再確認、待機中の要求管理、Service Workerでの書き込みを整理します。"
+date: "2026-09-25"
+---
+
+Chrome拡張から利用者のローカルフォルダーへファイルを保存したい場合、File System Access APIを使うと保存先を選んでもらえます。保存先のハンドルを保持できても、次回起動時に以前の許可がそのまま使えるとは限りません。
+
+## ハンドルと権限を分けて扱う
+
+選択したディレクトリーハンドルはIndexedDBへ保存し、次回はハンドルを復元して権限状態を確認します。権限が必要なら、利用者のクリック操作中にrequestPermissionを呼びます。再起動後の許可状態はブラウザーや環境で異なるため、対象ブラウザーとバージョンを明記して確認します。
+
+複数の保存要求が権限確認中に来る場合は、要求をPromiseキューに保管し、許可後に順番に処理します。許可前に書き込みを始めたり、無断でフォルダーを選び直したりしない設計にします。
+
+## Service Workerに書き込みを集約する
+
+権限を利用者操作で得た後は、保存処理をService Workerへ集約できます。DOM APIを使わずファイル書き込みだけを行う構成なら、オフスクリーン文書が不要なケースがあります。必要なAPIと権限は対象ブラウザーで確認してください。
+
+~~~js
+const handle = await directoryHandle.getFileHandle(fileName, { create: true });
+const writable = await handle.createWritable();
+try {
+  await writable.write(contents);
+} finally {
+  await writable.close();
+}
+~~~
+
+ファイル名は利用者データを含めて検証し、パス区切りやOSで禁止された文字を除去します。失敗時には利用者が保存先とファイル名を確認できるメッセージを返します。
+
+## まとめ
+
+ディレクトリーハンドルの保存、権限確認、要求のキューイング、ファイル書き込みを別々の段階にします。権限は永続する前提にせず、再起動後も含めて実機で検証しましょう。
+
+## 関連記事
+
+- [Service WorkerをNode.jsでテストする](/articles/vanillajs/chrome-extension-node-testing-strategies)

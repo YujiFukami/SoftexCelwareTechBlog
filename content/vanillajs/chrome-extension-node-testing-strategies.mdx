@@ -1,0 +1,38 @@
+﻿---
+title: "Chrome拡張のService Workerと移植処理をNode.jsでテストする"
+category: "vanillajs"
+slug: "chrome-extension-node-testing-strategies"
+tags: ["Chrome拡張機能", "Node.js", "自動テスト", "モック"]
+description: "ブラウザーを毎回起動せずにChrome API依存の処理や移植結果を検証するため、実モジュールと小さなAPIモック、全数比較を組み合わせる方法です。"
+date: "2026-09-25"
+---
+
+Chrome拡張はService Worker、Chrome API、DOM、権限が関わるため、すべてを単体テストだけで検証するのは困難です。一方、境界を分ければNode.jsで繰り返し確認できる範囲を増やせます。
+
+## 純粋関数は全数比較する
+
+旧処理を参照実装として残し、移植後の関数と同じ入力を与えて結果を比較します。有限で小さい入力範囲なら、代表例だけでなく全組み合わせを試せます。参照側と新実装を同じ関数にしないことが重要です。同じ誤りを両方が持ってもテストで発見できなくなります。
+
+~~~js
+for (const input of allInputs) {
+  assert.deepEqual(newImplementation(input), oldImplementation(input));
+}
+~~~
+
+## 実モジュールに最小限のAPIモックを用意する
+
+実際のService WorkerモジュールをNodeから読み込み、コードが使うruntime、alarms、storageなどだけをモックします。モックには呼び出し回数、引数、戻り値、失敗を設定できるようにします。再試行、再起動後の復元、通知の重複防止など、一連の流れを検査します。
+
+実際には存在しないAPIや、戻り値の挙動を都合よく実装しないでください。IndexedDBやDOMを使う処理は、テスト境界を分けるか、別途ブラウザーで検証します。
+
+## ブラウザー確認が必要な境界を残す
+
+Nodeのテストは実際のDOM、ユーザー操作権限、ページ描画を証明しません。ロジック・メッセージ経路・永続化は自動テストで、クリックや権限確認は実ブラウザーで確認します。どの検証が何を保証したか分けて記録します。
+
+## まとめ
+
+純粋関数の全数比較、小さなAPIモック、実モジュールを通すテストを組み合わせると、ブラウザーを起動せずに検出できる不具合が増えます。モックで確認できない境界は実機確認として残しましょう。
+
+## 関連記事
+
+- [SPAの入力モーダルを安全に自動操作する](/articles/vanillajs/chrome-extension-spa-modal-automation)

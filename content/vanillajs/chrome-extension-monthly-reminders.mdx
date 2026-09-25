@@ -1,0 +1,35 @@
+﻿---
+title: "Chrome拡張で月次通知と起動時の取りこぼしを扱う"
+category: "vanillajs"
+slug: "chrome-extension-monthly-reminders"
+tags: ["Chrome拡張機能", "alarms", "通知", "Service Worker"]
+description: "毎月の指定日や月末に通知するChrome拡張で、ワンショットalarm、Service Worker再起動、取りこぼしの補完、重複通知防止を設計する方法を紹介します。"
+date: "2026-09-25"
+---
+
+Chrome拡張のService Workerは常時起動しているとは限りません。毎月の通知をタイマーだけで待つと、停止中に予定時刻を過ぎたときの扱いが不明確になります。
+
+## 月次予定を一回分のalarmに変換する
+
+次回の通知日時を計算し、Chrome Alarms APIへワンショットalarmとして登録します。通知後に次回分を再計算して登録することで、毎月の指定日や月末を扱えます。存在しない日付を翌月へ繰り越すのか、その月は月末に通知するのかは仕様として決めます。
+
+Chromeのalarmは予定時刻ぴったりに動く保証がなく、Service Worker起動時に予定を再確認する設計が必要です。イベントリスナーはService Workerのトップレベルで同期的に登録します。起動時は保存済み設定からalarmを再作成し、前回起動後に過ぎた通知があるかを判定します。
+
+## 取りこぼしと重複を制御する
+
+起動時に過去の候補をすべて通知すると、長期間ブラウザーを使わなかった後に通知が連続することがあります。最新の未処理予定だけ通知する、初回インストール時は過去分を通知しないなど、補完ルールを決めます。
+
+同じ予定の処理が重複しないよう、決定的な通知IDや処理済み日時を使います。複数イベントが同時に走る可能性があるため、処理中Promiseを共有するか、保存状態を更新して二重発火を防ぎます。日付計算は純粋関数にし、月末・うるう年・タイムゾーン境界をNode.jsで検証します。
+
+## まとめ
+
+月次通知は、一回分のalarm、起動時の再構築、取りこぼしの補完を組み合わせて作ります。時刻精度を過剰に約束せず、通知を省略またはまとめるルールを利用者に分かる形で決めましょう。
+
+## 関連記事
+
+- [Service WorkerをNode.jsでテストする](/articles/vanillajs/chrome-extension-node-testing-strategies)
+
+## 参考資料
+
+- [Chrome Alarms API](https://developer.chrome.com/docs/extensions/reference/api/alarms)
+- [拡張機能Service Workerのイベント登録とライフサイクル](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers)

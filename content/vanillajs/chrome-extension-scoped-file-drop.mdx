@@ -1,0 +1,83 @@
+---
+title: "Chrome拡張で既存SPAの添付欄にドラッグ＆ドロップを追加する"
+category: "vanillajs"
+slug: "chrome-extension-scoped-file-drop"
+tags: ["Chrome拡張機能", "ドラッグ＆ドロップ", "File API", "SPA"]
+description: "既存サイトのフォームを壊さず、対象の添付欄だけでファイルを受け付けるChrome拡張の設計を解説します。入力欄への反映、件数制限、表示、送信確認までを扱います。"
+date: "2026-09-25"
+---
+
+既存Webアプリにファイルのドラッグ＆ドロップを追加したい場合、ページ全体のdropイベントを止めてしまうと、関係ない場所へファイルを落としたときのブラウザー標準動作まで変えてしまいます。対象となる添付欄だけを判定し、既存のfile inputと画面イベントを通してファイルを渡す方法が有効です。
+
+## 先にサイトの添付動作を調べる
+
+実装前に、対象ページのfile inputの数、添付上限、アップロードが始まるタイミングを調べます。ファイル選択の時点で送信されるのか、後のフォーム送信まで通信しないのかで、利用者へ示す説明が変わります。既存フォームが複数の空きinputを使う場合は、1ファイルずつどの欄へ割り当てるかも確認します。
+
+ページがファイル選択時に処理しているイベントを確認し、通常のファイル選択と同じ結果になるようにします。サイト内部の状態や通信を直接書き換えるのではなく、既存のinput.filesとinput/changeイベントを使うと、ページ側が持つ検証やファイル名表示を活用できます。ただし、フレームワークやサイト実装ごとに受け付け方が異なるので、テストページで検証してから対象サイトで確認します。
+
+## dropを添付欄の中だけで処理する
+
+documentにcapture listenerを置く場合も、preventDefaultはファイルを受け付ける領域内でだけ呼びます。dragoverではドラッグ対象がFilesかを確かめ、添付領域に入ったときだけdropEffectをcopyにします。ページの他の場所では何も変更しません。
+
+~~~js
+function onDragOver(event) {
+  if (!event.dataTransfer || ![...event.dataTransfer.types].includes('Files')) return;
+  const zone = findAttachZone();
+  if (!zone || !zone.contains(event.target)) return;
+
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
+  showDropOverlay(zone);
+}
+
+function onDrop(event) {
+  if (!event.dataTransfer || ![...event.dataTransfer.types].includes('Files')) return;
+  const zone = findAttachZone();
+  if (!zone || !zone.contains(event.target)) return;
+
+  event.preventDefault();
+  hideDropOverlay();
+  attachToEmptyInputs(event.dataTransfer.files);
+}
+~~~
+
+ドラッグ中はdragleaveが入れ子の子要素をまたぐたびに発生することがあります。短い猶予時間を設けて表示を消す、dragendやwindow blurでも確実に片付けるなど、イベントの揺れを吸収します。重いDOM走査を繰り返さず、対象の添付欄だけを探します。
+
+## 空きinputへファイルを割り当てる
+
+サイトに複数のfile inputがある場合、空欄を上から使い、上限を超えたファイルは追加しません。ファイルごとにDataTransferを作り、そのFileListを対象inputへ設定してinput/changeをbubbleさせる方法があります。
+
+~~~js
+function setInputFile(input, file) {
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  input.files = transfer.files;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+~~~
+
+実サイトで、既存のファイル選択と同じ表示・検証になることを確認します。フォルダーのドロップはwebkitGetAsEntryなどで判定できる環境なら除外し、判定できない場合の挙動も決めます。件数、形式、サイズの最終検証はサーバー側またはサイト本来の処理に任せ、拡張側だけで受け入れ可否を保証しないようにします。
+
+## 視覚フィードバックとライフサイクル
+
+添付欄の位置に重ねるドロップ表示は、Shadow DOMへ置くとサイトCSSとの衝突を抑えられます。固定配置を使う場合は、対象要素のgetBoundingClientRectから位置とサイズを更新します。追加数、上限超過数、フォルダーなど対象外の件数を短い通知で示し、成功・失敗を色だけに頼らずテキストでも伝えます。
+
+機能の有効化が何度呼ばれてもlistenerを重複登録しないようにし、無効化時にはlistener、タイマー、表示要素をすべて片付けます。対象ページだけで使う機能なら、拡張全体へ常時スクリプトを追加する代わりに、ページ読み込み完了や設定切替に応じて注入する方法もあります。ただし、ページを開いた直後に利用者がドロップすると注入前のことがあるため、組み込みのファイル選択ボタンも残します。
+
+ファイルをinputへ入れる処理と、フォームを送信する処理は分離します。ドロップだけで送信を始めず、既存ページの確認・送信操作を利用者が行う設計にします。
+
+## まとめ
+
+既存SPAにファイルドロップを追加するときは、対象領域を狭く判定し、既存file inputとイベント処理を通して受け渡し、結果を利用者へ伝えます。無関係な領域のブラウザー動作を守ること、上限超過を明示すること、自動送信しないことが安全な導入の要点です。
+
+## 関連記事
+
+- [SPAの入力モーダルを安全に自動操作する](/articles/vanillajs/chrome-extension-spa-modal-automation)
+- [送信前に確認を挟み結果を記録する](/articles/vanillajs/chrome-extension-safe-submit-guard)
+
+## 参考資料
+
+- [MDN: DataTransfer](https://developer.mozilla.org/en-US/docs/Web/API/DataTransfer)
+- [MDN: HTMLInputElement.files](https://developer.mozilla.org/en-US/docs/Web/API/HTMLInputElement/files)
+- [MDN: HTML Drag and Drop API](https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API)

@@ -1,0 +1,35 @@
+﻿---
+title: "Chrome拡張の設定はstorage.localとstorage.sessionで使い分ける"
+category: "vanillajs"
+slug: "chrome-extension-storage-lifetimes"
+tags: ["Chrome拡張機能", "chrome.storage", "Service Worker", "状態管理"]
+description: "再起動後も残す設定と一時的な状態をstorage.local・storage.sessionに分け、content scriptへの公開範囲や起動時の競合を避ける方法を解説します。"
+date: "2026-09-25"
+---
+
+Chrome拡張で複数の保存先を使うと、同じ設定が古い値で復元されたり、意図せずブラウザー再起動後も残ったりします。保存先はデータの寿命とアクセス範囲で決めます。
+
+## 値の寿命で保存先を選ぶ
+
+利用者が設定した項目や再起動後も必要なデータにはchrome.storage.localを使います。ブラウザー再起動や拡張の再読み込みで消えてよい作業中フラグなどはchrome.storage.sessionの候補です。後者はメモリー上の領域で、拡張の再起動・更新などで消える前提です。
+
+storage.sessionは既定でcontent scriptからアクセスできない場合があります。content scriptで読む必要がある場合、利用者データを不用意に公開せず、必要な範囲だけsetAccessLevelでアクセスレベルを調整します。より安全なのはService Worker経由で必要な値だけを渡す設計です。
+
+## 初期値と起動順序を決める
+
+永続値と一時値を両方に複製すると、Service Worker起動時にどちらが正か曖昧になります。保存先を一つにするか、正本とキャッシュを明示します。初期化時は安全なデフォルトを用意し、読み込みが終わる前に旧値で上書きしないようにします。
+
+同一プロファイルで拡張を再起動し、各値が残るか消えるかを確認します。通常起動、更新、無効化後の再有効化など、対象とするライフサイクルもテストします。
+
+## まとめ
+
+localとsessionは単なる容量の違いではなく、寿命とアクセス可能なコンテキストが異なります。値ごとに保存理由を決め、不要なcontent scriptアクセスを許可しないようにしましょう。
+
+## 関連記事
+
+- [Chrome拡張のService WorkerをNode.jsでテストする](/articles/vanillajs/chrome-extension-node-testing-strategies)
+
+## 参考資料
+
+- [Chrome Storage API](https://developer.chrome.com/docs/extensions/reference/api/storage)
+- [拡張機能Service Workerのライフサイクル](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)
