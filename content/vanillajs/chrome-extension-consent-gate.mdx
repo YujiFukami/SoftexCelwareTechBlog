@@ -1,0 +1,53 @@
+---
+title: "Chrome拡張の全機能を利用規約の同意まで停止する"
+category: "vanillajs"
+slug: "chrome-extension-consent-gate"
+tags: ["Chrome拡張機能", "Manifest V3", "Service Worker", "利用規約"]
+description: "多機能なChrome拡張へ後から初回同意ゲートを加える際、Service Workerの同期リスナー登録を保ちつつ各機能を止める設計と注意点を解説します。"
+date: "2026-10-01"
+---
+
+複数の独立機能を持つ<Term>Chrome拡張機能</Term>に、初回の利用規約同意やライセンス確認を追加するとき、機能ごとに条件分岐を埋め込むと変更漏れが起きやすくなります。一方、Manifest V3のService Workerでは、イベントリスナーを起動時に同期登録する必要があり、同意状態を非同期に読み込んでから登録する方法ではイベントを取りこぼすおそれがあります。
+
+## 登録は同期、実行時に同意を判定する
+
+機能の初期化関数を呼ぶ短い期間だけ、対象ChromeイベントのaddListenerをラップする方法があります。登録時には元のリスナーを同意判定付きの関数へ置き換えますが、addListenerそのものは初期化中に同期して呼びます。イベントが発生したときに初めて同意状態を非同期に読み、未同意なら機能のコールバックを実行しません。
+
+~~~js
+function gateListener(listener, isAccepted) {
+  return function (...args) {
+    return isAccepted().then(accepted => {
+      if (!accepted) return undefined;
+      return listener.apply(this, args);
+    });
+  };
+}
+~~~
+
+実装では元のlistenerとラッパーの対応をWeakMapなどに保存し、removeListenerへ元のlistenerが渡された場合も正しい登録を解除できるようにします。初期化が終わったらaddListenerを必ず元の状態へ戻します。参考にした実装ではChrome 125上でイベント差し替えを確認し、CDPによる18項目の動作テストを行っています。Chromeイベントのオブジェクトを書き換える方法はAPIの保証ではないため、対象Chromeで動作確認し、拡張API全体へ無差別に適用しないでください。
+
+## Promiseで包めないイベントを分ける
+
+リスナーの戻り値が同期的な意味を持つイベントは、上記の方法で包めません。たとえばruntime.onMessageのreturn trueは非同期応答チャネルを維持するための契約です。同意前のメッセージ拒否は、別のrouter境界で行い、同意が必要であることを示す明確なエラーコードを返します。
+
+想定内の未同意エラーを通常のエラーとして記録すると、拡張機能の診断画面に大量のエラーが残ることがあります。利用者がまだ規約画面を開いている状態など、正常な制御フローと予期しない障害をログ上でも分けます。
+
+## 同意後の起動と画面側のゲート
+
+同意前に止めたイベントのうち、初期化やアラーム予約など同意直後に必要な処理は、同意の瞬間に一度だけ再実行できるようにします。起動イベントを再利用する場合は、元の登録リスナーとイベント引数を保持し、同じ処理が重複しない仕組みを設けます。インストール時に自動で始まる取得処理も同意後へ移るため、機能ごとの副作用を確認します。
+
+Service Workerを経由しない常駐コンテンツスクリプトやサイドパネルにも、別の同意ゲートが必要です。同意状態の保存形式に規約バージョンと同意日時を含め、版を上げたときに再同意できるようにします。拡張側とページ側で版を重複定義するなら、検査スクリプトで値の不一致を検出します。
+
+## まとめ
+
+全機能の同意ゲートは、同期リスナー登録、イベント実行時の非同期判定、メッセージrouterの拒否、ページ内スクリプトの停止を分けて設計します。イベントオブジェクトのラップは影響範囲を限定し、同期戻り値が必要なイベントを除外したうえで、未同意・同意直後・規約更新の各状態をブラウザーで検証しましょう。
+
+## 関連記事
+
+- [Chrome拡張のService Workerと移植処理をNode.jsでテストする](/articles/vanillajs/chrome-extension-node-testing-strategies)
+- [Chrome拡張の設定はstorage.localとstorage.sessionで使い分ける](/articles/vanillajs/chrome-extension-storage-lifetimes)
+
+## 参考資料
+
+- [Chrome Developers: Events in service workers](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/events)
+- [Chrome Developers: Extension service worker lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)

@@ -1,0 +1,58 @@
+---
+title: "Windowsバッチの制御文字混入とPATH欠落を切り分ける"
+category: "powershell"
+slug: "windows-batch-control-characters-path"
+tags: ["Windows", "バッチファイル", "PowerShell", "PATH"]
+description: "バッチファイルのパスが見えない制御文字で壊れる問題と、System32を含まないPATHでコマンド検出が誤る問題を、別々に診断して直す手順を紹介します。"
+date: "2026-10-01"
+---
+
+バッチファイルが作成直後は動いていたのに後日失敗したり、別のPCだけで起動できなかったりする場合、ファイル内容と実行環境を分けて調べます。よくある原因は、パス文字列に制御文字が混ざることと、PATHからWindowsの標準ツールを含むSystem32が欠落することです。
+
+## 見た目では分からない制御文字を探す
+
+エージェントやスクリプトがバッチ本文を書く途中で、バックスラッシュと後続文字がエスケープとして解釈されることがあります。たとえば tools\build の「\b」がバックスペース文字0x08になれば、画面表示では単に文字が欠けたように見えます。同様に「\t」「\n」なども、JSON文字列やシェルの解釈を通す過程でタブや改行へ変わる可能性があります。
+
+テキストエディターだけで判断せず、ファイルの生バイトを確認します。<Term>PowerShell</Term>なら次のように制御文字の位置を調べられます。
+
+~~~powershell
+$path = '.\build-zip.bat'
+$bytes = [IO.File]::ReadAllBytes($path)
+for ($i = 0; $i -lt $bytes.Length; $i++) {
+  $b = $bytes[$i]
+  if (($b -le 8) -or ($b -ge 11 -and $b -le 12) -or ($b -ge 14 -and $b -le 31)) {
+    '{0}: 0x{1:X2}' -f $i, $b
+  }
+}
+~~~
+
+通常のCR/LF改行とタブは検査対象から除いています。内容を書くときは、引用されたhere-documentやPowerShellのsingle-quoted here-stringを使い、echo -eのようなエスケープ解釈を避けます。生成後にバイト検査も行えば、原因が混入した段階を特定しやすくなります。
+
+## PATHの異常をNode.jsの不在と誤認しない
+
+PATHからSystem32が欠落すると、chcpやwhereなどの外部コマンド自体を見つけられなくなります。Node.jsの確認処理でwhereが実行できないと、その失敗をNode.js未導入と誤認して案内することがあります。
+
+バッチ冒頭で標準ディレクトリーをPATHへ戻してからコマンドを呼びます。
+
+~~~bat
+@echo off
+setlocal
+set "PATH=%SystemRoot%\System32;%SystemRoot%;%SystemRoot%\System32\Wbem;%PATH%"
+chcp 65001 >nul 2>nul
+pushd "%~dp0"
+~~~
+
+その後、PATH上のnode.exeと代表的な既定インストール先を順に探し、起動対象のファイルが存在することも確認します。検索コマンドの失敗とNode.js本体の不在は別のエラーとして表示します。括弧を含む環境変数をIFブロック内で使う場合は、cmd.exeの括弧解釈にも注意し、事前に変数へ取り出すか、条件式を一行に分けてください。
+
+## 壊れた環境で起動テストする
+
+開発PCのPATHが正常なままでは、環境依存の不具合を見落とします。テスト用のcmd.exeを限定PATHで起動し、System32を含まない条件でもメッセージが正しいか確かめます。バッチは可能なら配置場所を起点に絶対パスでスクリプトを指定し、別のカレントディレクトリーからの起動も試します。
+
+## まとめ
+
+見えない制御文字はバイト列として、PATHの欠落は外部コマンドの検出経路として調べます。両方を一つの「Node.jsが見つからない」表示にまとめず、ファイル破損、標準コマンド欠落、Node.js未導入を個別に診断できるメッセージへ分けましょう。
+
+## 関連記事
+
+- [Node製ローカルアプリをWindowsでオフライン配布する](/articles/powershell/windows-node-offline-launcher-distribution)
+- [GitHubへソースをバッチで安全に届ける](/articles/electron/github-source-delivery)
