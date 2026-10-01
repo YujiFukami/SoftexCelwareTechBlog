@@ -1,0 +1,93 @@
+---
+title: "Chrome拡張で添付PDFをダウンロードせずにその場で表示する"
+category: "vanillajs"
+slug: "chrome-extension-inline-attachment-pdf"
+tags: ["Chrome拡張機能", "PDF", "Blob", "iframe", "ダウンロード"]
+description: "添付ダウンロードになるPDFを、ユーザー操作で取得してChrome標準ビューアに表示する方法と、権限・メモリ・閉じる操作の注意点を解説します。"
+date: "2026-10-01"
+---
+
+WebサイトのPDFリンクがダウンロードとして扱われると、内容を確認するだけでもファイルが端末に保存されます。PDF.jsなどのライブラリを追加せず、リンク先を読み込んでページ内に表示したい場合は、PDFを<Term>Blob</Term>にし、その<Term>Blob URL</Term>を`iframe`で開く方法があります。
+
+この記事ではChrome拡張のコンテンツスクリプトから、利用者が選んだPDFだけを読み込み、Chrome標準のPDF表示に渡す流れを説明します。
+
+## ユーザーが選んだときだけ取得する
+
+コンテンツスクリプトが対象サイトと同じオリジンのURLを取得する場合、通常のWebページと同様に同一オリジン制約の対象です。別オリジンのURLを取得する場合は権限や通信方式の検討が別途必要になります。[Chromeのネットワークリクエストの説明](https://developer.chrome.com/docs/extensions/develop/concepts/network-requests)に沿って、取得先を不用意に任意URLにせず、拡張が対象とするサイトとリンクを検証してください。
+
+リンク一覧を表示しただけで全PDFを先読みせず、利用者がプレビュー操作をしたときに取得します。大きなPDFはメモリを使うため、サイズ上限も設けます。
+
+~~~js
+async function fetchPdfBlob(href, signal) {
+  const url = new URL(href, location.href);
+  if (url.origin !== location.origin) {
+    throw new Error("このリンク先はプレビュー対象外です");
+  }
+
+  const response = await fetch(url.href, {
+    credentials: "include",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`PDFの取得に失敗しました (${response.status})`);
+  }
+
+  const blob = await response.blob();
+  const type = (response.headers.get("content-type") || "").toLowerCase();
+  const signature = await blob.slice(0, 5).text();
+  if (!type.includes("application/pdf") && signature !== "%PDF-") {
+    throw new Error("取得したファイルはPDFではありません");
+  }
+
+  return new Blob([blob], { type: "application/pdf" });
+}
+~~~
+
+サーバーが`application/octet-stream`で返す場合もあるため、Content-Typeだけで判定せず、先頭のPDFシグネチャも確認します。ログイン切れなどでHTMLが返った場合に、HTMLをPDFとして表示しようとする誤動作を避けられます。
+
+## Blob URLをiframeで表示する
+
+~~~js
+async function showPdfPreview(href, container) {
+  const controller = new AbortController();
+  const blob = await fetchPdfBlob(href, controller.signal);
+  const objectUrl = URL.createObjectURL(blob);
+  const frame = document.createElement("iframe");
+  frame.title = "PDFプレビュー";
+  frame.src = objectUrl;
+  container.append(frame);
+
+  return {
+    close() {
+      controller.abort();
+      frame.remove();
+      URL.revokeObjectURL(objectUrl);
+    },
+  };
+}
+~~~
+
+`URL.createObjectURL()`で作ったURLは不要になった時点で`URL.revokeObjectURL()`を呼び、参照を解放します。ダイアログを閉じる処理にまとめ、閉じるボタン、背景クリック、必要ならEscキーのそれぞれから同じ後始末を呼べるようにします。Blob URLのライフサイクルは[W3C File API](https://www.w3.org/TR/FileAPI/#blob-url)にも記載されています。
+
+## オーバーレイと閉じる操作を用意する
+
+サイトのCSSとの衝突を減らすには、プレビュー枠をShadow DOM内のオーバーレイに配置する方法があります。元のファイルリンクは変更せず、プレビューが失敗したときも従来どおりリンクからダウンロードできるようにします。
+
+注意点として、PDFビューアの内部を一度クリックすると、Escキーがページ側の`keydown`ハンドラーに届かない場合があります。そのためEscだけに頼らず、画面上の閉じるボタンと背景クリックを用意し、プレビュー表示時に閉じ方が分かるようにします。
+
+取得サイズの上限を設ける場合、`Content-Length`だけを信用しないでください。ヘッダーがない応答や転送時の圧縮なども考慮し、実際に読み込むデータ量の制御方法を決めます。また、画面共有中に内容を隠す機能がある場合、PDFビューアの描画面までは同じ方法でマスクできないことがあります。隠す状態ではプレビューを開始しない、表示中なら閉じるなど、別の扱いが必要です。
+
+## 実ブラウザーで確認する
+
+ヘッドレステストでは、小さなPDF応答を用意して、`iframe.src`が`blob:` URLか、BlobのMIMEタイプが`application/pdf`か、閉じた後にURLが解放されるかを確認できます。ただしPDFページの実際の描画やキー入力の移動は、ヘッドレスだけでは確認しにくいため、Chrome上で表示・拡大・印刷・閉じる操作を試します。
+
+Chrome拡張のコンテンツスクリプトとページの境界は[Content scriptsの公式ガイド](https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts)を参照してください。SPA内でプレビュー用のボタンやモーダルを扱う場合は、[SPAの入力モーダルを安全に自動操作する](/articles/vanillajs/chrome-extension-spa-modal-automation)も関連します。
+
+## まとめ
+
+添付扱いのPDFでも、取得したデータを`application/pdf`型のBlobにし、Blob URLを`iframe`へ渡せば、PDF.jsを追加せずブラウザー標準の表示を利用できます。取得対象を限定し、利用者操作時だけ読み込み、プレビュー終了時にURLを解放することが要点です。閉じるボタンや実機確認も忘れずに用意しましょう。
+
+## 関連記事
+
+- [SPAの入力モーダルを安全に自動操作する](/articles/vanillajs/chrome-extension-spa-modal-automation)
+- [Chrome拡張でライブデータを使うルートを検証する](/articles/vanillajs/chrome-extension-live-data-route)
