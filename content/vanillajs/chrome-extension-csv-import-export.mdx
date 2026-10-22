@@ -1,0 +1,144 @@
+---
+title: "Chrome拡張でCSVを取り込み・書き出す 権限を増やさない方法"
+category: "vanillajs"
+slug: "chrome-extension-csv-import-export"
+tags: ["Chrome拡張機能", "CSV", "文字コード", "Blob", "データ移行"]
+description: "CSVライブラリやdownloads権限を追加せず、引用符付きCSVの取り込みとExcel向け書き出しを実装する方法、重複防止と検証の要点を解説します。"
+date: "2026-10-04"
+---
+
+Chrome拡張に蓄積したデータを移行・バックアップするとき、<Term>CSV</Term>を取り込めるとExcelやスプレッドシートとやり取りしやすくなります。依存ライブラリや`downloads`権限を追加できない場合でも、拡張ページのファイル入力と`Blob`、`<a download>`を使って基本的な入出力を構成できます。
+
+## CSVは区切り文字だけで分割しない
+
+CSVでは、カンマや改行を含むフィールドを引用符で囲めます。`text.split(",")`や行ごとの`split("\n")`では、引用符内のカンマ・改行を正しく扱えません。小さなパーサを自作する場合も、引用符、二重化された引用符、CRLF、BOM、閉じられていない引用符を明示的に処理します。
+
+~~~js
+export function parseCsv(input) {
+  const text = String(input ?? "").replace(/^\uFEFF/, "");
+  const rows = [];
+  let row = [];
+  let field = "";
+  let quoted = false;
+  let afterQuote = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+
+    if (quoted) {
+      if (char === '"' && text[i + 1] === '"') {
+        field += '"';
+        i += 1;
+      } else if (char === '"') {
+        quoted = false;
+        afterQuote = true;
+      } else {
+        field += char;
+      }
+      continue;
+    }
+
+    if (afterQuote) {
+      if (char !== "," && char !== "\n" && char !== "\r") {
+        throw new Error("閉じ引用符の後に不正な文字があります");
+      }
+      afterQuote = false;
+    }
+
+    if (char === '"') {
+      if (field !== "") throw new Error("引用符の位置が不正です");
+      quoted = true;
+    } else if (char === ",") {
+      row.push(field);
+      field = "";
+    } else if (char === "\n" || char === "\r") {
+      if (char === "\r" && text[i + 1] === "\n") i += 1;
+      row.push(field);
+      if (row.some(value => value.trim() !== "")) rows.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += char;
+    }
+  }
+
+  if (quoted) throw new Error("引用符が閉じていません");
+  if (field !== "" || row.length) {
+    row.push(field);
+    if (row.some(value => value.trim() !== "")) rows.push(row);
+  }
+  return rows;
+}
+~~~
+
+業務データでは、列数や必須値、日付、数値、見出しの表記ゆれもパース後に検証します。形式が不正な行を黙って捨てず、読み込みを止めるか、何行目がなぜ読めなかったかを画面に示します。
+
+## UTF-8とShift_JISを判別する
+
+UTF-8として不正なバイト列があるかを`TextDecoder`の`fatal`モードで判定すると、置換文字がたまたまデータに含まれる場合と区別できます。Excelを経由したCSVがShift_JISで保存されている運用なら、UTF-8のデコードが失敗したときに限りShift_JISで読み直します。
+
+~~~js
+export function decodeCsv(buffer) {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    return new TextDecoder("shift_jis").decode(buffer);
+  }
+}
+~~~
+
+ファイル選択から読み込む場合は、`File`のバイト列を先にデコードしてからCSVパーサへ渡します。
+
+~~~js
+export async function readCsvFile(file) {
+  const text = decodeCsv(await file.arrayBuffer());
+  return parseCsv(text);
+}
+~~~
+
+文字コードを常に推測できるとは限りません。対象の出力元がUTF-8固定なら、推測処理をせずUTF-8だけを受け付ける方が安全です。
+
+## 取り込みは既存データを守る
+
+各行を保存する前に、レコードのキーを正規化します。既存キーは既定でスキップし、上書きは利用者が明示的に選んだ場合だけ許可します。結果には「追加・更新・スキップ・エラー」の件数を出します。同じCSVを2回読み込んでも件数が増えないテストと、書き出したCSVを再読込した往復テストを用意してください。
+
+見出し名に揺れがある場合は別名表から内部フィールドへ変換します。見出しと判断する列数の基準を決め、見出しのないデータも扱うなら、既定列順を明示して混同を避けます。派生値はCSVから取り込まず、元データから再計算する設計も検討します。
+
+## 拡張ページから権限なしで書き出す
+
+拡張のHTMLページでは、CSV文字列から`Blob`を作り、ダウンロード属性付きリンクを利用者のボタン操作でクリックできます。Service WorkerにはDOMがないため、この方法は画面側から呼びます。拡張のダウンロードAPIを使わないので、`downloads`権限を追加せずに済みます。
+
+~~~js
+function escapeCsv(value) {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text)
+    ? `"${text.replaceAll('"', '""')}"`
+    : text;
+}
+
+export function downloadCsv(fileName, rows) {
+  const csv = "\uFEFF" + rows
+    .map(row => row.map(escapeCsv).join(","))
+    .join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], {
+    type: "text/csv;charset=utf-8",
+  }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+~~~
+
+先頭のBOMはExcelでUTF-8 CSVを開くときの文字化けを減らします。実際の利用者が使うExcelのバージョンや取り込み先に合わせ、文字コード・改行コード・長い数値列の扱いを確認してください。
+
+## まとめ
+
+CSV入出力は、引用符と文字コード、既存データの保護、ダウンロードの実行場所をまとめて設計します。権限を増やさない実装でも、形式チェック、重複取込、往復確認を用意することで、利用者が安心してバックアップや移行に使えるようになります。
+
+## 関連記事
+
+- [Chrome拡張でIndexedDBに日次データを蓄積する](/articles/vanillajs/chrome-extension-indexeddb-daily-records)
+- [Chrome拡張でローカルフォルダーへファイルを保存する](/articles/vanillajs/chrome-extension-filesystem-save)

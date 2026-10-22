@@ -1,0 +1,113 @@
+---
+title: "Chrome拡張の設定とIndexedDBをまとめてバックアップ・復元する"
+category: "vanillajs"
+slug: "chrome-extension-full-data-backup-restore"
+tags: ["Chrome拡張機能", "バックアップ", "IndexedDB", "データ移行", "JSON"]
+description: "機能ごとに分かれたchrome.storage.localとIndexedDBを一つのファイルへ書き出し、スキーマや複合データ型を保ちながら安全に復元する設計を紹介します。"
+date: "2026-10-22"
+---
+
+複数の機能を持つ<Term>Chrome拡張機能</Term>では、設定は`chrome.storage.local`、履歴や分析データは複数の<Term>IndexedDB</Term>に分かれていることがあります。機種変更や再インストールのたびに機能ごとの書き出し処理を用意すると、機能追加時の対応漏れが起きやすくなります。
+
+共通のバックアップ処理が各データベースのスキーマとレコードを記録し、必要な型を変換すれば、機能ごとに保存処理を重複実装せずに済みます。
+
+## バックアップ形式を先に決める
+
+ファイルには形式バージョン、拡張機能のバージョン、作成日時、設定値、各データベースのバージョンとストア定義、レコードを含めます。IndexedDBのストアはキーが値の中にない場合もあるため、カーソルの`primaryKey`と`value`を組にして保存します。
+
+~~~js
+const backup = {
+  formatVersion: 1,
+  extensionVersion: chrome.runtime.getManifest().version,
+  exportedAt: new Date().toISOString(),
+  storageLocal: {},
+  databases: [],
+};
+~~~
+
+ストア定義には`keyPath`、`autoIncrement`、インデックス名・キー・`unique`・`multiEntry`を含めます。これが無いと、空の環境へ戻すときに元のデータベース構造を再作成できません。
+
+~~~js
+function describeStore(store) {
+  return {
+    keyPath: store.keyPath,
+    autoIncrement: store.autoIncrement,
+    indexes: [...store.indexNames].map(name => {
+      const index = store.index(name);
+      return {
+        name,
+        keyPath: index.keyPath,
+        unique: index.unique,
+        multiEntry: index.multiEntry,
+      };
+    }),
+  };
+}
+~~~
+
+`indexedDB.databases()`でDB名とバージョンを列挙し、各DBを開いてスキーマと全レコードを読みます。すでに閉じた・削除済みのDBを開くと空のDBを新規作成してしまうため、列挙結果にあることを確かめてから開きます。
+
+## JSONにできない値は型付きで変換する
+
+JSONでは`Date`、`Blob`、`ArrayBuffer`の型情報がそのまま保たれません。型タグを付け、読み込み時に元の型へ戻せる形式にします。`FileSystemHandle`などシリアライズできない値は、黙って消さずに除外件数を報告します。
+
+~~~js
+const TYPE_TAG = "__extensionBackupType";
+
+async function encodeValue(value) {
+  if (value instanceof Date) {
+    return { [TYPE_TAG]: "Date", value: value.toISOString() };
+  }
+  if (value instanceof ArrayBuffer) {
+    return { [TYPE_TAG]: "ArrayBuffer", data: bytesToBase64(new Uint8Array(value)) };
+  }
+  if (value instanceof Blob) {
+    return { [TYPE_TAG]: "Blob", mime: value.type, data: await blobToBase64(value) };
+  }
+  return value;
+}
+~~~
+
+実装では配列や入れ子オブジェクトを再帰的に処理し、`Blob`の非同期変換も待つ必要があります。タグ名の衝突、ファイルサイズ上限、未知の型タグも扱いを決めてください。バックアップファイルは利用者の業務データを含むため、保管・共有に注意を促します。
+
+## 復元は全置換と直前状態の保護をセットにする
+
+インポートをマージにすると、同じキーの値がどちらを正とするのか曖昧になります。全置換にする場合は、処理の直前に現在の状態を別スナップショットとして保存し、失敗時に戻せる経路も用意します。
+
+復元時の基本的な確認順は次のとおりです。
+
+1. JSON形式、形式バージョン、拡張バージョン、各DBスキーマを検証する
+2. 現在の設定とDBを復旧用スナップショットへ保存する
+3. 共通ポリシーと機能ごとの設定に従い、除外キーを読み飛ばす
+4. ストアが存在しないDBではバックアップ定義から作成し、対象レコードを復元する
+5. 件数と型を確認してから、画面やService Workerの状態を再初期化する
+
+DBのバージョンは下げられないため、新しい版で作ったバックアップを古い拡張へ戻そうとすると`VersionError`になることがあります。バックアップ作成元の拡張バージョンを保存し、互換性が確認できないファイルは復元前に警告または拒否します。また、設定と複数DBを一括で完全に原子的更新することはできないため、途中失敗・ロールバックの動作も検証します。
+
+## 復元対象から除くデータを定義する
+
+ログ、規約同意、実行中のタブID、通知済みフラグなどは、別PCへ移すと意味を失う場合があります。全機能共通の除外キーと機能別の除外ルールを組み合わせ、バックアップに入れない値を明示します。更新後に取り直せる大きなキャッシュは、通常データと分けて利用者が選択できる設計も候補です。
+
+## 権限なしのファイル入出力とテスト
+
+拡張ページでは、JSONの`Blob`と`<a download>`で書き出し、`<input type="file">`で読み込みできます。Service WorkerにはDOMがないため、ファイル選択やリンククリックは拡張ページの操作から行います。専用のダウンロードAPIを使わない方式では`downloads`権限を追加せずに済みます。
+
+Chrome for TestingとCDPを使い、次の経路を別々に検証します。
+
+- 既存データを書き出し、バックアップ内容と件数を確認する
+- データを変更した後に復元し、値・キー・型が戻ることを確認する
+- DBが存在しない状態へ復元し、ストア・インデックスも作られることを確認する
+- 不正なJSON、未知の型、互換性のない拡張バージョンを拒否する
+- 復元に失敗したとき、直前の状態へ戻れることを確認する
+
+`chrome.storage.local`と拡張オリジン内のデータベース共有については[ChromeのStorage and cookiesガイド](https://developer.chrome.com/docs/extensions/develop/concepts/storage-and-cookies)を参照してください。CSV形式で人が読み書きする用途なら、[権限を増やさずCSVを扱う方法](/articles/vanillajs/chrome-extension-csv-import-export)、日次データのキー設計なら[IndexedDBへの日次データ保存](/articles/vanillajs/chrome-extension-indexeddb-daily-records)も関連します。
+
+## まとめ
+
+多機能拡張のバックアップは、設定値だけでなくDBスキーマ、主キー、型、除外ポリシーを含めて設計します。全置換による復元を選ぶなら、直前状態の保存、互換性チェック、失敗時のロールバックまで一連の機能として検証してください。
+
+## 関連記事
+
+- [Chrome拡張でIndexedDBに日次データを蓄積する](/articles/vanillajs/chrome-extension-indexeddb-daily-records)
+- [Chrome拡張でCSVを取り込み・書き出す](/articles/vanillajs/chrome-extension-csv-import-export)
+- [Chrome拡張の画面を実物に近い状態でCDP検証する](/articles/vanillajs/chrome-extension-cdp-realistic-testing)

@@ -7,7 +7,7 @@ description: "chrome.* APIを最小スタブで補い、実物の拡張ページ
 date: "2026-09-24"
 ---
 
-Chrome拡張の設定画面や分析画面は、普通のHTMLとして開くだけでは検証できません。`chrome.*` API、IndexedDB、非同期初期化、ユーザー操作が必要なAPIがあるためです。
+<Term>Chrome拡張機能</Term>の設定画面や分析画面は、普通のHTMLとして開くだけでは検証できません。`chrome.*` API、<Term>IndexedDB</Term>、非同期初期化、ユーザー操作が必要なAPIがあるためです。
 
 一方で、毎回本物のChromeへ手動インストールして確認するだけでは、並行開発や回帰確認に時間がかかります。最小限のAPIスタブ、ローカルHTTPサーバー、Chrome DevTools Protocol（CDP）を組み合わせると、実物の画面コードを使った自動確認ができます。
 
@@ -55,6 +55,29 @@ await send('Page.captureScreenshot', { format: 'png' });
 
 スクリーンショットだけでなく、画面内のテキスト、ボタンの表示、クリック後の状態も`Runtime.evaluate`で確認します。
 
+## 古いモジュールを読んでいないか確認する
+
+修正後に`does not provide an export named ...`のような不整合が出る場合、Chromeが古いJavaScriptをキャッシュから読み込んでいる可能性があります。CDPで対象ページを開く前にNetworkドメインを有効にし、キャッシュを無効にします。
+
+~~~js
+await send("Network.enable");
+await send("Network.setCacheDisabled", { cacheDisabled: true });
+await send("Page.navigate", { url });
+~~~
+
+キャッシュ無効化だけで問題が解消した場合は、ファイルの配信先・更新時刻・import先も確認します。キャッシュを消す操作を、実際のコード不整合の修正の代わりにしないようにします。
+
+## クリック後は画面状態と例外を検査する
+
+スクリーンショットを保存するだけでなく、クリック前後のDOM状態を数えて期待値と照合します。たとえばタイルを3つ選んだ後に系列が3本あるか、色が選択タイルと一致するか、再表示後も設定が残るかを確認できます。CDPの`Runtime.exceptionThrown`イベントも集め、画面が出たように見えても初期化例外が発生していないことを検査します。
+
+~~~js
+const count = await evaluate("document.querySelectorAll('[data-series]').length");
+if (count !== 3) throw new Error(`系列数が不一致です: ${count}`);
+~~~
+
+状態保存を検証する場合、`chrome.storage`スタブをメモリだけに置くとページ再読込後に初期化されます。再読込をまたぐ挙動も試すなら、テスト用スタブの保存先を`localStorage`などにし、実際の永続化境界を明確にします。
+
 ## サイドパネルはpathを省略しない
 
 `chrome.sidePanel.setOptions({ tabId, enabled: true })`のようにタブ単位で有効化すると、manifestの`default_path`を引き継がないことがあります。対象タブには必ず`path`を渡します。
@@ -75,6 +98,15 @@ await chrome.sidePanel.setOptions({
 
 検証用HTMLへ金額などの対象要素を置き、パース中の`getComputedStyle`を記録すれば、初回描画前にCSSが適用されたかを自動判定できます。
 
+## テスト用Chromeだけを安全に終了する
+
+CDP用Chromeを終了するときは、指定ポートの待受PIDを調べ、そのプロセスのコマンドラインにテスト専用の`--remote-debugging-port`と`--user-data-dir`があることを確かめてから止めます。`taskkill /IM chrome.exe`のようにプロセス名だけで終了すると、普段使いのChromeまで閉じるおそれがあります。ポートを使っているPIDと起動引数を照合し、対象が一致しないときは終了しない手順にします。
+
 ## まとめ
 
 拡張ページの自動確認では、モックを作り直すことより実物の画面コードを読むことが重要です。最小スタブ、HTTP配信、要素待機付きCDP、ユーザー操作の再現を組み合わせると、真っ白なスクリーンショットや「設定は有効なのに開かない」問題を早期に発見できます。
+
+## 関連記事
+
+- [Chrome拡張でIndexedDBに日次データを蓄積する](/articles/vanillajs/chrome-extension-indexeddb-daily-records)
+- [Chrome拡張でCSVを取り込み・書き出す](/articles/vanillajs/chrome-extension-csv-import-export)

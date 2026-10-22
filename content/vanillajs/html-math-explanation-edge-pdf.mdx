@@ -1,0 +1,81 @@
+---
+title: "計算手順をHTMLで組み立ててEdgeからPDFにする"
+category: "vanillajs"
+slug: "html-math-explanation-edge-pdf"
+tags: ["HTML", "CSS", "JavaScript", "数式", "PDF", "Edge"]
+description: "数式の説明本文とJavaScriptで生成する計算表をHTMLにまとめ、CDN不要の数式CSSとEdgeのヘッドレス印刷でPDF化する手順を紹介します。"
+date: "2026-10-22"
+---
+
+数式へ具体的な値を代入し、計算を一行ずつ説明する資料では、表のセル数が多くなるほど手入力の誤りが増えます。WordやExcelで分数・添字を整えるのも手間がかかり、数式描画ライブラリをCDNから読む方式は、オフライン印刷時に読み込み待ちが不安定になることがあります。
+
+本文はHTMLに記述し、数値表は対象ツールと同じ<Term>JavaScript</Term>の計算式で生成すると、説明資料とプログラムの値を揃えやすくなります。
+
+## 計算表はツールと同じ式から生成する
+
+計算式を資料専用に書き直すのではなく、ツール本体と同じ判定・式を使います。Bスプラインの基底関数のように「パラメーターの値×次数×項」の表になる場合でも、表の全セルを繰り返し生成すれば、転記ミスを減らせます。
+
+~~~js
+const rows = sampleValues.map(t => ({
+  t,
+  values: degrees.map(degree => evaluateBasis(t, degree, controlPoints)),
+}));
+
+renderCalculationTable(rows, { digits: 6 });
+~~~
+
+説明文は人が読みやすい順序に編集し、計算値や途中結果はプログラムから生成します。資料を作る側の数式と本体ツールの数式が別々に進化しないよう、計算関数を共通モジュールにするか、同一の入力と期待値をテストで照合します。
+
+## 分数と添字はCDNなしのCSSで整える
+
+単純な分数・上付き・下付きは、追加ライブラリを使わずCSSのインラインレイアウトで表現できます。
+
+~~~css
+.math { font-family: "Cambria Math", "Times New Roman", serif; font-style: italic; white-space: nowrap; }
+.script-pair { display: inline-flex; flex-direction: column; font-size: .68em; line-height: 1; vertical-align: -.6em; }
+.script-pair sup, .script-pair sub { display: block; font-size: 1em; line-height: 1.05; }
+.fraction { display: inline-flex; flex-direction: column; vertical-align: middle; text-align: center; line-height: 1.25; }
+.fraction > span:first-child { border-bottom: 1px solid currentColor; }
+~~~
+
+HTML側で数式を作るヘルパーを用意すると、説明文中で同じ表記を繰り返し使えます。複雑な数式やアクセシビリティ要件がある資料では、CSSだけで無理に表現せず適切な数式ツールを選びます。
+
+## 印刷時のページ割りを指定する
+
+~~~css
+@page { size: A4; margin: 14mm 13mm; }
+.page-break { break-before: page; }
+.calculation-card, table { break-inside: avoid; }
+~~~
+
+`break-inside: avoid`をページ全体に無差別に付けると、長い要素が次ページへ送られたり余白が増えたりします。カードや表など分割したくない単位へ限定し、印刷プレビューでページの空き・分割・見出し位置を確認します。ブラウザー標準のヘッダーとフッターが不要ならEdgeの`--no-pdf-header-footer`を使います。
+
+## Edgeをヘッドレス印刷に使う
+
+Windows上ではインストール済みのEdge実行ファイルを指定し、HTMLをPDFへ出力できます。Git Bashから実行する場合はWindowsパスと`file://` URLの変換に注意します。日本語ファイル名をURLへ直接含めたくない場合は、作業用の一時名へコピーして印刷します。
+
+~~~bash
+EDGE="/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+WIN_DIR=$(cygpath -w "$PWD")
+cp "計算手順.html" temp.html
+"$EDGE" --headless=new --disable-gpu --no-pdf-header-footer \
+  --virtual-time-budget=5000 --print-to-pdf="$WIN_DIR\\result.pdf" \
+  "file:///${WIN_DIR//\\//}/temp.html"
+~~~
+
+JavaScriptが資料の表を生成し終えてから印刷されることを、実際のEdgeバージョンで確かめます。外部CDNに依存させず、CSS・画像・JavaScriptをローカルに置けば、ネットワークがない環境でも再現しやすくなります。
+
+## PDFと長いスクリーンショットを別々に確認する
+
+PDFのページ分割と画面上の細部は、別の出力で検査します。Edgeのヘッドレススクリーンショットを縦長に撮り、画像が極端に大きい場合はPowerShellの`System.Drawing`で一定高さずつ分割します。PDFに変換できたことだけでは、文字の重なりや数式の配置が正しいとは限りません。
+
+数値の丸めも確認対象です。JavaScriptの`toFixed(2)`は二進浮動小数点の影響で、ちょうど半分に見える値を期待と異なる桁にすることがあります。計算精度と表示精度を分け、丸め規則を明示したうえで境界値をテストします。ラベルがグラフの点と重なる場合は、`text-anchor`などで左右へずらし、PDFの実寸で読めるか確認してください。
+
+## まとめ
+
+HTMLで説明本文と生成表を一緒に管理すると、ツールの計算と資料の数値を一致させやすくなります。CSSで数式と印刷レイアウトを整え、EdgeでPDF化した後は、ページ分割とスクリーンショットの両方で見た目を確かめましょう。
+
+## 関連記事
+
+- [ブラウザー印刷でPDFの向きと余白を制御する](/articles/vanillajs/print-pdf-orientation)
+- [VBAの計算処理を読み取りやすい形式でエクスポートする](/articles/codex/excel-vba-ai-readable-export)

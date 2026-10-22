@@ -1,0 +1,117 @@
+---
+title: "Chrome拡張でIndexedDBに日次データを蓄積する"
+category: "vanillajs"
+slug: "chrome-extension-indexeddb-daily-records"
+tags: ["Chrome拡張機能", "IndexedDB", "データベース", "Service Worker", "データ設計"]
+description: "日付と対象IDを主キーにした冪等なupsert、複合インデックスによる期間検索、画面とService WorkerでのDB共有を実装例とともに紹介します。"
+date: "2026-10-04"
+---
+
+拡張機能で毎日の計測値や履歴を保存すると、データは数千・数万行へ増えていきます。全件をまとめて読み書きするストレージでは、期間や対象ごとの検索が扱いにくくなるため、行単位で検索できる<Term>IndexedDB</Term>が候補になります。
+
+ここでは「日付×対象」のデータを重複なく保存し、Service Workerと拡張ページから同じデータベースを読む基本形を説明します。
+
+## 主キーを決定的にする
+
+同じ日・同じ対象のレコードは同じ主キーになるよう、日付を`YYYY-MM-DD`に正規化してからIDを作ります。`put()`はそのキーが無ければ追加し、あれば置き換えるため、繰り返し取り込んでも行が増えない<Term>冪等性</Term>を持たせられます。
+
+~~~js
+function makeDailyId(date, serviceId) {
+  return `${date}|${serviceId}`;
+}
+
+const record = {
+  id: makeDailyId("2026-10-04", "service-123"),
+  date: "2026-10-04",
+  serviceId: "service-123",
+  views: 42,
+};
+~~~
+
+日付を`2026/10/4`と`2026-10-04`のように別表現のまま扱うと、同じ日なのに異なるキーになります。保存前に形式を検証し、正規化できない日付は拒否します。
+
+## 期間検索用のインデックスを作る
+
+日付だけで期間を調べるインデックスと、対象IDと日付の複合インデックスを作ります。ISO形式の日付文字列は固定桁で比較できるので、複合キーの範囲指定に利用できます。
+
+~~~js
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("analytics", 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains("daily")) {
+        const store = db.createObjectStore("daily", { keyPath: "id" });
+        store.createIndex("date", "date");
+        store.createIndex("serviceId_date", ["serviceId", "date"]);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function queryDaily({ from, to, serviceId }) {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction("daily", "readonly");
+      const store = tx.objectStore("daily");
+      const index = serviceId
+        ? store.index("serviceId_date")
+        : store.index("date");
+      const range = serviceId
+        ? IDBKeyRange.bound([serviceId, from], [serviceId, to])
+        : IDBKeyRange.bound(from, to);
+      const request = index.getAll(range);
+      tx.oncomplete = () => resolve(request.result);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+~~~
+
+新しいObject Storeやインデックスを追加する際はDBバージョンを上げ、`onupgradeneeded`で既存データを残したままスキーマを拡張します。初期化のたびにデータを削除・再作成しないようにします。
+
+## トランザクション中にawaitしない
+
+IndexedDBの<Term>トランザクション</Term>は、保留中の処理がなくなると完了します。トランザクション内でネットワーク通信などを`await`してから次の要求を出すと、すでに閉じたトランザクションを使って`TransactionInactiveError`になることがあります。必要な要求を同期的に登録し、非同期の判断が必要な処理は別トランザクションに分けます。
+
+たとえば、既存キーを読む処理と、まとめて`put()`する処理を分けます。
+
+~~~js
+const existingKeys = new Set(await readAllKeys());
+const toWrite = records.filter(record => !existingKeys.has(record.id));
+await putMany(toWrite); // write transaction内ではawaitしない
+~~~
+
+`IDBIndex.getAllKeys()`の結果はインデックス値ではなく主キーです。対象が必要なら`getAll()`でレコードを取得するか、必要な値を含むキー設計にします。複数タブから同時に書き込む場合、事前読み取り後の追加件数は競合によって正確でなくなる可能性があります。キーの重複防止は主キーで行い、正確な集計値が要件なら同一トランザクション内での処理を別途設計します。
+
+## 画面とService Workerで同じDBを使う
+
+拡張の各ページとService Workerは拡張オリジンに属し、IndexedDBを共有できます。収集処理はService Workerから保存し、画面はDBモジュールを直接読み込んで検索する設計にできます。Service Workerを単なるデータ中継にせず、開始や状態通知など必要なメッセージだけに絞れます。[ChromeのStorage and cookiesガイド](https://developer.chrome.com/docs/extensions/develop/concepts/storage-and-cookies)は、拡張オリジン内のストレージ共有とService WorkerでIndexedDBが使えることを説明しています。
+
+一方、コンテンツスクリプト上のWeb Storage APIは拡張オリジンではなくホストページ側のストレージを参照します。コンテンツスクリプトから拡張データベースを直接扱う設計にする場合は、実行コンテキストと権限境界を確認し、必要に応じて拡張ページやService Workerへ処理を委譲します。
+
+## テストと運用の要点
+
+- 同じキーを複数回保存してもレコード数が増えない
+- ISO日付の期間境界が含まれ、対象IDの範囲検索で混ざらない
+- 既存データがある状態でDBバージョンを上げても保持される
+- 読み取り専用処理と書き込み処理のトランザクション完了を待つ
+- 未取得値は`0`と混同しないよう`null`などで表現する
+- 率などの派生値は保存せず、必要な集計単位で再計算する
+
+DevToolsのApplicationパネルから拡張のIndexedDBを確認できます。`file://`で開いた仮ページは拡張と別のオリジンなので、動作確認では同じ拡張コンテキストを使うか、適切なHTTPテスト環境を用意します。
+
+## まとめ
+
+日次データは、正規化した日付と対象IDを主キーにし、期間・対象検索用のインデックスを用意すると、重複防止と範囲検索を両立できます。トランザクションを短く保ち、スキーマ更新でデータを守りながら、Service Workerと拡張ページの役割を分けましょう。
+
+## 関連記事
+
+- [Chrome拡張でCSVを取り込み・書き出す 権限を増やさない方法](/articles/vanillajs/chrome-extension-csv-import-export)
+- [Chrome拡張の画面を実物に近い状態でCDP検証する](/articles/vanillajs/chrome-extension-cdp-realistic-testing)
