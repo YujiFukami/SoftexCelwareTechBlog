@@ -1,0 +1,74 @@
+---
+title: "Chrome拡張の保存が止まる・名前が変わる問題を切り分ける"
+category: "vanillajs"
+slug: "chrome-extension-download-verification"
+tags: ["Chrome拡張機能", "downloads", "トラブルシュート", "ファイル保存"]
+description: "自動保存でダイアログが出る、指定したファイル名やフォルダーが使われないときの確認手順です。完了待ちのタイムアウト、実パス確認、他拡張との競合と保存済み判定を整理します。"
+date: "2026-10-28"
+---
+
+<Term>Chrome拡張機能</Term>からダウンロードを開始できても、希望する場所へ保存できたとは限りません。保存ダイアログで待機していたり、ほかの拡張の処理によって名前が変わったりすることがあります。
+
+保存処理は「開始」「完了」「保存先の確認」を分けて記録すると、どこで止まったかを調べやすくなります。
+
+## 最初に保存オプションとChrome側を調べる
+
+`download()`に渡した`filename`、`saveAs`、`conflictAction`を確認します。保存場所の確認設定、管理ポリシー、警告、他の拡張機能も切り分けます。制作時には`saveAs: false`でもダイアログで待機する環境がありましたが、すべてのChrome環境で同じ条件になるという一般仕様にはしません。
+
+`chrome://settings/downloads`を利用者が確認できる導線を用意すると便利です。設定変更は他サイトの保存にも影響するため、その点も伝えます。[公式downloads API](https://developer.chrome.com/docs/extensions/reference/api/downloads)と照らし合わせ、最小の保存テストで再現を確認します。
+
+## 完了待ちに終了条件を付ける
+
+次は、拡張の設定ページなど、処理中も開いている画面で使う完了待ちの例です。イベント登録後に現在状態も検索し、すでに終わったダウンロードを取りこぼさないようにします。
+
+~~~js
+function waitForDownload(downloadId, timeoutMs = 60000) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer;
+    const finish = (error, item) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      chrome.downloads.onChanged.removeListener(listener);
+      if (error) reject(error); else resolve(item);
+    };
+    const inspect = async () => {
+      try {
+        const [item] = await chrome.downloads.search({ id: downloadId });
+        if (!item) return finish(new Error("Download record not found"));
+        if (item.state === "complete") finish(null, item);
+        if (item.state === "interrupted") finish(new Error(item.error || "Interrupted"));
+      } catch (error) { finish(error); }
+    };
+    const listener = delta => {
+      if (delta.id === downloadId && delta.state) void inspect();
+    };
+    timer = setTimeout(() => finish(new Error("Download completion timed out")), timeoutMs);
+    chrome.downloads.onChanged.addListener(listener);
+    void inspect();
+  });
+}
+~~~
+
+Manifest V3のService Workerは停止・再起動します。長い保存処理をメモリ上のPromiseとタイマーだけに任せず、downloadIdと業務上の保存状態を永続化し、イベント受信時や画面再表示時に照合します。
+
+## 実際のファイル名を照合する
+
+`downloads.search`の`filename`は実際の保存パスです。要求した拡張子・サブフォルダーと照合し、不一致なら「完了」と「希望した保存先への保存」を別の状態として表示します。`uniquify`で付く連番など、許容する差も先に決めておきます。
+
+制作時のChrome for Testingでは、他拡張の`onDeterminingFilename`リスナーが関与すると、data URLの既定名へ変わる事例が観測されました。リスナーが存在すれば常に壊れると断定せず、最小の再現用拡張と組み合わせ、片方ずつ無効にして原因を絞ります。
+
+保存テストは専用の小さなファイルで行います。後片付けも、そのテストで発行したdownloadIdのファイルに限定します。異なるパスになったからといって、既存ファイルを自動削除する設計にはしません。
+
+## 保存済みの記録とファイルの存在は別にする
+
+利用者が後でファイルを移動・削除しても、拡張の保存記録は残ります。`DownloadItem.exists`や再検索の結果を確認し、必要なら利用者が選択したディレクトリで確認します。
+
+制作時には`file://`のディレクトリ表示を取得する方法も試されましたが、表示HTMLは安定したAPIではなく、権限やブラウザー版にも依存します。ファイル一覧を必要とする製品機能では、File System Access APIなど、アクセス許可と対象範囲が明確な方法を検討します。
+
+## 関連記事
+
+- [ダウンロードを元の作業へ紐付ける](/articles/vanillajs/chrome-extension-download-attribution)
+- [File System Accessの保存権限を扱う](/articles/vanillajs/chrome-extension-filesystem-save)
+- [Chrome拡張の実画面をCDPで検証する](/articles/vanillajs/chrome-extension-cdp-realistic-testing)

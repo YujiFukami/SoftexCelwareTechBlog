@@ -4,10 +4,10 @@ category: "vanillajs"
 slug: "chrome-extension-reliable-input-injection"
 tags: ["Chrome拡張機能", "JavaScript", "入力欄", "Vue", "React", "content script"]
 description: "ポップアップのフォーカス問題、VueやReactの入力イベント、同じclassの別textareaを考慮して、Chrome拡張からページの入力欄へ文字を確実に挿入する方法を解説します。"
-date: "2026-09-24"
+date: "2026-10-28"
 ---
 
-Chrome拡張のポップアップから、開いているページのtextareaへ定型文を挿入したいことがあります。しかしポップアップを開くとページ側のフォーカスが外れ、`execCommand("insertText")`が成功を返しても値が変わらない場合があります。
+<Term>Chrome拡張機能</Term>のポップアップから、開いているページのtextareaへ定型文を挿入したいことがあります。しかしポップアップを開くとページ側のフォーカスが外れ、`execCommand("insertText")`が成功を返しても値が変わらない場合があります。
 
 さらに、VueやReactが管理する入力欄では、DOMの`value`を書き換えるだけではフレームワーク側の状態が更新されません。同じclassのメモ欄が存在すると、別の欄へ誤挿入する危険もあります。
 
@@ -28,7 +28,7 @@ function insertIntoInput(input, text) {
   try { executed = document.execCommand('insertText', false, text); } catch (_) {}
 
   if (executed && input.value === expected) return 'execCommand';
-  if (input.value !== before) return 'execCommand';
+  if (input.value !== before) throw new Error('入力内容を確認してください。再挿入は行いません');
 
   setNativeValue(input, expected);
   input.setSelectionRange(start + text.length, start + text.length);
@@ -36,7 +36,7 @@ function insertIntoInput(input, text) {
 }
 ```
 
-`execCommand`が別の形で値を入れていた場合は、二重挿入を避けるため、その時点で成功扱いにします。
+値が変わったのに期待値と一致しない場合は、二重挿入を避けるため処理を止め、確認を促します。値が変わっただけで成功とは扱いません。
 
 ## フレームワークのsetterとイベントを使う
 
@@ -59,14 +59,13 @@ function setNativeValue(element, value) {
 
 ```js
 function findVisibleFirst(selectors) {
-  let first = null;
   for (const selector of selectors) {
     for (const element of document.querySelectorAll(selector)) {
-      if (element.getClientRects().length > 0) return element;
-      first = first || element;
+      if (element.getClientRects().length > 0 &&
+          !element.closest('[aria-hidden="true"]')) return element;
     }
   }
-  return first;
+  return null;
 }
 ```
 
@@ -78,6 +77,25 @@ function findVisibleFirst(selectors) {
 
 ページ遷移や自動リサイズには、`tabs.onUpdated`、`scroll`、`resize`、`input`を使って追従します。再注入されてもリスナーが二重にならないよう、ホスト要素や登録済みフラグを確認します。
 
+## ChatGPTの入力欄は固定IDだけで決めない
+
+2026年10月27日の制作時には、`#prompt-textarea`が存在せず、form内の`contenteditable="true"`と`role="textbox"`を持つ要素が入力欄でした。これはその画面での観測であり、全利用者に共通する公開仕様ではありません。固定ID、form内の編集要素、textbox、textareaを順に調べ、表示中の候補が曖昧なら利用者へ確認を促します。
+
+入力済みの下書きがあるときは自動で上書きしません。`execCommand`は非推奨のAPIなので、使用する画面で実値と改行を確認し、成功しなければ手動貼り付けへ戻せるようにします。合成イベントが信頼された入力として扱われるとは限りません。
+
+診断には、本番で注入する自己完結した関数と同じものを使えます。
+
+~~~js
+const diagnosticCode = `(${insertPrompt.toString()})(${JSON.stringify(sampleText)})`;
+~~~
+
+外側のimportや変数に依存する関数は、この形では動きません。文字列化したコードの構文検査を行い、読み取り専用の候補一覧も用意すると、入力変更と構造調査を区別できます。Consoleへコードを貼る場合は、内容を読んで理解できるものだけを使い、アカウント情報や本文全体を診断ログへ出さないようにします。送信操作は利用者に任せます。
+
 ## まとめ
 
 入力挿入は「値を代入するだけ」の処理ではありません。期待値との比較、ネイティブsetter、inputイベント、表示中要素の選択、挿入後のフォーカス復帰を一つの処理として設計すると、ページ側のフレームワークや複数欄の存在に強くなります。
+
+## 関連記事
+
+- [変化するChatGPTの回答DOMを調べる](/articles/vanillajs/chatgpt-dom-resilient-extraction)
+- [Chrome拡張の画面をCDPで検証する](/articles/vanillajs/chrome-extension-cdp-realistic-testing)

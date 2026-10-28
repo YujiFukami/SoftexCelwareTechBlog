@@ -1,0 +1,67 @@
+---
+title: "白背景ロゴを透過化し、動画のオープニングとサムネイルを使い回す"
+category: "hyperframes"
+slug: "transparent-logo-intro-thumbnail-template"
+tags: ["HyperFrames", "sharp", "透過PNG", "オープニング", "サムネイル"]
+description: "白地ロゴの縁を保ちながら透過PNGへ変換する考え方と、事例名を差し替えて使うオープニング・静止画テンプレートを紹介します。マークの二重表示と素材確認の注意点も整理します。"
+date: "2026-10-28"
+---
+
+動画ごとにロゴを加工し直し、タイトル位置を調整すると、見た目が揃わず作業も増えます。<Term>HyperFrames</Term>の共通シーンへロゴと事例名の置き場をまとめ、透過素材も一度作っておくと、次の動画へ転用しやすくなります。
+
+## 白背景とインク色の混ざりとして考える
+
+白背景のJPEGには、ロゴの縁に白とインクが混ざった画素があります。白に近い画素をすべて透明にすると、縁がギザギザになったり白いにじみが残ったりします。
+
+色数の少ないロゴなら、観測した画素を「白と既知のインク色の混合」とみなし、混ざり具合を不透明度として推定できます。次は1画素分の計算例です。
+
+~~~js
+function estimatePixel(pixel, inks) {
+  let best = null;
+  for (const ink of inks) {
+    const direction = ink.map(value => 255 - value);
+    const denominator = direction.reduce((sum, value) => sum + value * value, 0);
+    if (denominator === 0) continue;
+    const numerator = direction.reduce((sum, value, index) =>
+      sum + (255 - pixel[index]) * value, 0);
+    const alpha = Math.max(0, Math.min(1, numerator / denominator));
+    const error = direction.reduce((sum, value, index) =>
+      sum + (255 - alpha * value - pixel[index]) ** 2, 0);
+    if (best === null || error < best.error) best = { ink, alpha, error };
+  }
+  if (best === null) throw new Error("Non-white ink colors are required");
+  return [...best.ink, Math.round(best.alpha * 255)];
+}
+~~~
+
+<Term>sharp</Term>で画像をraw RGBへ変換し、画素ごとにこの処理を行い、RGBAのPNGとして出力します。背景が均一な白で、インク色が既知という前提です。写真、グラデーション、ロゴ内部の白い塗りにはそのまま適用できません。透過の元データが入手できるなら、それを使う方が確実です。
+
+外枠の細線は処理前に切り落とし、出力は白・濃色の両背景へ重ねて確認します。JPEGのにじみで誤差が大きい画素がある場合、候補色やしきい値を見直します。
+
+## オープニングはシーンと差し替え値を分ける
+
+共通シーンにはロゴ、位置、動き、文字の見た目を置き、利用側から事例名だけを渡します。[HyperFramesのcompositionガイド](https://hyperframes.app/docs/2-concepts/1-compositions)にある外部シーンの読み込みを使うと、複数動画で同じシーンを参照できます。
+
+変数属性の書式は利用版のスキーマで確認します。制作時の記録では`data-composition-variables`、`data-var-text`、`data-variable-values`を使いましたが、別版へコピーする際はそのまま動くと決めつけず、最小のシーンで置換結果を確認してください。
+
+ロゴのマークだけを先に動かし、その後に文字を出す場合、マークを含んだロゴ全体を途中で重ねるとマークが二重に見えます。文字部分だけを別素材にするか、マークが着地してから全体画像へ切り替えます。
+
+## サムネイルを別の小さなプロジェクトにする
+
+サムネイル用に1280×720などの静止画用HTMLを用意し、動画と同じロゴ・色・余白を使います。設計用の配置図と公開する見本は同じ座標で作ると、修正指示が伝わりやすくなります。
+
+~~~bash
+npx hyperframes snapshot thumbnail-project --at 0
+~~~
+
+静止画用の属性や出力サイズの扱いはCLIの利用版で確認し、実際のPNG寸法も検査します。動画のルートHTMLの横へ別のルートを追加するより、サムネイルは別フォルダのプロジェクトにすると入口が明確になります。
+
+## 共通素材を更新したときの確認
+
+透過PNGは濃色背景でも縁が浮かないこと、オープニングは途中のフレームでも二重にならないこと、長い事例名が収まることを確認します。素材とシーンの版を記録すれば、過去動画を同じ見た目で再生成できます。
+
+## 関連記事
+
+- [納品録画を公開用のPR動画へ加工する](/articles/hyperframes/screen-recording-redaction-pr-video)
+- [PDF報告書から音声・字幕つき動画を作る](/articles/hyperframes/pdf-report-narration-caption-video)
+- [透過PNGをPowerShellでリサイズする](/articles/powershell/system-drawing-image-resize)

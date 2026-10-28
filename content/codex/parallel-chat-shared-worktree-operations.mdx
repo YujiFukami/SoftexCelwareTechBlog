@@ -4,10 +4,10 @@ category: "codex"
 slug: "parallel-chat-shared-worktree-operations"
 tags: ["Claude Code", "Codex", "並行開発", "Git", "PowerShell", "開発運用"]
 description: "同じ作業フォルダで複数のAI開発チャットを動かすときに、通知音の識別と共有ファイルの部分コミットを実現する運用パターンをまとめます。"
-date: "2026-09-24"
+date: "2026-10-28"
 ---
 
-複数のAI開発チャットを同じフォルダで並行して動かすと、どのチャットが確認待ちなのか分からなくなり、共有ファイルを誤ってまとめてコミットする事故も起こります。
+複数のAI開発チャットを同じフォルダで並行して動かすと、どのチャットが確認待ちなのか分からなくなり、<Term>Git</Term>で共有ファイルを誤ってまとめてコミットする事故も起こります。
 
 この問題は、通知の識別とGitのステージングを別々に対策します。通知はセッションIDを音声へ対応付け、共有ファイルはHEADと自分の変更だけからインデックスを作ります。
 
@@ -59,6 +59,48 @@ subprocess.run([
 
 新規ファイルや自分だけが触るファイルは通常の`git add`で問題ありません。この部分コミット手順は、共有ファイルへ限定して使います。置換対象がHEADと作業コピーにちょうど1つあることを確認してから実行し、曖昧な場合は止めます。
 
+## 文章のルールをpermissions.denyでも補う
+
+Claude Codeでは、`.claude/settings.json`の`permissions.deny`で操作を制限できます。破棄・強制push・全変更のステージングを避ける方針なら、実際に使うシェルごとに設定します。次は出発点になる例で、あらゆる記法を網羅する禁止リストではありません。
+
+~~~json
+{
+  "permissions": {
+    "deny": [
+      "Bash(git reset --hard*)",
+      "Bash(git push * --force*)",
+      "Bash(git push --force*)",
+      "Bash(git push * -f *)",
+      "Bash(git push * -f)",
+      "Bash(git push -f*)",
+      "Bash(git add .)",
+      "Bash(git add -A*)",
+      "Bash(git stash*)",
+      "PowerShell(git reset --hard*)",
+      "PowerShell(git push * --force*)",
+      "PowerShell(git push --force*)",
+      "PowerShell(git push * -f *)",
+      "PowerShell(git push * -f)",
+      "PowerShell(git push -f*)",
+      "PowerShell(git add .)",
+      "PowerShell(git add -A*)",
+      "PowerShell(git stash*)"
+    ]
+  }
+}
+~~~
+
+フラグの前後位置や短縮形、利用しているツール名でマッチ結果が変わります。`git stash*`は`git stash list`も止めるため、そのような広さが意図どおりかを確認します。別名や別シェルからの操作まで、短い設定例で完全に防げるとは考えません。[Claude Codeの権限仕様](https://code.claude.com/docs/en/permissions)で利用版のルールを確認します。
+
+試すときは使い捨てリポジトリと読み取り操作・dry-runを使い、止めたい操作が拒否されることに加え、`git status`やファイル指定の`git add`が使えることも確認します。保護対象のファイル読み取りは対応するReadルールも設定します。OSレベルの隔離が必要ならサンドボックスを併用します。
+
+ルールで止まった操作を通すためにエージェント自身が設定を緩めないことも、運用ルールへ明記します。作業ツリーを分けられる場合はGit worktreeによる分離を優先し、共有フォルダ運用では担当ファイルとコミット前の差分確認を続けます。
+
 ## まとめ
 
 並行チャット開発では、AIが別チャットの作業を自動で理解していると考えないことが重要です。セッションIDを使った通知、共有ファイルの部分コミット、リポジトリ内の引き継ぎ資料を組み合わせると、同じ作業フォルダでも確認漏れと誤コミットを減らせます。
+
+## 関連記事
+
+- [GitHub ActionsとDependabotで継続検証する](/articles/codex/github-actions-dependabot-regression-checks)
+- [開発後に再利用できる資産を整理する](/articles/codex/project-asset-review)

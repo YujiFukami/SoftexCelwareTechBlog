@@ -1,0 +1,74 @@
+---
+title: "UserFormをテキストで再構成する設計と、往復変換の検証方法"
+category: "vba"
+slug: "userform-text-reconstruction"
+tags: ["Excel VBA", "UserForm", "VBIDE", "コード生成", "テスト"]
+description: "UserFormの設計情報とイベントコードから、別ブックでフォームを作り直すVBAコードを生成する設計です。コンテナ、既定値、タブ順、再生成テスト、対応できない情報を整理します。"
+date: "2026-10-28"
+---
+
+<Term>UserForm</Term>を通常のエクスポートで配ると、`.frm`とバイナリの`.frx`を一緒に管理する必要があります。フォームの配置やイベントをテキストでレビューしたい場合は、「フォームを作り直す標準モジュールのコード」へ変換する方法があります。
+
+これは単なるソースの書き出しではなく、設計情報を読み取り、部品を正しい順序で生成し、イベントコードも復元する変換ツールの設計です。
+
+## 設計情報と実行時の値を分ける
+
+既存フォームの配置・プロパティはVBComponentの`Designer`から読みます。フォーム本体のCaption・Width・Heightなどは`Properties`側から取得します。制作時には、既存フォームのPropertiesを読む前にデザイナーを開く必要があるケースが確認されました。元の表示状態を保存し、読み取り後に戻します。
+
+フォームの名前から部品を探せば、フォームのインスタンスを表示して`Initialize`を実行する必要がありません。変換の途中で業務コードが動かないようにします。
+
+## 生成コードを小さな段階へ分ける
+
+出力は、フォーム本体、Frame・MultiPageなどのコンテナ、その中のコントロール、イベントコードの順に組み立てます。次は出力されるコードの一部分です。これだけで変換ツール全体になるわけではありません。
+
+~~~vba
+Dim Component As Object
+Dim FormDesigner As Object
+Dim InputBox As Object
+
+Set Component = ThisWorkbook.VBProject.VBComponents.Add(3)
+Component.Name = "frmExample"
+Component.Properties("Caption").Value = "入力"
+Set FormDesigner = Component.Designer
+Set InputBox = FormDesigner.Controls.Add("Forms.TextBox.1", "txtValue")
+With InputBox
+    .Left = 12
+    .Top = 12
+    .Width = 160
+End With
+~~~
+
+VBProjectの変更には、Excel側でVBAプロジェクトオブジェクトモデルへのアクセスが許可されている必要があります。管理された環境ではポリシーに従い、検証用ブックで扱います。同名部品の置き換えは確認とバックアップを用意し、既存フォームを無条件に削除しません。
+
+## 既定値を省略し、順序を安定させる
+
+既定値と違うプロパティだけを出すと、生成コードを読みやすくできます。既定値の一覧はフォーム・コントロール種別ごとに管理し、生成中に一時フォームを追加して調べる方法は避けます。
+
+値の制約があるプロパティは順序も重要です。Min・Maxを設定してからValue、位置・大きさを設定してからAutoSize、最後にコンテナごとのTabIndexを小さい順に設定します。出力順の同点は元の順序で決め、何度生成しても差分が増えないようにします。
+
+## イベントコードはコメントとして埋め込む
+
+~~~vba
+'@@BEGIN frmExample
+'|Option Explicit
+'|Private Sub cmdClose_Click()
+'|    Unload Me
+'|End Sub
+'@@END frmExample
+~~~
+
+文字列リテラルへ大量のコードを埋め込むより、目印付きのコメント行なら引用符を重ねずに読めます。復元時は対象ブロックの行頭だけを外し、CodeModuleへ書き込みます。標準モジュールに自動追加される`Option Explicit`と重複しないようにします。
+
+制作時には、VBEから実行中のマクロが自身のプロジェクトへ部品を追加すると、途中で止まるケースがありました。生成本体を引数なしのPublic Subにし、`Application.OnTime`でExcel側から実行する設計が対処になりました。予約の取消条件も設計します。[OnTimeの仕様](https://learn.microsoft.com/en-us/office/vba/api/excel.application.ontime)では、引数のない手続きの指定と予約取消について確認できます。
+
+## 別ブックで作り直してから再出力する
+
+検証は「出力できた」で終わらせず、元フォームの出力、空の別ブックへの再構成、再構成したフォームの再出力を比較します。改行、引用符、フォント、色、Frame、複数ページ、タブ順を含めます。COM経由の実行だけでは見つからない挙動もあるため、利用者が使うVBEやボタンからの実行も確認します。
+
+Picture・MouseIconの画像、特殊なActiveX、クラスの属性、参照設定は別途の対応が必要です。変換対象外を出力の先頭へ明記し、完全なfrm/frxの代替と誤解させないようにします。生成コードにはイベントの実行コードも含まれるため、取り込み前に内容を確認してください。
+
+## 関連記事
+
+- [UserFormへラベルを動的追加する](/articles/vba/make-label-on-user-form)
+- [Excel VBAの保守ルール](/articles/vba/vba-maintainable-development-rules)
+- [VBAコードをAIが読みやすい形式で書き出す](/articles/codex/excel-vba-ai-readable-export)

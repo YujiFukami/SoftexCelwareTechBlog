@@ -1,0 +1,90 @@
+---
+title: "PGliteでSupabaseのSQL・RLSをDockerなしでローカル検証する"
+category: "nextjs"
+slug: "pglite-supabase-rls-testing"
+tags: ["PGlite", "Supabase", "PostgreSQL", "RLS", "テスト"]
+description: "PGliteに認証ロールとauth.uid()の最小モデルを用意し、本人だけがデータを参照できることを検証します。管理者でテストしてRLSを見逃す落とし穴と検証範囲も説明します。"
+date: "2026-10-28"
+---
+
+DB関数を修正するたびに本番のデータで試すのは避けたいものです。<Term>PGlite</Term>を使うと、Node.jsからPostgreSQLのエンジンを動かし、SQLや行単位のアクセス制御をローカルで確認できます。
+
+ここでは<Term>Supabase</Term>の認証を最小限だけ模したテスト環境を作ります。本物のログインやHTTP APIを再現するものではなく、SQL側の権限判定を検証するための環境です。
+
+## 作業用フォルダに導入する
+
+~~~bash
+npm init -y
+npm install @electric-sql/pglite
+node test-rls.mjs
+~~~
+
+プロジェクトへ継続導入するなら、テスト用の開発依存としてlockfileと一緒に管理します。[PGlite公式ガイド](https://pglite.dev/docs/)には、メモリ内DBとパラメーター付きクエリの基本が載っています。
+
+## 管理者から一般ロールへ切り替えて確認する
+
+DBを初期化したユーザーのままでは、RLSを回避する権限でテストが通るおそれがあります。テスト対象のクエリは`authenticated`へ切り替えて実行します。次は独立して実行できる小さな例です。
+
+~~~js
+import assert from "node:assert/strict";
+import { PGlite } from "@electric-sql/pglite";
+
+const db = new PGlite();
+const alice = "11111111-1111-1111-1111-111111111111";
+const bob = "22222222-2222-2222-2222-222222222222";
+
+try {
+  await db.exec(`
+    CREATE SCHEMA auth;
+    CREATE ROLE authenticated NOLOGIN;
+    CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
+      $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+    GRANT USAGE ON SCHEMA auth, public TO authenticated;
+    CREATE TABLE public.notes (user_id uuid NOT NULL, body text NOT NULL);
+    ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY own_notes ON public.notes TO authenticated
+      USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+    GRANT SELECT, INSERT, UPDATE, DELETE ON public.notes TO authenticated;
+  `);
+  await db.query("INSERT INTO public.notes VALUES ($1, $2), ($3, $4)",
+    [alice, "Alice note", bob, "Bob note"]);
+
+  async function asUser(userId, sql, params = []) {
+    return db.transaction(async tx => {
+      await tx.query("SELECT set_config('request.jwt.claim.sub', $1, true)", [userId]);
+      await tx.exec("SET LOCAL ROLE authenticated");
+      return tx.query(sql, params);
+    });
+  }
+
+  const own = await asUser(alice, "SELECT body FROM public.notes");
+  assert.deepEqual(own.rows, [{ body: "Alice note" }]);
+  const other = await asUser(alice,
+    "SELECT body FROM public.notes WHERE user_id = $1", [bob]);
+  assert.equal(other.rows.length, 0);
+  await assert.rejects(() => asUser(alice,
+    "INSERT INTO public.notes VALUES ($1, $2)", [bob, "forged"]));
+  console.log("RLS checks passed");
+} finally {
+  await db.close();
+}
+~~~
+
+`SET LOCAL`とローカル設定はトランザクション終了時に戻ります。ユーザーIDはSQLへ文字列連結せず、パラメーターで渡します。実際のスキーマを読む場合は、`auth.users`や追加ロールなど、マイグレーションが必要とする部分だけテスト用に補います。
+
+## 成功だけでなく拒否もテストする
+
+本人の取得・追加に加え、他人への追加、本人確認引数のすり替え、未認証、RPC途中失敗後のデータを確認します。他人の行へのUPDATEは例外ではなく「更新0件」になる場合もあるので、結果とDB内容の両方を検査します。
+
+テストが本当に権限の欠落を検出できるか、使い捨てDBでポリシーを外し、拒否テストが失敗することも確認します。[PostgreSQLのRLS仕様](https://www.postgresql.org/docs/current/ddl-rowsecurity.html)にある管理者・所有者の例外を理解しておくことが重要です。
+
+## 再現できる範囲を明記する
+
+PGliteの一つのインスタンスは単一接続です。SQL構文、関数の分岐、ロール別の可視性、巻き戻しは確認できますが、複数接続でのロック待ち、Supabase Authの実トークン、PostgREST、Realtime、実環境の拡張機能まで確認したことにはなりません。
+
+ローカルで通過した後も、検証用Supabase環境でHTTP経由の権限と同時操作を確認します。どちらで何を確認したかを分けて残すと、テスト結果を誤解せずに引き継げます。
+
+## 関連記事
+
+- [Supabaseの作業切替をRPCで原子化する](/articles/nextjs/supabase-atomic-work-actions-rpc)
+- [GitHub ActionsとDependabotで継続検証する](/articles/codex/github-actions-dependabot-regression-checks)

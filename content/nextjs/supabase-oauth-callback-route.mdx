@@ -4,7 +4,7 @@ category: "nextjs"
 slug: "supabase-oauth-callback-route"
 tags: ["Next.js", "Supabase", "OAuth", "Middleware", "認証"]
 description: "Google OAuthログイン後に1回目だけ保護ページへ入れない問題を、Next.js App Routerのcallback routeで解決する実装パターンを解説します。"
-date: "2026-05-27"
+date: "2026-10-28"
 ---
 
 ## はじめに
@@ -67,14 +67,22 @@ export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get("code")
   const next = requestUrl.searchParams.get("next") || "/input"
-  const redirectPath = next.startsWith("/") ? next : "/input"
+  let redirectUrl = new URL("/input", requestUrl.origin)
+  if (next.startsWith("/") && !next.startsWith("//") && !next.includes("\\")) {
+    try {
+      const candidate = new URL(next, requestUrl.origin)
+      if (candidate.origin === requestUrl.origin) redirectUrl = candidate
+    } catch {
+      // 不正なURLは既定の遷移先に戻す
+    }
+  }
 
   if (code) {
     const supabase = await createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!error) {
-      return NextResponse.redirect(new URL(redirectPath, requestUrl.origin))
+      return NextResponse.redirect(redirectUrl)
     }
   }
 
@@ -82,7 +90,7 @@ export async function GET(request: NextRequest) {
 }
 ```
 
-`next.startsWith("/")` の確認は、外部サイトへ勝手に飛ばされるオープンリダイレクトを防ぐための最低限の対策です。
+`next.startsWith("/")`だけでは、`//example.net`やバックスラッシュを使った値が外部サイトへのURLとして解釈される場合があります。先頭の条件に加え、URLとして解決した後のoriginが自分のサイトと一致することも確認します。遷移先が少数なら許可リストにするとさらに明確です。
 
 ### middlewareでcallback routeを公開ページにする
 
@@ -119,7 +127,7 @@ URLのパスは、アプリ側の `app/auth/callback/route.ts` と一致させ�
 
 - 認証必須ページを `redirectTo` に直接指定しない
 - `/auth/callback` を <Term>Middleware</Term> の認証ガード対象にしない
-- `next` パラメータは `/` 始まりだけ許可する
+- `next`はサイト内の相対パスに限定し、解決後のoriginも確認する
 - SupabaseとGoogle Cloud側のRedirect URLを本番URLで登録する
 - ローカル確認用のRedirect URLも必要に応じて登録する
 

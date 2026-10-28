@@ -4,7 +4,7 @@ category: "vanillajs"
 slug: "chrome-extension-indexeddb-daily-records"
 tags: ["Chrome拡張機能", "IndexedDB", "データベース", "Service Worker", "データ設計"]
 description: "日付と対象IDを主キーにした冪等なupsert、複合インデックスによる期間検索、画面とService WorkerでのDB共有を実装例とともに紹介します。"
-date: "2026-10-04"
+date: "2026-10-28"
 ---
 
 拡張機能で毎日の計測値や履歴を保存すると、データは数千・数万行へ増えていきます。全件をまとめて読み書きするストレージでは、期間や対象ごとの検索が扱いにくくなるため、行単位で検索できる<Term>IndexedDB</Term>が候補になります。
@@ -89,6 +89,17 @@ await putMany(toWrite); // write transaction内ではawaitしない
 ~~~
 
 `IDBIndex.getAllKeys()`の結果はインデックス値ではなく主キーです。対象が必要なら`getAll()`でレコードを取得するか、必要な値を含むキー設計にします。複数タブから同時に書き込む場合、事前読み取り後の追加件数は競合によって正確でなくなる可能性があります。キーの重複防止は主キーで行い、正確な集計値が要件なら同一トランザクション内での処理を別途設計します。
+
+## 未取得のundefinedを別の値へ置き換えない
+
+`get()`で行がない場合、`request.result`は`undefined`です。共通ヘルパーで`resolve(request.result ?? request)`とすると、未取得なのにIDBRequest自体を返してしまいます。呼び出し側の「行がある」判定が通り、主キーを持たない値を`put()`してエラーになる原因になります。
+
+~~~js
+const request = store.get(id);
+tx.oncomplete = () => resolve(request.result);
+~~~
+
+読み取りはそのまま結果を返し、要求を発行しない処理と共通化する場合は、結果のnull判定ではなく型や処理種別で区別します。「未登録」「登録済み」「値が0」を別ケースとしてテストします。
 
 ## 画面とService Workerで同じDBを使う
 

@@ -1,0 +1,89 @@
+---
+title: "GitHub ActionsとDependabotで依存更新と権限の退行を継続チェックする"
+category: "codex"
+slug: "github-actions-dependabot-regression-checks"
+tags: ["GitHub Actions", "Dependabot", "CI", "Supabase", "回帰テスト"]
+description: "push・PR・定期実行のCIに、型検査、DB権限テスト、ビルド、依存監査を組み込みます。Dependabotの通常更新とセキュリティ更新を分け、更新を継続して確認する手順を紹介します。"
+date: "2026-10-28"
+---
+
+アプリを修正していない期間にも、依存パッケージの問題は新たに見つかります。また改修時に本人確認が抜けても、通常の画面操作が成功するだけでは気づけません。
+
+<Term>GitHub Actions</Term>で変更時と定期実行の検査を回し、<Term>Dependabot</Term>で依存更新のPRを作ると、人が毎回思い出して確認する作業を減らせます。権限については、他人・未ログインの操作を拒否する回帰テストが必要です。
+
+## CIで実行する処理を決める
+
+次はNode.jsアプリ用の構成例です。`test:db`は、別途用意したローカルDBテストのnpm scriptです。Actionの参照先は導入時に確認し、運用では検証したコミットSHAへ固定する方法もあります。
+
+~~~yaml
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 0 * * 1'
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx --no-install tsc --noEmit
+      - run: npm run test:db
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-dummy-key
+      - run: npm audit --omit=dev --audit-level=high
+~~~
+
+cronはUTCなので、この例は月曜9時の日本時間に相当します。定期実行には遅延もあるため、時刻どおりの通知用途には使いません。ダミー環境変数でのビルドは、本番DBへアクセスしない構成で使います。ビルド時に本物のデータ取得を行うアプリは、別途スタブや検証環境が必要です。
+
+## Dependabotの更新PRをまとめる
+
+`.github/dependabot.yml`に通常更新の頻度とまとめ方を設定します。
+
+~~~yaml
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+~~~
+
+`cooldown`は通常のバージョン更新を待たせる設定で、セキュリティ更新には適用されません。待てば安全になる保証もありません。脆弱性への更新は別に確認します。[GitHubの設定リファレンス](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference)で、利用するオプションを確認してください。
+
+Dependabotアラートとセキュリティ更新の有効化は、リポジトリの設定側でも確認します。PRのCI通過、変更内容、リリースノートを見てから取り込みます。
+
+## 権限を消したときにテストが落ちるか確認する
+
+本人の正常操作だけでなく、別ユーザーIDの指定、未ログイン、他人の行への更新、RPCの途中失敗をテストします。使い捨てのテスト環境で本人確認を外してみて、テストが失敗することまで確かめると、検査対象が明確になります。
+
+`npm audit --omit=dev`は本番依存を対象にした一つの検査です。開発依存やCI自体の問題をすべて調べるものではありません。自動修正をCIで無条件に走らせず、lockfileの差分をPRでレビューします。
+
+## 関連記事
+
+- [PGliteでSupabaseのSQLとRLSをローカル検証する](/articles/nextjs/pglite-supabase-rls-testing)
+- [並行チャット開発で共有ファイルを扱う](/articles/codex/parallel-chat-shared-worktree-operations)

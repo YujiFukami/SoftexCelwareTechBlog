@@ -1,0 +1,92 @@
+---
+title: "Supabaseの作業切替をRPCにまとめ、途中失敗と二重登録を防ぐ"
+category: "nextjs"
+slug: "supabase-atomic-work-actions-rpc"
+tags: ["Supabase", "RPC", "PostgreSQL", "トランザクション", "同時実行"]
+description: "前作業の終了と次作業の開始を別々に保存すると、途中失敗や同時操作で記録が崩れます。RPC、親行のロック、本人確認、エラー表示を組み合わせる設計を解説します。"
+date: "2026-10-28"
+---
+
+作業記録アプリの「作業を切り替える」は、前の作業を終了し、新しい作業を追加する操作です。この二つをブラウザから別々に保存すると、通信が途中で失敗したときに、前作業だけが終了した状態になります。別の端末が同時に操作すると、進行中の作業が二つ作られることもあります。
+
+<Term>Supabase</Term>の<Term>RPC</Term>へ処理をまとめると、関連する書き込みを一つの<Term>トランザクション</Term>で扱えます。ただし原子化だけでは同時操作の競合は解決しないため、同じ勤務日の親行をロックして順番に処理します。
+
+## 一つの操作を一つのDB関数にする
+
+次の例は、勤務日と作業履歴がすでにあり、両テーブルに本人だけを許可するRLSが設定されている前提の設計例です。列名・型は自分のスキーマに合わせます。終了時刻はロック取得後にDBで決定し、待機した操作が古い時刻を使わないようにします。
+
+~~~sql
+CREATE OR REPLACE FUNCTION public.switch_task(p_day_id uuid, p_name text)
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$
+DECLARE
+  v_user uuid := auth.uid();
+  v_day public.work_days;
+  v_active public.work_history;
+  v_now timestamptz;
+BEGIN
+  IF v_user IS NULL THEN RAISE EXCEPTION 'UNAUTHORIZED'; END IF;
+  IF p_name IS NULL OR btrim(p_name) = '' THEN
+    RAISE EXCEPTION 'TASK_NAME_REQUIRED';
+  END IF;
+
+  SELECT * INTO v_day FROM public.work_days
+    WHERE work_day_id = p_day_id AND user_id = v_user FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'NO_WORK_DAY'; END IF;
+
+  SELECT * INTO v_active FROM public.work_history
+    WHERE work_day_id = p_day_id AND user_id = v_user AND ended_at IS NULL;
+  IF FOUND AND v_active.task_name = btrim(p_name) THEN
+    RETURN jsonb_build_object('action', 'continued');
+  END IF;
+
+  v_now := clock_timestamp();
+  UPDATE public.work_history SET
+    ended_at = v_now,
+    duration_sec = floor(extract(epoch FROM v_now - started_at))::integer
+    WHERE work_day_id = p_day_id AND user_id = v_user AND ended_at IS NULL;
+
+  INSERT INTO public.work_history(work_day_id, user_id, task_name, started_at)
+    VALUES (p_day_id, v_user, btrim(p_name), v_now);
+  RETURN jsonb_build_object('action', 'started');
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.switch_task(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.switch_task(uuid, text) TO authenticated;
+~~~
+
+同じ作業なら履歴を増やさず、`continued`を返します。候補キャッシュも同じDB内で必ず更新したいなら、この関数内で更新します。外部通知や別サービスへの書き込みまで、このトランザクションで巻き戻せるわけではありません。
+
+## ロックの前提を揃える
+
+出勤・退勤・履歴の途中挿入など、同じ記録を書き換える経路も同じ親行をロックする必要があります。画面だけRPC化し、外部APIが従来の直接書き込みを続けると、そこから競合が起きます。
+
+未作成の勤務日には、`UNIQUE(user_id, date)`と`INSERT ... ON CONFLICT DO NOTHING`で親行を用意してからロックします。進行中レコードを一つに限定する部分一意インデックスも、業務要件が合えば追加します。既存の重複データを確認してから制約を導入してください。
+
+## 権限と通信エラーも操作の一部として扱う
+
+`SECURITY INVOKER`は呼び出し元の権限で実行されます。RLSとテーブル権限は別途必要です。`SECURITY DEFINER`を使う場合は、所有者の権限で動くため、本人確認と実行権限を明示的に設計します。[SupabaseのDB関数ガイド](https://supabase.com/docs/guides/database/functions)でも、この権限の違いを確認できます。
+
+サーバーAPIがservice roleを使う場合は、APIトークンの所有者をサーバーで確定してからDBへ渡します。上の例はログイン利用者向けであり、ユーザーIDを自由に指定する引数はありません。
+
+~~~ts
+const { data, error } = await supabase.rpc("switch_task", {
+  p_day_id: dayId,
+  p_name: taskName,
+});
+if (error) throw error;
+showMessage(data.action === "continued" ? "この作業を継続中です" : "開始しました");
+~~~
+
+通信エラー時には成功表示を出しません。DBで確定した直後に応答だけが失われる場合もあるため、再試行時の最新状態確認やリクエストIDによる重複防止も検討します。
+
+## 導入時に確認すること
+
+本人・別ユーザー・未ログインでの操作、同一作業の連続送信、途中エラーの巻き戻し、二つの接続からの同時操作を確認します。日またぎや過去時刻の修正は別の業務ルールとして検証します。SQLを先に適用し、既存の権限と互換性を確認してからアプリを切り替えます。
+
+## 関連記事
+
+- [PGliteでSupabaseのRLSをローカル検証する](/articles/nextjs/pglite-supabase-rls-testing)
+- [Supabaseで1000件以上のデータを全件取得する](/articles/nextjs/supabase-pagination)
+- [らくログタスク](/tools/rakulog-task)

@@ -1,0 +1,78 @@
+---
+title: "PDF報告書からナレーションと字幕が同期した要約動画を作る"
+category: "hyperframes"
+slug: "pdf-report-narration-caption-video"
+tags: ["HyperFrames", "PDF.js", "VOICEVOX", "字幕", "動画制作"]
+description: "PDFの本文と図を取り出し、文ごとの音声からシーンと字幕の時刻を作る動画制作手順です。読み上げ用の表記、図の確認、HyperFramesでのプレビューと検査まで整理します。"
+date: "2026-10-28"
+---
+
+報告書を短い解説動画にするとき、資料の図、ナレーション、字幕を別々に調整すると、内容の食い違いや表示のずれが起きます。<Term>HyperFrames</Term>でHTMLのシーンを組み、文ごとの音声の長さから共通の時刻表を作ると、修正箇所を追いやすくなります。
+
+## 本文と図を別の方法で取り出す
+
+本文は、pdftotextがある環境なら次のようにUTF-8で抽出します。スキャン画像だけのPDFは別途OCRが必要です。
+
+~~~bash
+pdftotext -enc UTF-8 -layout report.pdf report.txt
+~~~
+
+図は<Term>PDF.js</Term>とNode用CanvasでページをPNG化できます。まず小さい倍率で全ページの一覧を作り、使う図のあるページだけ高倍率で出力します。`cMapUrl`や`standardFontDataUrl`は、必要な文字マップ・フォント資産の場所を渡す設定です。日本語が欠けた場合は原本と画像を照合します。[PDF.jsのAPI資料](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib.html)を、利用するパッケージ版と合わせて確認してください。
+
+図を切り出した後も、凡例・単位・注記を落としていないかを確認します。台本に使う数値や因果関係は、抽出テキストだけで判断せず原文のページへ戻って確かめます。
+
+## 表示する文と読み上げる文を分ける
+
+字幕の表記は保ちつつ、読み間違いだけを読み上げ用の文で直します。
+
+~~~json
+{
+  "sceneId": "overview",
+  "lines": [
+    { "text": "解析結果を確認します。", "say": "かいせきけっかをかくにんします。" },
+    { "text": "次に、図1の変化を見ます。", "say": "つぎに、ずいちのへんかをみます。" }
+  ]
+}
+~~~
+
+<Term>VOICEVOX</Term>では、`audio_query`で読み上げ設定を取得し、それを`synthesis`へ渡して音声を生成する流れにできます。HTTPエラーを確認し、正常な音声だけを保存します。話者の利用条件とクレジットも公開前に確認します。[エンジンのAPI資料](https://voicevox.github.io/voicevox_engine/api/)が入口になります。
+
+## 音声の長さから時刻を決める
+
+固定の秒数を先に決めるより、文ごとにWAVを生成してから、長さと余白を合算します。WAVの長さは固定位置のヘッダを決め打ちせず、ffprobeかRIFFチャンクを正しく読む処理で求めます。
+
+~~~js
+function buildTiming(lines, durations, head = 0.6, gap = 0.45, tail = 0.8) {
+  if (lines.length !== durations.length ||
+      durations.some(sec => !Number.isFinite(sec) || sec <= 0)) {
+    throw new Error("Invalid narration durations");
+  }
+  let cursor = head;
+  const clips = lines.map((line, index) => {
+    const clip = { ...line, start: cursor, duration: durations[index] };
+    cursor += durations[index] + (index < lines.length - 1 ? gap : 0);
+    return clip;
+  });
+  return { clips, duration: cursor + tail };
+}
+~~~
+
+この結果を`timing.json`へ保存し、音声配置、シーンの尺、字幕HTMLを同じ値から生成します。文字数比で字幕を分割する方法は近似なので、音声を聴いて句読点や固有名詞の区切りを調整します。
+
+## 画面の要素を音声に合わせる
+
+図の上に置く印は、図の幅と高さに対する百分率で指定すると、図を拡大縮小しても位置が揃います。タイムライン内のシーンの開始時刻と、シーン内の要素の時刻は混同しないようにします。
+
+HyperFramesのCLIで静止画を取り、読める文字サイズ、表示時間、図の切れを確認してから動画を書き出します。[CLIのsnapshotコマンド](https://hyperframes.app/docs/5-packages/cli)を使うと、指定秒の状態を確認できます。
+
+~~~bash
+npx hyperframes snapshot video-project --at 0,3,10
+~~~
+
+利用版に`check`があればその検査も実行し、文字の表示時間不足や音声クリップの尺の不一致を確認します。警告を消すだけで終わらせず、完成動画を通して聴き、字幕と図が説明のタイミングに合うかを見ます。
+
+## 関連記事
+
+- [操作録画を公開用PR動画へ加工する](/articles/hyperframes/screen-recording-redaction-pr-video)
+- [ロゴとオープニング・サムネイルを共通化する](/articles/hyperframes/transparent-logo-intro-thumbnail-template)
+- [計算手順をHTMLからPDFにする](/articles/vanillajs/html-math-explanation-edge-pdf)

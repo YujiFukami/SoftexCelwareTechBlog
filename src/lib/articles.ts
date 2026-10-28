@@ -100,4 +100,5 @@ export const categoryLabels: Record<string, string> = {
   wix: "Wix自動化",
   vba: "Excel VBA",
   powershell: "PowerShell / bat運用",
+  hyperframes: "HyperFrames 動画制作",
 };

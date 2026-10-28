@@ -1,0 +1,68 @@
+---
+title: "Chrome拡張で正規のダウンロードを作業に紐付け、保存名を決める"
+category: "vanillajs"
+slug: "chrome-extension-download-attribution"
+tags: ["Chrome拡張機能", "downloads", "ファイル名", "データ連携"]
+description: "利用者がサイトのダウンロードボタンを押したとき、元の作業を判定して保存名を付ける設計です。参照元URL、曖昧な紐付け、非同期suggest、保存完了の追跡と拡張間の競合を説明します。"
+date: "2026-10-28"
+---
+
+生成した画像や帳票が既定の名前で保存されると、どの作業の成果物か分からなくなります。<Term>Chrome拡張機能</Term>でサイト本来のダウンロードを検知し、元の作業IDと保存先を記録すれば、あとで探しやすくなります。
+
+ここでは画像URLを取り直すのではなく、利用者が押したダウンロードを`chrome.downloads`で追跡する設計を紹介します。
+
+## ファイル名を決める前に元の作業を確認する
+
+`onDeterminingFilename`で候補のMIME型、URL、参照元を確認します。他の拡張から始まったダウンロードは`byExtensionId`で除外し、対象ホストとファイル種別を絞ります。URLや参照元が欠ける場合もあるため、それだけで完全な紐付けができるとは考えません。
+
+優先順位は、記録済みの会話・作業URLとの一致、利用者が明示的に選択した作業、有効期限内の直前の操作などです。「作成中が一件だけ」という推測を使う場合も、その根拠を記録し、確定できなければ未割当として利用者に選んでもらいます。
+
+## 非同期の判定でも一度だけsuggestする
+
+以下はリスナー部分の例です。`isTargetImage`と`decidePath`は、対象サイトと作業管理のデータに合わせて別途実装します。
+
+~~~js
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  if (item.byExtensionId || !isTargetImage(item)) {
+    suggest();
+    return;
+  }
+
+  let settled = false;
+  let timer;
+  const finish = path => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    if (path) suggest({ filename: path, conflictAction: "uniquify" });
+    else suggest();
+  };
+  timer = setTimeout(() => finish(null), 2500);
+  Promise.resolve().then(() => decidePath(item)).then(finish, () => finish(null));
+  return true;
+});
+~~~
+
+非同期で`suggest`を呼ぶ場合は`true`を返し、成功・失敗・時間切れのどの場合も一度だけ応答します。これは[downloads APIのイベント仕様](https://developer.chrome.com/docs/extensions/reference/api/downloads#event-onDeterminingFilename)に沿った扱いです。Manifest V3のService Workerでは、イベントを受けられるよう起動時のトップレベルでリスナーを登録し、必要な対応表は永続ストレージへ残します。
+
+## 相対パスと完了状態を保存する
+
+`filename`はダウンロードディレクトリからの相対パスです。絶対パスや`..`を渡さず、題名からパス区切り、制御文字、Windowsの禁止文字、末尾の空白・ピリオドを除きます。予約名や長すぎる名前にも対応し、作業IDを名前へ含めると区別しやすくなります。
+
+~~~text
+成果物/20261028_0930_work-123_説明図.png
+~~~
+
+名前を提案しただけでは保存完了ではありません。`onChanged`で完了・中断を受け取り、`downloads.search({ id })`で実際の保存先を確認してから作業へ紐付けます。中断や異なるパスへの保存は、その状態を画面へ返します。
+
+## 他の拡張機能との競合を確認する
+
+ファイル名を提案する拡張が複数あると、希望どおりの名前にならない場合があります。対象外に`suggest()`を返すのは公式仕様上の通常動作ですが、制作時の検証ではdata URLを保存する別拡張との干渉も観測されました。
+
+自分で保存を開始し、名前が事前に分かる場合は`download({ filename })`を使う設計も選べます。サイトのダウンロードを待ち受ける場合は、他の拡張との共存確認が必要です。保存前の推測と保存後の事実を別に記録しておくと、誤った完了表示を防げます。
+
+## 関連記事
+
+- [保存ダイアログ・保存名の異常を切り分ける](/articles/vanillajs/chrome-extension-download-verification)
+- [Chrome拡張でローカルフォルダーへ保存する](/articles/vanillajs/chrome-extension-filesystem-save)
+- [IndexedDBで作業の記録を保存する](/articles/vanillajs/chrome-extension-indexeddb-daily-records)
