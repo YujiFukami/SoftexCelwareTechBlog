@@ -1,0 +1,103 @@
+---
+title: "長文音声を分割合成し、失敗した文だけ作り直すキャッシュ設計"
+category: "audio"
+slug: "chunked-tts-cache-retry"
+tags: ["Python", "VOICEVOX", "AivisSpeech", "音声合成", "キャッシュ"]
+description: "長い原稿を意味の切れ目で分割し、エンジン・話者・設定・本文のハッシュでWAVを再利用する設計です。互換APIの違い、再試行、原子的な保存、誤読確認と音声結合を説明します。"
+date: "2026-10-30"
+---
+
+数千字の原稿を一度で音声合成すると、最後に失敗しただけでも全体を作り直すことになります。文ごとに合成し、同じ条件の音声を再利用できれば、失敗した区間や修正した文だけを再処理できます。
+
+<Term>VOICEVOX</Term>と<Term>AivisSpeech</Term>の共通部分を小さなアダプターへまとめ、分割、再試行、キャッシュ、結合を別の処理として扱います。
+
+## APIの形と意味の違いを区別する
+
+両エンジンでは、`audio_query`で設定を得て`synthesis`へ渡す流れを使えます。ただし、URLだけを変えれば全設定が同じ意味になるわけではありません。
+
+| 項目 | 確認すること |
+|---|---|
+| 話者・スタイルID | 各エンジンのspeakersから取得する |
+| intonationScale | エンジン間で意味が異なる |
+| tempoDynamicsScale | AivisSpeech固有の設定 |
+| pauseLengthなど | 利用版で反映されるか確認する |
+| モデルと利用条件 | エンジン本体とは別に確認する |
+
+設定値とパラメーターの意味は、[AivisSpeech Engineの公式資料](https://github.com/Aivis-Project/AivisSpeech-Engine)で確認できます。HTTPの成功を確認してからJSONやWAVを読み取り、接続待ち・合成待ちにはタイムアウトを付けます。
+
+## 文の切れ目で分けて上限を守る
+
+まず句点や段落で分け、長い文だけ読点で区切ります。それでも長ければ上限長で分けます。制作時には約80文字を目安にしましたが、適切な長さは話者や原稿によって変わります。
+
+分割すると前後の文脈が変わり、読み方やイントネーションも変わる場合があります。IDを付けた区間一覧を残し、原稿と音声ファイルの順序を別のmanifestで管理します。ファイル名順で結合しないようにします。
+
+## 合成条件全体からキャッシュ名を作る
+
+本文だけでなく、エンジンの種類・版、モデルの識別情報、話者、音声設定、分割処理の版を含めます。次は、合成関数を外から渡して使うキャッシュ部分の例です。WAVは非圧縮PCMを前提とし、公開用ディレクトリとは分けて保存します。
+
+~~~python
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import tempfile
+import wave
+
+def valid_pcm_wav(data):
+    try:
+        with wave.open(io.BytesIO(data), "rb") as wav:
+            frames = wav.getnframes()
+            frame_size = wav.getnchannels() * wav.getsampwidth()
+            return (wav.getcomptype() == "NONE" and frames > 0
+                    and len(wav.readframes(frames)) == frames * frame_size)
+    except (wave.Error, EOFError):
+        return False
+
+def cached_wav(cache_dir, recipe, generate):
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(recipe, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":"), allow_nan=False).encode("utf-8")
+    cache_id = hashlib.sha256(payload).hexdigest()
+    target = cache_dir / f"{cache_id}.wav"
+    if target.exists() and valid_pcm_wav(target.read_bytes()):
+        return target
+
+    data = generate(recipe)
+    if not valid_pcm_wav(data):
+        raise ValueError("The response is not a complete PCM WAV")
+    temp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=cache_dir, suffix=".tmp", delete=False) as temp:
+            temp_name = temp.name
+            temp.write(data)
+            temp.flush()
+            os.fsync(temp.fileno())
+        os.replace(temp_name, target)
+    finally:
+        if temp_name is not None:
+            Path(temp_name).unlink(missing_ok=True)
+    return target
+~~~
+
+`recipe`は、例えば`engine`、`engineVersion`、`modelRevision`、`speaker`、`parameters`、`text`、`formatVersion`を持つ辞書です。合成結果へ影響する値を含めます。途中のレスポンスやエラーページを合成済みと誤認しないよう、検証してから同じディレクトリ内で置き換えます。
+
+同じ条件でも生成音声が揺らぐモデルでは、キャッシュは「初回に採用した音声を再利用する」仕組みになります。同時実行による同一区間の二重合成を避けたい場合は、キー単位の排他も加えます。
+
+## 失敗を記録し、完成扱いの条件を決める
+
+接続できずエンジン停止が疑われる場合は、ジョブを一時停止して知らせます。タイムアウト・429・一時的なサーバーエラーは、回数を制限し、待ち時間を増やして再試行します。入力不正などの4xxは、同じ内容を繰り返し送る前に設定を見直します。
+
+区間ごとに成功・失敗・エラーをmanifestへ残します。再実行では正常なキャッシュを使い、失敗した区間だけを処理します。失敗した文を飛ばして結合し、原稿が欠けた音声を完成品として出さないようにします。
+
+## 誤読と区間のつなぎ目を確認する
+
+固有名詞は、単語単独でなく合成する文の中で確認します。`accent_phrases`内のモーラを並べると読み候補を点検できますが、実際の音声を聴く確認も必要です。読みが不明な名前は、根拠を確かめてから辞書へ登録します。
+
+結合前にサンプルレート、チャンネル数、ビット深度を揃えます。前後の無音は一律に切り落とさず、語頭・語尾が欠けない余白を残し、短いフェードを試します。文間の間は別の設定として加え、完成品を通して聴きます。音声モデルの利用条件とクレジットは、生成物と一緒に記録します。
+
+## 関連記事
+
+- [FFmpegでBGMと音量を整える](/articles/audio/ffmpeg-ducking-loudness)
+- [PDF報告書から音声・字幕つき動画を作る](/articles/hyperframes/pdf-report-narration-caption-video)

@@ -1,0 +1,106 @@
+---
+title: "FFmpegで声に合わせてBGMを下げ、ラウドネスを整える"
+category: "audio"
+slug: "ffmpeg-ducking-loudness"
+tags: ["FFmpeg", "音声編集", "ダッキング", "LUFS", "Python"]
+description: "ナレーション中だけBGMを下げるフィルターと、出力チャンネルを揃えた2パス音量調整を解説します。モノラル変換後の測定差、linearの条件、書き出し後の再計測も整理します。"
+date: "2026-10-30"
+---
+
+音声番組へBGMを加えると、声が聞き取りにくくなったり、番組ごとに音量が変わったりします。<Term>FFmpeg</Term>では、声を検知してBGMを下げる<Term>ダッキング</Term>と、番組全体の<Term>ラウドネス</Term>調整を別の段階で行えます。
+
+## 声を聞く分岐と、再生する分岐を作る
+
+声を二つに分岐し、一方をBGMの音量制御に使い、もう一方を出力へ混ぜます。以下はPythonからFFmpegを呼び、モノラルの音声番組を作る例です。FFmpegとffprobeがPATHにある前提です。
+
+~~~python
+import json
+import math
+import subprocess
+
+probe = subprocess.run([
+    "ffprobe", "-v", "error", "-show_entries", "format=duration",
+    "-of", "json", "body.wav"
+], capture_output=True, text=True, check=True)
+duration = float(json.loads(probe.stdout)["format"]["duration"])
+if not math.isfinite(duration) or duration <= 0:
+    raise ValueError("Invalid audio duration")
+fade = min(1.5, duration / 2)
+graph = (
+    f"[1:a]aresample=48000,aformat=channel_layouts=mono,"
+    f"atrim=duration={duration},asetpts=PTS-STARTPTS,volume=-22dB,"
+    f"afade=t=in:d={fade},afade=t=out:st={duration-fade}:d={fade}[bg];"
+    "[0:a]aresample=48000,aformat=channel_layouts=mono,"
+    "asetpts=PTS-STARTPTS,asplit=2[voice][control];"
+    "[bg][control]sidechaincompress=threshold=0.03:ratio=6:attack=40:release=700[ducked];"
+    "[voice][ducked]amix=inputs=2:duration=first:normalize=0[out]"
+)
+subprocess.run([
+    "ffmpeg", "-nostdin", "-y", "-i", "body.wav", "-stream_loop", "-1", "-i", "bgm.wav",
+    "-filter_complex", graph, "-map", "[out]", "-t", str(duration),
+    "-c:a", "pcm_s16le", "mixed.wav"
+], check=True)
+~~~
+
+無限ループするBGMを先に必要な長さへ切り、フェードを掛けます。`amix`の`normalize=0`では入力数による自動の音量調整を行わないため、合算したピークには注意します。声があるときにBGMが下がる量は、声のレベルとコンプレッサーの設定で変わります。
+
+## 最終出力と同じチャンネルで測る
+
+ステレオで測ってからモノラルで出力すると、測定時と出力時の条件が変わります。資料の制作例では、左右に同じ信号がある音声で約3dBの差が出ました。すべてのステレオ音声に固定で3dBを足せばよいわけではありません。
+
+モノラルで配布するなら、測定前からモノラルへ揃えます。ステレオ再生を想定する`dual_mono`補正の有無も、1パス目・2パス目・完成品の確認で一致させます。
+
+## 2パスの前処理を一致させる
+
+次は、例として-16 LUFS、トゥルーピーク-1.5dBTPを目標にするコードです。配信先や用途に応じて目標値を決めてください。最初の測定と本処理で、同じチャンネル変換・コンプレッサーを使います。
+
+~~~python
+import json
+import math
+import re
+import subprocess
+
+head = ("aformat=channel_layouts=mono,"
+        "acompressor=threshold=0.1:ratio=3:attack=5:release=120:makeup=2")
+target = "I=-16:TP=-1.5:LRA=11:dual_mono=false"
+measurement = subprocess.run([
+    "ffmpeg", "-nostdin", "-hide_banner", "-i", "mixed.wav", "-af",
+    f"{head},loudnorm={target}:print_format=json", "-f", "null", "-"
+], capture_output=True, text=True, check=True)
+records = re.findall(r"\{[^{}]*\}", measurement.stderr)
+if not records:
+    raise ValueError("Loudness measurement not found")
+measured = json.loads(records[-1])
+for key in ("input_i", "input_tp", "input_lra", "input_thresh", "target_offset"):
+    if not math.isfinite(float(measured[key])):
+        raise ValueError("Cannot normalize silence or invalid measurements")
+normalizer = (
+    f"loudnorm={target}:measured_I={measured['input_i']}:"
+    f"measured_TP={measured['input_tp']}:measured_LRA={measured['input_lra']}:"
+    f"measured_thresh={measured['input_thresh']}:offset={measured['target_offset']}:"
+    "linear=true:print_format=json"
+)
+subprocess.run([
+    "ffmpeg", "-nostdin", "-y", "-i", "mixed.wav", "-af",
+    f"{head},{normalizer},aresample=48000", "-ac", "1",
+    "-c:a", "pcm_s16le", "program.wav"
+], check=True)
+~~~
+
+`linear=true`でも、ラウドネス範囲やピークなどの条件を満たさなければ動的な正規化へ切り替わります。前段のコンプレッサーも、強く掛けると声の聞こえ方が変わります。目標へ届かなかったときは、測定ログと実際の出力を確認します。フィルターの条件は[FFmpeg公式資料](https://ffmpeg.org/ffmpeg-filters.html#loudnorm)に記載されています。
+
+## 完成ファイルをもう一度計測する
+
+書き出したファイルを、前処理のコンプレッサーを再適用せずに測ります。MP3などへ変換した場合は、その配布ファイルが確認対象です。リサンプリングや圧縮でピークが変わるため、正規化前の測定値だけで判定しません。
+
+~~~bash
+ffmpeg -hide_banner -i program.wav -af "loudnorm=I=-16:TP=-1.5:LRA=11:dual_mono=false:print_format=json" -f null -
+ffmpeg -hide_banner -i program.wav -af "volumedetect,silencedetect=noise=-50dB:d=3" -f null -
+~~~
+
+volumedetectの最大値だけでトゥルーピークや聞きやすさを判断しないようにします。長すぎる無音、尺、チャンネル数、デコードの終了コードも確認し、最後は声とBGMのバランスを聴いて調整します。
+
+## 関連記事
+
+- [長文の分割合成と失敗区間の再処理](/articles/audio/chunked-tts-cache-retry)
+- [音声から動画のシーンと字幕を作る](/articles/hyperframes/pdf-report-narration-caption-video)

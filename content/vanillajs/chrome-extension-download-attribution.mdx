@@ -4,7 +4,7 @@ category: "vanillajs"
 slug: "chrome-extension-download-attribution"
 tags: ["Chrome拡張機能", "downloads", "ファイル名", "データ連携"]
 description: "利用者がサイトのダウンロードボタンを押したとき、元の作業を判定して保存名を付ける設計です。参照元URL、曖昧な紐付け、非同期suggest、保存完了の追跡と拡張間の競合を説明します。"
-date: "2026-10-28"
+date: "2026-10-30"
 ---
 
 生成した画像や帳票が既定の名前で保存されると、どの作業の成果物か分からなくなります。<Term>Chrome拡張機能</Term>でサイト本来のダウンロードを検知し、元の作業IDと保存先を記録すれば、あとで探しやすくなります。
@@ -19,10 +19,10 @@ date: "2026-10-28"
 
 ## 非同期の判定でも一度だけsuggestする
 
-以下はリスナー部分の例です。`isTargetImage`と`decidePath`は、対象サイトと作業管理のデータに合わせて別途実装します。
+以下は、必要な間だけ登録するリスナー本体の例です。`isTargetImage`と`decidePath`は、対象サイトと作業管理のデータに合わせて別途実装します。
 
 ~~~js
-chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+function handleFilename(item, suggest) {
   if (item.byExtensionId || !isTargetImage(item)) {
     suggest();
     return;
@@ -40,10 +40,24 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
   timer = setTimeout(() => finish(null), 2500);
   Promise.resolve().then(() => decidePath(item)).then(finish, () => finish(null));
   return true;
-});
+}
+
+function setRenamingEnabled(enabled) {
+  const event = chrome.downloads.onDeterminingFilename;
+  if (enabled && !event.hasListener(handleFilename)) event.addListener(handleFilename);
+  if (!enabled && event.hasListener(handleFilename)) event.removeListener(handleFilename);
+}
 ~~~
 
-非同期で`suggest`を呼ぶ場合は`true`を返し、成功・失敗・時間切れのどの場合も一度だけ応答します。これは[downloads APIのイベント仕様](https://developer.chrome.com/docs/extensions/reference/api/downloads#event-onDeterminingFilename)に沿った扱いです。Manifest V3のService Workerでは、イベントを受けられるよう起動時のトップレベルでリスナーを登録し、必要な対応表は永続ストレージへ残します。
+非同期で`suggest`を呼ぶ場合は`true`を返し、成功・失敗・時間切れのどの場合も一度だけ応答します。これは[downloads APIのイベント仕様](https://developer.chrome.com/docs/extensions/reference/api/downloads#event-onDeterminingFilename)に沿った扱いです。
+
+## 名前変更を待ち受ける期間を限定する
+
+追加資料の実機検証では、名前決定リスナーが登録されている間に、別拡張によるdata URLの保存名が既定名へ変わる干渉が確認されました。対象外に`suggest()`を返すだけでは解決しなかったため、作業開始時に有効化し、完了・取消・期限切れで解除する方式にしました。監視の上限を30分などに決め、いつまでも待ち受けないようにします。
+
+Manifest V3のService Workerでは、通常は起動時に同期的にイベント登録することが[公式に推奨](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/events)されています。期限付きの動的登録を採る場合、非同期で状態を復元する前のイベントを取りこぼす可能性があります。タイマーだけに頼らず、永続化した期限とアラーム等で状態を確認しますが、それだけで初回の名前変更を保証できるわけではありません。
+
+名前を確実に付けたい待受は、利用者が開いたままにする拡張画面で行う方法もあります。常時の記録は名前を変更しない`onCreated`で行い、監視停止中や再起動直後の成果物は、後から手動で紐付けられるようにします。リスナー本体と監視状態の管理を分け、別拡張がある環境、期限切れ、SW再起動をテストします。
 
 ## 相対パスと完了状態を保存する
 

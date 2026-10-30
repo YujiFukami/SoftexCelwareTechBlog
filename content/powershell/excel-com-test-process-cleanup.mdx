@@ -1,0 +1,86 @@
+---
+title: "PowerShellのCOMテストで非表示のExcelを残さない後片付け"
+category: "powershell"
+slug: "excel-com-test-process-cleanup"
+tags: ["PowerShell", "Excel", "COM", "プロセス管理", "テスト"]
+description: "Quitを呼んでも非表示のExcelが残るときに、子COM参照の解放とテストが起動したプロセスの識別を整理します。PIDだけで広く終了せず、起動時刻と所有記録を確認する手順です。"
+date: "2026-10-30"
+---
+
+<Term>PowerShell</Term>から<Term>COM</Term>経由でExcelを操作すると、テスト終了後も非表示のEXCEL.EXEが残ることがあります。Quitだけを呼び、WorkbookやRangeなどの参照が残っている場合や、エラー・ダイアログで処理が止まった場合です。
+
+後片付けでは、テスト用に作ったCOMオブジェクトを閉じ、最後にそのテストのプロセスが終了したかを確認します。
+
+## 子オブジェクトを保存して逆順に解放する
+
+次は検証用コピーを読み取り専用で開く、後片付けの基本例です。テスト対象はコピーにし、マクロを自動的に有効化しません。実際にVBAを実行する検証は、許可したマクロと実行条件を別途設定します。
+
+~~~powershell
+param([Parameter(Mandatory)][string]$CopyPath)
+
+function Release-OwnedCom($Value) {
+  if ($null -ne $Value -and [Runtime.InteropServices.Marshal]::IsComObject($Value)) {
+    [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($Value)
+  }
+}
+
+$excel = $books = $book = $null
+try {
+  $excel = New-Object -ComObject Excel.Application
+  $excel.Visible = $false
+  $excel.DisplayAlerts = $false
+  $excel.AutomationSecurity = 3
+  $books = $excel.Workbooks
+  $book = $books.Open($CopyPath, 0, $true)
+  # 検証用コピーを調べる。取得したRangeなども個別に解放する。
+  Write-Output $book.Name
+} finally {
+  try {
+    if ($null -ne $book) { $book.Close($false) }
+  } finally {
+    try {
+      if ($null -ne $excel) { $excel.Quit() }
+    } finally {
+      Release-OwnedCom $book
+      Release-OwnedCom $books
+      Release-OwnedCom $excel
+      $book = $books = $excel = $null
+      [GC]::Collect()
+      [GC]::WaitForPendingFinalizers()
+    }
+  }
+}
+~~~
+
+複数のCOM参照を取得した場合は、Range、Worksheet、Workbook、Applicationのように子から戻ります。ドットを連ねたアクセスで中間のCOM参照を見失わないようにします。FinalReleaseComObjectは、そのテストだけが所有する参照に限定し、別処理が共有しているラッパーには使いません。
+
+## タイムアウトは外側のジョブから管理する
+
+COM呼び出し自体が止まると、同じ実行スレッドのタイマーでは抜けられない場合があります。長い検証はStart-Jobなどへ分け、親側で待ち時間を制限します。エラー、時間切れ、正常終了のいずれでも、所有したExcelを確認する後処理へ進めます。
+
+テスト開始前のPID一覧を取ることは補助になりますが、「開始後に増えた自動化Excel」は、別のテストが起動したExcelかもしれません。自分が生成したExcelのHwndを[GetWindowThreadProcessId](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowthreadprocessid)へ渡してPIDを得て、その起動時刻と一緒に親へ記録します。
+
+この所有記録は、ブックを開くなど停止し得る操作より前に出力します。通常利用のExcelに接続するGetActiveObjectを、このテストの起動方法として使いません。
+
+## 最終手段の終了は所有記録と照合する
+
+終了を検討する場合は、次の情報がすべて一致するかを確認します。
+
+- このテストが記録したPIDである
+- 記録した起動時刻と現在の起動時刻が一致する
+- EXCEL.EXEであり、想定した自動化用の起動引数を持つ
+- テスト開始前から開いていたExcelではない
+
+一致しない場合やコマンドラインを取得できない場合は、終了せず確認対象として知らせます。PIDは再利用されるため、PIDだけでは識別できません。プロセス名だけの一括終了は、利用者の未保存ブックを巻き込みます。
+
+## コピーとログで原因を切り分ける
+
+テスト開始、ブックを開いた直後、対象処理の前後、終了処理の各段階を記録します。標準出力だけでなく親側へ残るログを用意すると、ジョブが時間切れになっても停止位置を追えます。
+
+資料の検証では、非表示の自動化Excelが複数残る問題が確認されました。正常終了だけでなく、意図的なエラーと時間切れでも後片付けを試し、利用者が別に開いたExcelが残ることも確認します。公開記事のコードは後片付けの基本形であり、個別ブックのマクロまで動作確認したことを意味しません。
+
+## 関連記事
+
+- [入力変更をまとめてDBシートへ反映する](/articles/vba/deferred-sheet-writeback)
+- [Excel VBAを継続開発するためのルール](/articles/vba/vba-maintainable-development-rules)
+- [UserFormのテキスト再構成を検証する](/articles/vba/userform-text-reconstruction)

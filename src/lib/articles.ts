@@ -101,4 +101,5 @@ export const categoryLabels: Record<string, string> = {
   vba: "Excel VBA",
   powershell: "PowerShell / bat運用",
   hyperframes: "HyperFrames 動画制作",
+  audio: "音声合成・編集",
 };
