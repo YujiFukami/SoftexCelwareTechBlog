@@ -1,0 +1,86 @@
+---
+title: "記事の流れ図と注釈画像をYAML・固定HTMLから作る"
+category: "python-windows"
+slug: "yaml-html-png-article-figures"
+tags: ["Python", "YAML", "HTML", "図解", "ヘッドレスブラウザー"]
+description: "記事ごとに図をデザインし直さず、YAMLの内容と固定CSSを分けて画像化する方法です。HTMLエスケープ、切り抜き後の座標変換、画像読み込み待ち、本文との情報共有を解説します。"
+date: "2026-11-02"
+---
+
+記事の流れ図を毎回一から作ると、配置や文字サイズの調整に時間がかかります。図の内容を<Term>YAML</Term>へ、見た目を固定HTML・CSSへ分けると、工程名や説明だけを差し替えて繰り返し使えます。
+
+用途を「手順の流れ図」と「スクリーンショットへの注釈」に絞ると、入力項目も検証しやすくなります。
+
+## YAMLに内容だけを記述する
+
+~~~yaml
+type: flow
+title: 受付から確認まで
+steps:
+  - text: 利用者が内容を入力
+    who: person
+  - text: システムが入力を検証
+    who: auto
+  - text: 担当者が内容を確認
+    who: person
+~~~
+
+Pythonではyaml.safe_loadを使い、type、who、文字列の長さ、項目数を検査します。人の作業と自動処理は、色だけでなくラベルでも区別します。ファイル名や素材パスは許可した作業フォルダ内に制限します。
+
+## 本文をエスケープして固定テンプレートへ入れる
+
+~~~python
+from html import escape
+
+def render_steps(spec):
+    kinds = {"person": "人の操作", "auto": "自動処理"}
+    items = []
+    for step in spec["steps"]:
+        kind = step["who"]
+        if kind not in kinds or not isinstance(step["text"], str):
+            raise ValueError("Invalid step")
+        items.append(
+            f'<li class="step {kind}"><span>{kinds[kind]}</span>'
+            f'<p>{escape(step["text"])}</p></li>'
+        )
+    return '<ol class="flow">' + "".join(items) + '</ol>'
+~~~
+
+この断片を、共通CSSとタイトルを持つHTMLへ入れます。利用者の文字列をCSSやHTML属性として直接展開せず、項目の種類は許可したクラスへ対応付けます。
+
+## 注釈は元画像の座標から変換する
+
+画像を切り抜いてから縮小すると、元の座標をそのまま注釈へ使えません。切り抜きの左上と表示倍率を使って変換します。
+
+~~~python
+import math
+
+def map_box(box, crop, display_width):
+    if not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+               for value in (*box, *crop, display_width)):
+        raise ValueError("Coordinates must be finite numbers")
+    x, y, width, height = box
+    left, top, crop_width, crop_height = crop
+    if min(width, height, crop_width, crop_height, display_width) <= 0:
+        raise ValueError("Invalid dimensions")
+    if x < left or y < top or x + width > left + crop_width or y + height > top + crop_height:
+        raise ValueError("Annotation is outside the crop")
+    scale = display_width / crop_width
+    return ((x - left) * scale, (y - top) * scale, width * scale, height * scale)
+~~~
+
+番号は枠に対応する位置へ置き、画面の文字を隠さない余白を用意します。自動で推定した座標は、出力画像を拡大して確認します。
+
+## ブラウザー撮影と画像確認を分ける
+
+ChromeまたはEdgeをヘッドレスで起動し、専用の一時フォルダへHTMLと素材を置いてPNGを保存します。ファイルURLはPath.as_uri()などで組み立て、日本語や空白を文字列置換だけで処理しません。
+
+固定時間の待機だけでは、画像やフォントの読込完了を保証できません。自動化ではdocument.fonts.ready、画像のdecode、レイアウトの安定を待ってから撮影します。大きく撮って余白を切る場合も、白い背景の重要部分まで消していないかを確認します。
+
+画像内の文章は、記事本文や代替テキストでも伝えます。画像にしただけで、読者が手順を理解したり検索で見つけたりできるわけではありません。
+
+## 関連記事
+
+- [記事公開前のリスクチェック](/articles/codex/publication-risk-checklist)
+- [ブラウザーの実画面をCDPで確認する](/articles/vanillajs/chrome-extension-cdp-realistic-testing)
+- [計算手順をHTMLからPDFにする](/articles/vanillajs/html-math-explanation-edge-pdf)

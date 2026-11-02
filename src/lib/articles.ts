@@ -102,4 +102,5 @@ export const categoryLabels: Record<string, string> = {
   powershell: "PowerShell / bat運用",
   hyperframes: "HyperFrames 動画制作",
   audio: "音声合成・編集",
+  youtube: "YouTube API・投稿管理",
 };

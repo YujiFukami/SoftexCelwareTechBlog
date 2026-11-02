@@ -1,0 +1,69 @@
+---
+title: "進行中件数と累計完了数の定期観測から、所要時間を推定する"
+category: "gas"
+slug: "queue-duration-periodic-observations"
+tags: ["GAS", "時系列", "リトルの法則", "推定", "純粋関数"]
+description: "開始・終了の明細がなく、進行中件数と累計完了数だけ分かる場合の分析方法です。区間内完了件数の下限、在庫時間の近似、観測欠損や境界条件による限界を整理します。"
+date: "2026-11-02"
+---
+
+問い合わせやチケットの処理状況を調べるとき、個別の開始・終了時刻がなくても、「現在進行中の件数P」と「累計完了数S」だけ取得できる場合があります。定期観測したこの二つから、どこまで判断できるでしょうか。
+
+<Term>Google Apps Script</Term>で観測を保存し、計算部分を純粋なJavaScript関数にすると、架空の時系列を使って前提を検証できます。ここでは、件数の下限と時間の推定を分けて扱います。
+
+## 区間内で始まり終わった件数の下限
+
+前回の進行中件数をP0、今回までの完了増分をCとすると、`max(0, C - P0)`件以上は区間内で開始して完了しています。区間開始時点の仕事だけでは、C件すべてを説明できないためです。
+
+例えば、開始時点で2件、区間中の完了が5件なら、少なくとも3件はその区間内で始まり終わっています。ただし、Sが一つの完了につき一度増え、Pと同じ対象範囲を数えていることが前提です。
+
+~~~js
+function analyzeInterval(previous, current, maxGapMinutes) {
+  if (!Number.isFinite(maxGapMinutes) || maxGapMinutes <= 0) {
+    throw new Error("Invalid observation gap");
+  }
+  for (const item of [previous, current]) {
+    if (!Number.isFinite(item.at) || !Number.isSafeInteger(item.pending) ||
+        !Number.isSafeInteger(item.completed) || item.pending < 0 || item.completed < 0) {
+      throw new Error("Invalid observation");
+    }
+  }
+  const minutes = (current.at - previous.at) / 60000;
+  if (minutes <= 0) throw new Error("Observation order is invalid");
+  const completed = current.completed - previous.completed;
+  if (minutes > maxGapMinutes || completed < 0) return { usable: false };
+  return {
+    usable: true,
+    completed,
+    completedWithinIntervalLowerBound: Math.max(0, completed - previous.pending),
+    sampledPendingMinutes: (previous.pending + current.pending) / 2 * minutes,
+  };
+}
+~~~
+
+`at`はミリ秒の時刻です。観測が大きく空いた区間、累計値のリセット、対象範囲の変更は除外し、除外数と理由を結果に添えます。
+
+## 新規とキャンセルは別々には求められない
+
+件数の保存則を考えると、`P1 - P0 + C`は「新規開始数からキャンセル等の減少数を引いた値」です。両方が起きる場合、この値だけでは新規件数もキャンセル件数も一意に決まりません。
+
+負の値をキャンセル、正の値を新規とみなす方式は、一つの仮定です。取得できるならキャンセルや対象変更を別の観測として残します。
+
+## 在庫時間を完了数で割るときの条件
+
+<Term>リトルの法則</Term>は、平均の系内件数L、到着・完了の率、平均滞在時間Wの関係を扱います。[Little本人による解説](https://pubsonline.informs.org/doi/abs/10.1287/opre.1110.0940)が理論の参考になります。
+
+観測したPを台形で積分し、完了数で割ると「観測された在庫時間／完了数」が得られます。ただし、有限期間では開始前から残っていた仕事と、終了時点で未完了の仕事の影響があります。定期観測の間に出入りした仕事も捉えきれません。
+
+特に、Pがずっと0でもSが増える場合、標本上の在庫時間は0になります。実際の所要時間が0だったという意味ではありません。十分な定常性、観測の細かさ、境界の影響を確認し、参考値として表示します。
+
+## FIFOとLIFOは仮定を変えたシナリオとして使う
+
+古い仕事から完了するFIFO、新しい仕事から完了するLIFOを仮定して比較すると、結果が順序の仮定にどれだけ依存するかを調べられます。ただし、到着時刻を区間の中点へ置くなどの近似も含むため、必ず真の所要時間を挟む数学的な上下限とは限りません。
+
+結果には観測間隔、欠損率、初期の持ち越し件数、採用した仮定を添えます。個別取引の実時間を直接測定した結果と混同しない表示が重要です。
+
+## 関連記事
+
+- [GASの日付を安全に扱う](/articles/gas/date-format-safe)
+- [観測結果を期間で絞って取得する](/articles/nextjs/supabase-pagination)

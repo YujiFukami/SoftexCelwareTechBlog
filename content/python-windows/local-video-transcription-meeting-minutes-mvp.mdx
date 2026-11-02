@@ -4,7 +4,7 @@ category: "python-windows"
 slug: "local-video-transcription-meeting-minutes-mvp"
 tags: ["Python", "文字起こし", "Whisper", "FFmpeg", "Windows", "議事録", "Markdown"]
 description: "MP4録画から音声を抽出し、Whisper系モデルで日本語文字起こしを行い、時間付きMarkdown議事録へ出力するPythonツールのMVP設計をまとめます。"
-date: "2026-09-08"
+date: "2026-11-02"
 ---
 
 ビデオ会議の録画を後から見返して議事録を作る作業は、地味に時間を取られます。録画ファイルが手元にあるなら、まずはローカルPC上で文字起こしし、時間付きの発言記録をMarkdownとして残せるだけでもかなり楽になります。
@@ -151,6 +151,36 @@ def transcribe(audio_path: str, model_name: str, language: str):
 
 GPUが使える環境では高速化できますが、GPU前提にすると使えるPCが限られます。MVPではCPUでも動くことを優先し、GPUは自動利用できれば使う、くらいにしておきます。
 
+## デコーダーの互換性で止まる場合はPCM入力を切り分ける
+
+追加資料では、PyAVの版の食い違いで音声の読み込みが失敗する例がありました。まず依存パッケージの整合を確認します。ファイルを読む箇所だけが問題なら、FFmpegで16kHz・モノラル・16bit PCMへ変換し、NumPy配列を渡す方法もあります。
+
+~~~bash
+ffmpeg -v error -i recording.mp4 -vn -ac 1 -ar 16000 -c:a pcm_s16le speech.wav
+~~~
+
+~~~python
+import wave
+import numpy as np
+
+def read_pcm16_mono(path):
+    with wave.open(str(path), "rb") as wav:
+        if (wav.getnchannels() != 1 or wav.getsampwidth() != 2 or
+                wav.getframerate() != 16000 or wav.getcomptype() != "NONE"):
+            raise ValueError("Expected 16kHz mono PCM16")
+        frames = wav.getnframes()
+        data = wav.readframes(frames)
+        if frames == 0 or len(data) != frames * 2:
+            raise ValueError("Empty or incomplete audio")
+    return np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768.0
+~~~
+
+得られた配列をmodel.transcribeへ渡し、language="ja"、必要に応じてvad_filter=Trueを指定します。CPUのint8やsmallモデルは選択肢ですが、速度と固有名詞の精度は実際の音声で確認します。segmentsは遅延評価されるため、最後まで取り出して出力ファイルを検査します。[faster-whisperの公式資料](https://github.com/SYSTRAN/faster-whisper)も参照してください。
+
+この方法は、モデルのimport自体が失敗するような依存関係の問題までは解消しません。また、音声をローカルで処理する構成でも、初回のモデル取得には通信が必要な場合があります。機密素材を扱う環境では、モデルを事前準備し、実際の通信と保存先を確認します。
+
+補助CLIが終了コード0を返しても、文字起こしが省略されるケースがあります。終了コードだけでなく成果物の存在・件数を確認し、字幕や場面選びへ使う前に、固有名詞と時刻を元音声で照合します。
+
 ## 話者分離は失敗しても全体を止めない
 
 話者分離は便利ですが、依存関係やモデル条件が重くなりがちです。初期版では、話者分離に失敗しても文字起こし結果は出力します。
@@ -277,3 +307,4 @@ AI要約は便利ですが、最初の成果物に入れると検証対象が増
 - [Windows EXE配布ZIPの構成テンプレート](/articles/python-windows/windows-exe-zip-template)
 - [tkinterで別スレッド処理とroot.afterによるログ更新を行う](/articles/python-windows/tkinter-thread-after-log)
 - [Node製ローカルアプリをWindowsでオフライン配布する起動設計](/articles/powershell/windows-node-offline-launcher-distribution)
+- [台詞と黒帯を確認して短いクリップを編集する](/articles/hyperframes/short-clip-dialogue-editing)

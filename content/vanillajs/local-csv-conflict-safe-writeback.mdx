@@ -1,0 +1,67 @@
+---
+title: "Chrome拡張からローカルCSVを書き戻す、競合検知とバックアップの設計"
+category: "vanillajs"
+slug: "local-csv-conflict-safe-writeback"
+tags: ["Chrome拡張機能", "CSV", "File System Access API", "競合検知", "バックアップ"]
+description: "Excelでも編集されるCSVを、古い内容で上書きしないための設計です。読み込み時の控え、変更操作の再適用、元バイト列のバックアップ、未保存変更の復旧と競合検知の限界を解説します。"
+date: "2026-11-02"
+---
+
+ローカルCSVを台帳として使うと、拡張の画面を開いている間にも、Excelなどで行が追加されます。画面にある古い表をそのまま保存すると、外部の変更を消してしまいます。
+
+<Term>File System Access API</Term>で元ファイルへのハンドルを取得し、保存直前の比較とバックアップを組み合わせます。変更は表全体ではなく、管理IDと項目ごとの操作として記録します。
+
+## 読み込み時のバイト列を控える
+
+`showOpenFilePicker()`は利用者の操作から呼び、取得したハンドルと読み込み時の内容を管理します。lastModifiedとsizeは手掛かりですが、同じ値のまま内容が変わるケースを見逃さないよう、重要な保存では本文やバイト列も比較します。
+
+文字コードとBOMを保持したい場合は、元のバイト列を控えます。UTF-8としてデコードした文字列だけでは、元のBOMや別の文字コードをそのまま再現できません。Shift_JISでの書き戻しに対応しない場合は、利用者へ示したうえでUTF-8の別名保存にします。
+
+## 変更は管理IDと変更前の値で記録する
+
+~~~js
+function reapplySets(rows, operations, allowedFields) {
+  const output = rows.map(row => ({ ...row }));
+  const byId = new Map();
+  for (const row of output) {
+    if (!row.id || byId.has(row.id)) throw new Error("Missing or duplicate row ID");
+    byId.set(row.id, row);
+  }
+  const conflicts = [];
+  for (const op of operations) {
+    if (!allowedFields.has(op.key) || ["__proto__", "constructor", "prototype"].includes(op.key)) {
+      throw new Error("Field is not writable");
+    }
+    const row = byId.get(op.id);
+    if (!row || !Object.hasOwn(row, op.key)) conflicts.push(op);
+    else if (row[op.key] === op.value) continue;
+    else if (row[op.key] !== op.before) conflicts.push(op);
+    else row[op.key] = op.value;
+  }
+  return { rows: output, conflicts };
+}
+~~~
+
+CSVの値を文字列として扱う例です。競合があれば、この候補結果を自動保存せず、どの項目が食い違ったかを利用者に示します。行番号へ操作を当てると、外部で行が挿入されたときに別の行を変更してしまいます。
+
+IDがまだない行の再識別に日時や本文を使う場合も、一致が一意でなければ自動で割り当てません。同じ内容の行が複数ある可能性を考慮します。
+
+## 保存を一つずつ実行する
+
+保存ボタンの処理では、ユーザー操作が有効なうちに書き込み許可を求めます。その後で保存キューへ処理を積み、同じ画面からの書き込みを直列化します。別ウィンドウと共有するなら、保存担当を一つへまとめるなど追加の調整が必要です。
+
+保存時は、最新内容の再取得、控えとの比較、元バイト列のバックアップ、書き込み、close、読み直しの順に進めます。途中で失敗したら成功表示を出さず、未保存の操作記録を残します。
+
+`createWritable()`はcloseまで変更を反映しない仕組みですが、すべての外部アプリと共有するDBロックではありません。[ChromeのFile System Accessガイド](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access)と利用ブラウザーの対応を確認します。比較後からcloseまでの間にも外部編集が起きる可能性は残ります。
+
+## 未保存データを復旧できるようにする
+
+操作記録をchrome.storage.localなどへ残し、次に同じファイルを開いたときに、最新内容へ再適用します。保存が完了した操作だけを消し、次の入力が保存中に追加された場合までまとめて消さないようにします。
+
+未知の列と元の行順を保ち、表示用の並べ替えをそのままファイルへ反映しないことも大切です。バックアップの保存先・世代数・復元手順を決め、読み込み直後の元データへ戻せることを確認します。
+
+## 関連記事
+
+- [Chrome拡張でCSVを読み書きする](/articles/vanillajs/chrome-extension-csv-import-export)
+- [ローカルフォルダーの保存権限を扱う](/articles/vanillajs/chrome-extension-filesystem-save)
+- [入力だけを補助し、送信操作を記録する](/articles/vanillajs/human-confirmed-form-automation)

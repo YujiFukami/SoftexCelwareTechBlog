@@ -1,0 +1,60 @@
+---
+title: "VOICEVOXがポート50021で起動しないときのWindows切り分け手順"
+category: "powershell"
+slug: "voicevox-port-bind-troubleshooting"
+tags: ["VOICEVOX", "Windows", "PowerShell", "ポート", "トラブルシュート"]
+description: "VOICEVOX Engineのbindエラーを、使用中ポート・除外範囲・接続先設定から調べます。Errno 13だけで原因を決めず、別ポートで起動した後の疎通確認まで整理します。"
+date: "2026-11-02"
+---
+
+<Term>VOICEVOX</Term>の辞書読み込みが進んでも、最後に`error while attempting to bind`で終了する場合があります。まずログの最終部分を確認し、音声モデルの読込失敗と、HTTPサーバーの待受失敗を区別します。
+
+## 使用中か、利用できない範囲かを調べる
+
+~~~powershell
+Get-NetTCPConnection -LocalPort 50021 -ErrorAction SilentlyContinue
+netsh interface ipv4 show dynamicport tcp
+netsh interface ipv4 show excludedportrange protocol=tcp
+~~~
+
+使用中の接続が見つかれば、所有プロセスと用途を確認します。見つからなくても、除外された範囲やアクセス制御の影響は残ります。Errno 13やWindowsの10013は、単に「別アプリが使っている」とだけ断定できません。[MicrosoftのWinsockエラー説明](https://learn.microsoft.com/en-us/windows/win32/winsock/windows-sockets-error-codes-2)が参考になります。
+
+Windowsの動的ポート範囲は通常49152から65535ですが、設定によって変わります。50021がこの範囲内だから必ず起動できないわけではありません。別番号の50121も同じ範囲内なので、それ自体が恒久対策になるとは限りません。
+
+## 空いている別ポートで起動して接続先を揃える
+
+利用できる番号を確認したら、例として50121で起動します。次のパスは自分のインストール先へ合わせます。外部からの利用が不要ならloopbackで待ち受けます。
+
+~~~powershell
+& 'C:\tools\VOICEVOX\vv-engine\run.exe' --host 127.0.0.1 --port 50121
+~~~
+
+起動したターミナルのログを確認し、別のターミナルからversionへ接続します。
+
+~~~powershell
+Invoke-RestMethod -Uri 'http://127.0.0.1:50121/version'
+$env:VOICEVOX_URL = 'http://127.0.0.1:50121'
+node tools/build-voice.mjs
+~~~
+
+呼び出す側も固定URLを避けて環境変数から読むようにします。
+
+~~~js
+const engineUrl = new URL(process.env.VOICEVOX_URL ?? "http://127.0.0.1:50021");
+const response = await fetch(new URL("version", engineUrl), {
+  signal: AbortSignal.timeout(5000),
+});
+if (!response.ok) throw new Error(`Engine returned ${response.status}`);
+const version = await response.json();
+~~~
+
+versionが返っただけで音声合成まで確認できたとは扱わず、その後に短い原稿で合成を試します。接続先のポートが古いままだと、エンジンが起動していても呼び出し側は失敗します。
+
+## 設定変更を最小限にして記録する
+
+別プロセスをまとめて終了したり、除外範囲を根拠なく削除したりせず、エラー、接続状態、採用したポート、エンジン版を記録します。インストール場所は配布方法や版で変わるため、特定PCのwingetパスをそのまま手順へ固定しないようにします。
+
+## 関連記事
+
+- [長文音声を分割合成する](/articles/audio/chunked-tts-cache-retry)
+- [音声と字幕を同期して配置する](/articles/hyperframes/pdf-report-narration-caption-video)

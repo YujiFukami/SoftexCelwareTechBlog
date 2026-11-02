@@ -1,0 +1,60 @@
+---
+title: "入力は拡張機能、送信は利用者に任せるフォーム補助の設計"
+category: "vanillajs"
+slug: "human-confirmed-form-automation"
+tags: ["Chrome拡張機能", "DOM", "入力補助", "操作記録", "テスト"]
+description: "投稿フォームの入力を補助し、最後の送信操作は利用者が行う設計です。一手ずつの照合、予約と即時送信の取り違え防止、isTrustedの限界、完了推定と保存保留を整理します。"
+date: "2026-11-02"
+---
+
+定型文や日時の入力は減らしたい一方で、最後の送信内容は自分で確かめたい場面があります。<Term>Chrome拡張機能</Term>は入力を補助し、送信ボタンは利用者に押してもらう形にできます。
+
+この設計でも、入力できたこと、ボタンが押されたこと、相手のサービスで登録が成立したことは別々の状態として扱います。
+
+## 定期チェックは通知までにする
+
+バックグラウンドの定期確認は通知を出し、利用者が通知を選んでから対象ページを開きます。開いたタブIDとジョブIDを記録し、準備が整ったときに一度だけ入力処理を注入します。
+
+再注入時は古いリスナーや案内パネルを破棄します。ページ遷移や画面の作り直しを考慮し、単純な登録済みフラグだけで必要な再初期化を抑えないようにします。
+
+## 値を設定した後に実際の内容を読む
+
+本文の挿入後は改行も含めて照合し、既存の下書きを勝手に上書きしません。React等が管理するselectは、ネイティブsetterと変更イベントを使った後で値を確認します。年月を変えると日の選択肢が変わる場合は、要素を探し直します。
+
+~~~js
+function setSelectValue(select, value) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+  setter.call(select, value);
+  select.dispatchEvent(new Event("input", { bubbles: true }));
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  if (select.value !== value) throw new Error("Selection did not match");
+}
+~~~
+
+この例の一致確認だけでは、フレームワーク内部への反映まで保証できません。画面の再描画後に値と予約日時の表示を再確認します。対象サイトのセレクターや入力方式は実装依存です。
+
+## 送信直前に状態を確認する
+
+クリックをcaptureで監視し、予約の設定が確認できない場合は、その操作を止めて理由を示します。警告を一度出しただけで、次のクリックを無条件に通すのは避けます。即時送信へ切り替える場合は、利用者が明示的に選んだことを別の状態として持ちます。
+
+拡張機能がボタンを押し直すと、二重送信や確認の省略につながります。利用者に内容を見直してから、もう一度操作してもらいます。EnterやCtrl+Enter、formのsubmitなど、実際に使われる送信経路も確認します。
+
+`event.isTrusted`は、スクリプトで生成したイベントを除外する手掛かりです。ただし「人間本人が内容を承認した証明」ではありません。ブラウザーの自動化からもtrustedなイベントを作れるため、権限や業務上の本人確認の代わりには使いません。[isTrustedの仕様](https://developer.mozilla.org/en-US/docs/Web/API/Event/isTrusted)も確認してください。
+
+## 送信を観測した状態と成立確認を分ける
+
+入力欄が閉じ、エラーが見えなくなっただけなら、登録成立は推定です。台帳も「送信操作を観測」「成立を推定」「利用者が確認済み」のように意味を分けます。確定できなければ、利用者が手動で記録できる導線を用意します。
+
+CSVへ書けない場合は操作記録を保留し、保存可能になってから競合を確認して反映します。ジョブIDごとに重複記録を防ぎ、同じ完了通知を受けても行を増やしません。
+
+## 模擬画面で確認した範囲を明記する
+
+入力、警告、送信観測、記録を模擬ページでテストすると、サイトへ実投稿せずに基本動作を確認できます。CDPのInput.dispatchMouseEventとelement.click()の両方を使い、イベントの違いも調べます。
+
+元資料の検証は模擬画面までで、実際のX画面は未確認でした。本記事も、特定サービスで現在動作する完成済みの自動投稿コードではありません。導入時は対象画面と利用条件を確認し、送信を伴わない診断から始めます。
+
+## 関連記事
+
+- [ポップアップから入力欄へ文字を挿入する](/articles/vanillajs/chrome-extension-reliable-input-injection)
+- [CSVへ競合検知付きで書き戻す](/articles/vanillajs/local-csv-conflict-safe-writeback)
+- [Chrome拡張の画面をCDPで検証する](/articles/vanillajs/chrome-extension-cdp-realistic-testing)

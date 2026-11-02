@@ -1,0 +1,67 @@
+---
+title: "投稿予定をローカルHTMLのカレンダーにまとめ、日付のずれを防ぐ"
+category: "youtube"
+slug: "local-schedule-calendar-jst"
+tags: ["YouTube Data API", "JavaScript", "タイムゾーン", "カレンダー", "ローカルHTML"]
+description: "収集用Nodeスクリプトと表示用HTMLを分け、YouTubeやCSVの投稿予定を一覧化します。Zと+09:00の正規化、取得時刻と現在時刻の分離、秘密情報を出力しない構成を解説します。"
+date: "2026-11-02"
+---
+
+予約投稿が増えると、媒体ごとの管理画面を開いて予定を確認する作業が増えます。収集用のNodeスクリプトで情報を集め、ローカルHTMLへ渡せば、読み取り専用のカレンダーを作れます。
+
+<Term>YouTube Data API</Term>の認証を持つ収集側と、一覧を表示するだけのページを分けます。APIキーやトークンをHTMLへ埋め込みません。
+
+## 表示用データだけを書き出す
+
+収集結果には、ID、媒体、タイトル、状態、予定日時、リンク、取得時刻を含めます。file://で開くページなら、JSONをfetchする代わりに、表示データを代入するJSをscript srcで読む方法があります。ローカルファイルからの読み込み挙動は利用ブラウザーで確認します。
+
+~~~js
+const serialized = JSON.stringify(schedule).replace(/</g, "\\u003c");
+const dataScript = `window.SCHEDULE = ${serialized};\n`;
+~~~
+
+Node側でこの文字列をUTF-8ファイルへ保存します。タイトルはページ上でtextContentへ入れ、外部由来の文字列をinnerHTMLへ直接渡しません。リンクも許可したURL形式を検査します。
+
+## タイムゾーン付き日時を収集側で揃える
+
+Zと+09:00は異なる表記ですが、同じ瞬間を表せます。例えば`2026-11-06T12:00:00Z`は日本時間の同日21時です。ページを開いたPCの時間帯で再解釈せず、収集側でAsia/Tokyoのdate・timeを作ります。
+
+~~~js
+function toJstFields(value) {
+  const match = String(value).match(
+    /^([1-9]\d{3})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/i
+  );
+  if (!match) throw new Error("An explicit ISO timestamp is required");
+  const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (month < 1 || month > 12 || day < 1 || day > lastDay ||
+      hour > 23 || minute > 59 || second > 59) throw new Error("Invalid calendar date");
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) throw new Error("Invalid timestamp");
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(date).map(part => [part.type, part.value]));
+  return { at: date.toISOString(), timeZone: "Asia/Tokyo",
+    date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
+}
+~~~
+
+タイムゾーンのないCSVの日時は、この関数へそのまま渡しません。「日本時間として読む」など入力規約を決め、形式・日付を検査してから+09:00付きの値へ変換します。
+
+## 取得時刻と今日の判定を分ける
+
+データのgeneratedAtは最後に集めた時刻です。ページを翌日に開いた場合でも、今日の判定は開いた時点の現在時刻から日本時間で求めます。取得から長時間経っていれば、その古さも表示します。
+
+公開済み、未来の公開予約、期限を過ぎても非公開のものを分けます。期限超過は要確認であり、その理由を一つに断定しません。予約のない非公開動画を表示するかは、利用目的に合わせて選びます。
+
+動画の長さやタイトルのハッシュタグだけでは、Shortsか通常動画かを確定できません。自分の台帳の種別を使い、判断できないものは未分類にします。
+
+## ずれやすい日付でテストする
+
+UTCの午後から日本時間の翌日に変わる例、Zと+09:00で同じ瞬間を表す例、閏日、月末、タイムゾーンなし入力、古いデータを翌日に開く場合を確認します。カレンダー側のタイムゾーンを変えても、同じ予定が同じ日本時間の枠に出ることを確かめます。
+
+## 関連記事
+
+- [YouTube Data APIで予約投稿する](/articles/youtube/scheduled-upload-node)
+- [ローカルCSVの競合を検知して保存する](/articles/vanillajs/local-csv-conflict-safe-writeback)

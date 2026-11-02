@@ -1,0 +1,70 @@
+---
+title: "YouTube Data APIで予約投稿するNode.jsツールの設計と確認点"
+category: "youtube"
+slug: "scheduled-upload-node"
+tags: ["YouTube Data API", "Node.js", "OAuth", "予約投稿", "運用"]
+description: "privateとpublishAtを使う予約投稿の基本、接続チャンネルの照合、既存予約との重複回避、アップロード後の状態確認を整理します。再試行で動画を重複登録しない設計も解説します。"
+date: "2026-11-02"
+---
+
+<Term>YouTube Data API</Term>では、動画のアップロードと公開予約をまとめて指定できます。予約日時にローカルPCが動いていなくても公開できる一方、誤ったチャンネルや日時で登録しないための確認が必要です。
+
+ここではNode.jsの投稿ツールを設計する際の要点を整理します。実際のアップロードはチャンネルを書き換える操作なので、対象動画、チャンネル、公開日時を確認してから実行します。
+
+## OAuthで接続したチャンネルを先に確認する
+
+<Term>OAuth</Term>で許可を得た後、`channels.list({ mine: true })`で対象チャンネルを表示します。ブランドアカウントを使う場合も、想定したチャンネルIDに一致するかを確認します。アップロードに必要な権限と、一覧取得・再生リスト操作に必要な権限は、それぞれのAPI仕様で確認します。
+
+認証情報は記事やログへ出さず、トークンの更新時には既存のrefresh tokenを消さないように保存します。外部アプリをTestingのまま使う場合など、更新トークンに有効期限が付く条件も[GoogleのOAuth説明](https://developers.google.com/identity/protocols/oauth2)で確認します。
+
+## privateと未来のpublishAtを指定する
+
+`googleapis`で認証済みのyoutubeクライアントを作った後、次のように呼び出します。configの日時は、タイムゾーン付きISO日時として事前に検証したものを渡します。
+
+~~~js
+import fs from "node:fs";
+
+const when = new Date(config.publishAt);
+if (!Number.isFinite(when.getTime()) || when.getTime() <= Date.now()) {
+  throw new Error("A future publication time is required");
+}
+const result = await youtube.videos.insert({
+  part: ["snippet", "status"],
+  notifySubscribers: false,
+  requestBody: {
+    snippet: {
+      title: config.title,
+      description: config.description,
+      categoryId: config.categoryId,
+    },
+    status: {
+      privacyStatus: "private",
+      publishAt: when.toISOString(),
+    },
+  },
+  media: { body: fs.createReadStream(config.file) },
+});
+const videoId = result.data.id;
+if (!videoId) throw new Error("Upload response did not contain a video ID");
+~~~
+
+子ども向け設定や合成コンテンツの開示など、必要なメタデータは内容に合わせて別途指定します。notifySubscribersは通知の設定であり、非公開や下書きを保証するものではありません。
+
+publishAtにはprivate・未公開などの条件があり、過去日時を指定すると即時公開になる挙動があります。[動画リソースの公式仕様](https://developers.google.com/youtube/v3/docs/videos#status.publishAt)を確認し、アップロード直前にも未来かを検査します。処理時間を見込んだ余裕も必要です。
+
+## 自分の台帳とチャンネルの予約を照合する
+
+空き枠はローカルの投稿履歴だけで決めません。チャンネルのアップロード用再生リストを取得し、playlistItemsをページングし、videos.listでstatusと必要な情報を確認します。Studioから手作業で設定した予約も対象にします。
+
+同時に二つの投稿処理が動くと、同じ空き枠を選ぶ可能性があります。ローカルの実行を直列化し、予約確定後に台帳へ反映します。APIとローカルファイルを一つのトランザクションにできるわけではないため、途中失敗を状態として残します。
+
+## アップロード後にIDと状態を再取得する
+
+動画IDを保存し、privacyStatus、publishAt、処理状態、必要なメタデータを再取得します。サムネイルや再生リスト追加は別の処理なので、失敗時はその部分だけ再実行します。応答が失われた場合にvideos.insertを無条件でやり直すと、動画が重複するおそれがあります。
+
+元資料にはAPI審査や非公開固定についての観測もありましたが、制限・クォータの説明は更新され得ます。過去の事例をすべての現行プロジェクトに適用せず、[videos.insertの現行説明](https://developers.google.com/youtube/v3/docs/videos/insert)と実際の応答を確認します。OAuthアプリの公開状態、利用権限、動画そのものの公開状態は分けて調べます。
+
+## 関連記事
+
+- [投稿予定を日本時間のローカルカレンダーに出す](/articles/youtube/local-schedule-calendar-jst)
+- [APIの日時を扱う前にデータの取得範囲を確認する](/articles/nextjs/supabase-pagination)
