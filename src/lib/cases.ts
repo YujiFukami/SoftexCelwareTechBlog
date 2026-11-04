@@ -18,8 +18,19 @@ export type CaseStudy = {
   externalArticleUrl?: string;
   toolGuideUrl?: string;
   ogImage?: string;
+  video?: {
+    youtubeId: string;
+    title: string;
+    poster: string;
+    availableFrom?: string;
+  };
+  workflow?: string[];
+  mediaNote?: string;
+  relatedCases?: { title: string; slug: string }[];
   images?: {
     src: string;
+    width: number;
+    height: number;
     alt: string;
     caption: string;
   }[];
@@ -28,6 +39,178 @@ export type CaseStudy = {
 };
 
 export const caseStudies: CaseStudy[] = [
+  {
+    slug: "development-brief-maker",
+    title: "お客様向け説明資料メーカー",
+    subtitle: "受託開発の日程と追加費用の考え方を一枚の資料に",
+    category: "ローカルWebアプリ",
+    summary: "一次納品・正式納品の日程、動作確認期間、追加相談の対応方針を図にまとめ、JPEGで保存できるローカル専用Webアプリの開発事例です。",
+    description: [
+      "納品後の相談が無償対応か追加見積もりか、共通の説明図と口頭だけでは案件ごとの条件が伝わりにくいことがあります。案件名と予定日を入れ、その案件の説明資料を作れるようにしました。",
+      "開発の流れに『今ここです』の印を表示。追加相談の内容・報告日・原因を選ぶと、設定したルールに沿って該当経路と理由を表示します。判定は説明の補助であり、契約条件や対応の合意を自動的に確定するものではありません。",
+      "資料はJPEGとして保存し、お客様への説明に利用できます。ローカル専用で運用するツールで、一般公開のWebサービスではありません。",
+    ],
+    stack: ["HTML", "JavaScript", "CSS", "JPEG出力"],
+    highlights: ["案件ごとの納品予定日を反映", "動作確認期間と保守対応期間を図で区別", "相談内容に応じた経路と理由の表示", "説明資料をJPEGで保存"],
+    workflow: ["案件名・予定日を入力", "日程と対応ルールを図示", "追加相談の条件を選択", "資料をJPEGで保存して共有"],
+    ogImage: "/cases/development-brief-maker/cover.webp",
+    video: { youtubeId: "Jz1qas1thAc", title: "受託開発のスケジュール説明と追加費用説明資料作成ツール", poster: "/cases/development-brief-maker/cover.webp" },
+    images: [
+      { src: "/cases/development-brief-maker/screen-1.webp", width: 1462, height: 1064, alt: "説明資料メーカーの条件入力画面", caption: "追加相談の条件を入力する画面。案件ごとの条件を資料に反映します。" },
+      { src: "/cases/development-brief-maker/screen-2.webp", width: 1100, height: 680, alt: "開発日程と現在の段階を示す説明資料", caption: "日程と現在の段階を示した出力例です。日付はサンプルです。" },
+      { src: "/cases/development-brief-maker/screen-3.webp", width: 1100, height: 640, alt: "追加相談の対応経路を示す図", caption: "ツールのルールに沿った対応経路を表示。実際の対応は契約と個別の合意に基づきます。" },
+    ],
+    mediaNote: "動画・画像は公開紹介用に加工した素材です。案件名・日付はサンプルです。",
+    visibility: "public",
+    relatedArticles: [{ title: "記事の流れ図と注釈画像をYAML・固定HTMLから作る", href: "/articles/python-windows/yaml-html-png-article-figures", category: "図解・資料作成" }],
+  },
+  {
+    slug: "farm-direct-sales-gas",
+    title: "農産物の受注・発送管理システム",
+    subtitle: "注文フォームから送り状CSV・発送連絡まで",
+    category: "GAS業務Webアプリ",
+    summary: "スマートフォン対応の注文フォーム、送料計算、受付メール、送り状用CSV、発送連絡をGoogleスプレッドシートとGASでつなぐ農産物直販向けの開発事例です。",
+    description: [
+      "電話やメッセージで受けた注文を一覧へ転記し、送料や発送情報を別々に管理すると手間が増えます。お客様が使う注文フォームと、農園側の受注・発送管理をつなげました。",
+      "商品・数量・届け先をもとに送料と合計金額を計算し、商品ごとの締切や受注上限を管理します。注文の受付メールはお客様と農園の両方へ送信します。",
+      "発送予定日を登録して送り状用CSVを出力し、送り状発行後のデータから番号を取り込んで発送メールを送れます。送り状の発行そのものは外部の配送サービスで行います。",
+    ],
+    stack: ["Google Apps Script", "Googleスプレッドシート", "HTML", "メール送信", "CSV連携"],
+    highlights: ["スマホ対応の注文フォームとカート", "送料・合計金額と受付条件の管理", "お客様と農園への受付メール", "ヤマトB2クラウド取込用CSVの出力", "送り状番号の取込みと発送メール"],
+    workflow: ["フォームから商品を注文", "送料を計算して受付通知", "発送用CSVを出力", "送り状を発行して番号を取込", "発送メールを送信"],
+    ogImage: "/cases/farm-direct-sales-gas/cover.webp",
+    video: { youtubeId: "isHE-6YXPuM", title: "農産物受注販売システムの紹介", poster: "/cases/farm-direct-sales-gas/cover.webp", availableFrom: "2026-11-10T12:00:00+09:00" },
+    images: [
+      { src: "/cases/farm-direct-sales-gas/screen-1.webp", width: 1200, height: 2133, alt: "注文受付から発送連絡までの流れ図", caption: "利用者が行う操作と、システムが行う処理を分けた業務フローです。" },
+      { src: "/cases/farm-direct-sales-gas/screen-2.webp", width: 1200, height: 1652, alt: "送料と合計金額を表示する注文確認画面", caption: "送料と合計金額を確認し、確認事項をチェックして注文する画面です。" },
+      { src: "/cases/farm-direct-sales-gas/screen-3.webp", width: 1200, height: 819, alt: "送り状番号を注文管理へ取り込む画面", caption: "発行済みファイルの送り状番号を注文情報へ取り込みます。" },
+    ],
+    mediaNote: "動画・画像はサンプルデータを使用した公開紹介用素材です。一部の画面は加工しています。",
+    visibility: "anonymous",
+    relatedArticles: [{ title: "GASでShift-JISのCSVを出力する", href: "/articles/gas/google-sheets-shift-jis-csv-export", category: "GAS・CSV" }],
+  },
+  {
+    slug: "dental-estimate-excel",
+    title: "歯科の治療計画・見積書作成ツール",
+    subtitle: "歯の図をクリックし、図入り見積書を作成",
+    category: "Excel VBA・帳票作成",
+    summary: "患者情報の呼び出しから、歯の位置・材料・治療内容の選択、図入り見積書の作成・PDF出力までを支援するExcel VBAツールの匿名事例です。",
+    description: [
+      "治療する歯の位置と治療内容、金額を別々に入力すると、患者向けの説明資料を整える手間がかかります。歯の図から対象を選び、治療計画と見積書をつなげる入力画面を作りました。",
+      "患者を一覧から呼び出し、歯の位置・材料・治療内容をボタンで選択。登録した情報を歯の図と見積明細に反映し、PDFとして出力できます。治療計画の保存と過去の計画の呼び出しにも対応しています。",
+      "歯科医院の説明・見積作成業務を支援するツールで、診断や治療方針を自動決定するものではありません。公開素材に実際の患者情報は使用していません。",
+    ],
+    stack: ["Excel", "VBA", "図形・画像操作", "PDF出力"],
+    highlights: ["患者一覧からの呼び出し", "歯の図から位置・材料・治療内容を選択", "治療内容と金額を見積書へ反映", "図入り見積書のPDF出力", "治療計画の保存・呼び出し"],
+    workflow: ["患者を登録・選択", "歯の位置をクリック", "材料・治療内容を選択", "図入り見積書を作成", "PDFで保存"],
+    ogImage: "/cases/dental-estimate-excel/cover.webp",
+    video: { youtubeId: "GzjkvXgv8dQ", title: "歯科治療計画・見積書作成ツールの紹介", poster: "/cases/dental-estimate-excel/cover.webp" },
+    images: [
+      { src: "/cases/dental-estimate-excel/screen-1.webp", width: 1200, height: 1593, alt: "患者登録から見積書保存までの流れ図", caption: "歯の選択・治療内容の入力から、PDF保存までの流れです。" },
+      { src: "/cases/dental-estimate-excel/screen-2.webp", width: 1200, height: 1658, alt: "歯の図と治療内容の選択ボタン", caption: "位置と材料を視覚的に選択する入力画面の紹介です。" },
+      { src: "/cases/dental-estimate-excel/screen-3.webp", width: 1200, height: 1174, alt: "歯の図と治療内容・金額が並ぶ見積書", caption: "サンプルの治療内容と金額を反映した見積書です。料金の目安を示すものではありません。" },
+    ],
+    externalArticleUrl: "https://www.softex-celware.com/post/dental-treatment-plan-estimate-excel",
+    mediaNote: "動画・画像はサンプルデータを使用した公開紹介用素材です。一部の画面は加工しています。",
+    visibility: "anonymous",
+    relatedArticles: [{ title: "クリックされた図形を取得するExcel VBA汎用関数 GetShapePushed", href: "/articles/vba/get-shape-pushed", category: "Excel VBA" }],
+  },
+  {
+    slug: "csv-medical-report-excel",
+    title: "CSVから日報・週報・月報を作成するツール",
+    subtitle: "受付記録の集計から既定様式への転記まで",
+    category: "Excel VBA・CSV集計",
+    summary: "受付システムのCSVを読み込み、診療科目別・午前午後別の件数を集計し、既定様式の日報・週報・月報を作成するExcel VBAツールの匿名事例です。",
+    description: [
+      "受付記録を数え直して報告書へ転記する作業を、CSVの取込みと帳票作成の流れにまとめました。既存の帳票様式を使いながら、集計と入力の作業を支援する構成です。",
+      "CSV内の期間から作成可能な日・週・月を一覧化し、対象期間を選択して帳票を作成します。診療科目別や午前・午後別の件数、曜日別の件数・一日平均、案内できなかった件数などを整理します。",
+      "複数期間を選ぶと、日ごとのシートを一つのファイルにまとめて出力できます。祝日の一覧を利用し、週・月の区切りを扱います。診療や相談内容の医学的判断は行いません。",
+    ],
+    stack: ["Excel", "VBA", "CSV取込み", "期間別集計", "帳票作成"],
+    highlights: ["CSVの期間から作成対象を一覧化", "診療科目別・午前午後別の集計", "日報・週報・月報の作成", "複数日を1ファイルの複数シートへ出力", "祝日と週・月の区切りに対応"],
+    workflow: ["受付CSVを読み込む", "日・週・月を選択", "区分別に件数を集計", "既定様式の帳票へ出力"],
+    ogImage: "/cases/csv-medical-report-excel/cover.webp",
+    video: { youtubeId: "EpHiJaYmRWg", title: "医療機関案内の帳票作成ツールの紹介", poster: "/cases/csv-medical-report-excel/cover.webp", availableFrom: "2026-11-19T12:00:00+09:00" },
+    mediaNote: "動画はサンプルデータを使用した公開紹介用素材です。一部の画面は加工しています。",
+    visibility: "anonymous",
+    relatedArticles: [{ title: "2つの条件で二次元配列を検索するExcel VBA汎用プロシージャ", href: "/articles/vba/xlookup-2col", category: "Excel VBA" }],
+  },
+  {
+    slug: "restaurant-shift-excel",
+    title: "飲食店のシフト作成・労働時間集計ツール",
+    subtitle: "希望入力から時間帯別の配置、年間集計まで",
+    category: "Excel VBA・シフト管理",
+    summary: "希望勤務時間と必要人数をもとに配置を作成し、不足日の再作成や期間をまたぐ労働時間の集計を行う、飲食店向けExcel VBAツールの匿名事例です。",
+    description: [
+      "シフト希望、時間帯ごとの必要人数、担当業務を照らし合わせる作業をExcel VBAで支援するツールです。希望入力を助ける時刻ボタンと、30分単位の配置処理を組み合わせています。",
+      "希望時間いっぱいに候補を配置してから、条件を満たせる範囲で勤務の端を削る方法を採用。不足が残る日は管理者が出勤者を判断し、その日の配置だけを作り直します。自動処理だけで全条件を必ず満たすという設計ではありません。",
+      "別ブックを含む労働時間の集計、前期間の勤務情報の読み込み、条件付き書式の修復も用意しました。動画中の処理時間はその録画環境での例であり、データ量や実行環境によって変わります。",
+    ],
+    stack: ["Excel", "VBA", "30分単位の配置", "複数ブック集計", "条件付き書式"],
+    highlights: ["選択可能な時刻をボタンで入力", "必要人数と担当を考慮した時間帯別配置", "管理者の判断後、不足日だけ再作成", "前期間の勤務情報を読み込み", "年間労働時間の集計と書式修復"],
+    workflow: ["勤務希望・必要人数を設定", "時間帯ごとの配置を作成", "不足箇所を管理者が確認", "必要な日を再作成", "労働時間を集計"],
+    ogImage: "/cases/restaurant-shift-excel/cover.webp",
+    video: { youtubeId: "8VDlEAzlZjQ", title: "シフト表ツールの工夫6選", poster: "/cases/restaurant-shift-excel/cover.webp", availableFrom: "2026-11-17T12:00:00+09:00" },
+    images: [
+      { src: "/cases/restaurant-shift-excel/screen-1.webp", width: 1600, height: 900, alt: "飲食店向けシフトの時間帯別配置の例", caption: "公開動画からの配置画面。表示される処理時間は録画環境での例です。" },
+      { src: "/cases/restaurant-shift-excel/screen-2.webp", width: 1600, height: 900, alt: "複数ブックの労働時間を年間集計する画面", caption: "従業員名を置き換えた公開用画面。月別の時間と年間合計を確認します。" },
+    ],
+    mediaNote: "動画・画像はサンプルデータを使用した公開紹介用素材です。一部の画面は加工しています。",
+    visibility: "anonymous",
+    relatedCases: [{ title: "保育園のシフト入力・配置人数集計ツール", slug: "nursery-shift-excel" }],
+    relatedArticles: [{ title: "複数シートの集計を名前定義と参照式で一覧化するExcel VBAの設計", href: "/articles/vba/named-range-formula-summary", category: "Excel VBA" }],
+  },
+  {
+    slug: "sewer-survey-drawing-excel",
+    title: "下水道調査の図面作成支援ツール",
+    subtitle: "番号・記号の配置と色分けをキー操作で",
+    category: "Excel VBA・作図支援",
+    summary: "Excelの図面上に丸数字や記号を呼び出し、連番配置・数値変更・色分け・サイズ調整を支援する、下水道調査向けExcel VBAツールの匿名事例です。",
+    description: [
+      "図面上の番号や記号を一つずつコピーし、数字や色を変える作業をまとめて支援しました。テンプレート番号を指定し、マウス位置へ丸数字や登録済みの記号を配置できます。",
+      "続きの番号をキー操作で配置し、数値の増減に合わせて設定した範囲の色へ切り替えます。丸数字の一括拡大・縮小、図形のまとめ選択・削除にも対応しています。",
+      "ショートカットや倍率・色の設定を業務に合わせて調整できる構成です。専用CADへの置き換えではなく、Excelの図形で作る図面の反復操作を支援する事例です。",
+    ],
+    stack: ["Excel", "VBA", "図形操作", "ショートカットキー"],
+    highlights: ["テンプレート番号からマウス位置へ配置", "連番と数値変更をキー操作で実行", "設定した数値範囲に応じた色分け", "丸数字の一括拡大・縮小", "記号登録とキー割当の調整"],
+    workflow: ["テンプレート番号を指定", "図面上へ番号・記号を配置", "キー操作で番号を更新", "色とサイズを整える"],
+    ogImage: "/cases/sewer-survey-drawing-excel/cover.webp",
+    video: { youtubeId: "cssJbPsGD14", title: "下水道調査の図面作成ツールの紹介", poster: "/cases/sewer-survey-drawing-excel/cover.webp", availableFrom: "2026-11-12T12:00:00+09:00" },
+    images: [
+      { src: "/cases/sewer-survey-drawing-excel/screen-1.webp", width: 1200, height: 2133, alt: "図面に番号と数値を配置する流れ図", caption: "利用者の番号指定と、ツールによる配置・色変更の流れです。" },
+      { src: "/cases/sewer-survey-drawing-excel/screen-2.webp", width: 1200, height: 880, alt: "丸数字を呼び出す番号入力画面", caption: "番号を指定し、図面上へ呼び出すための画面です。" },
+      { src: "/cases/sewer-survey-drawing-excel/screen-3.webp", width: 1200, height: 1124, alt: "色分けと拡大縮小倍率の設定シート", caption: "数値の範囲ごとの色と、図形の拡大・縮小倍率を設定します。" },
+    ],
+    mediaNote: "動画・画像はサンプルデータを使用した公開紹介用素材です。一部の画面は加工しています。",
+    visibility: "anonymous",
+    relatedArticles: [{ title: "指定名の図形を取得するExcel VBA汎用関数 GetShapeByName", href: "/articles/vba/get-shape-by-name", category: "Excel VBA" }],
+  },
+  {
+    slug: "nursery-shift-excel",
+    title: "保育園のシフト入力・配置人数集計ツール",
+    subtitle: "シフトとクラスをボタンで入力し、時間と人数を自動集計",
+    category: "Excel VBA・シフト管理",
+    summary: "シフト記号と担当クラスをボタンで入力し、勤務時間の合計・上限超過・クラスごとの配置人数を確認できる、保育園向けExcel VBAツールの匿名事例です。",
+    description: [
+      "毎月の勤務表にシフト記号を入力し、勤務時間とクラス別人数を数える作業を支援しました。セルを選び、シフトと担当クラスのボタンを押す入力方式です。",
+      "勤務時間を計算して月の合計を表示し、設定された上限を超えると赤字で知らせます。クラスごとの配置人数を日ごとに集計し、担当クラスの色と併せて確認できます。",
+      "年・月に応じて曜日や設定の上限時間を切り替え、常勤・パートを分けて管理します。最終的な配置調整は担当者が行います。表示人数や色だけで法令上の配置基準への適合を保証するものではありません。",
+    ],
+    stack: ["Excel", "VBA", "勤務時間集計", "配置人数集計"],
+    highlights: ["シフト記号とクラスをボタン入力", "日ごと・月ごとの勤務時間を集計", "設定上限の超過を赤字表示", "クラス別の配置人数を自動集計", "年月による日付・曜日の切替"],
+    workflow: ["年月と休み・行事を入力", "シフトとクラスをボタン入力", "勤務時間と人数を自動集計", "不足箇所を見て調整"],
+    ogImage: "/cases/nursery-shift-excel/cover.webp",
+    video: { youtubeId: "hB1k73gfGj4", title: "保育園のシフト表作成ツールの紹介", poster: "/cases/nursery-shift-excel/cover.webp", availableFrom: "2026-11-05T12:00:00+09:00" },
+    images: [
+      { src: "/cases/nursery-shift-excel/screen-1.webp", width: 1200, height: 2133, alt: "保育園の月間シフト表を作る流れ図", caption: "担当者による入力・調整と、自動集計を分けた流れです。" },
+      { src: "/cases/nursery-shift-excel/screen-2.webp", width: 1200, height: 730, alt: "シフトとクラスのボタン付き入力シート", caption: "デモデータの入力シート。記号と担当クラスをボタンから入力します。" },
+      { src: "/cases/nursery-shift-excel/screen-3.webp", width: 1200, height: 674, alt: "クラスごとの配置人数を示す集計表", caption: "日ごとの人数を確認し、担当者が配置を調整します。" },
+    ],
+    mediaNote: "動画・画像はデモデータを使用した公開紹介用素材です。一部の画面は加工しています。",
+    visibility: "anonymous",
+    relatedCases: [{ title: "飲食店のシフト作成・労働時間集計ツール", slug: "restaurant-shift-excel" }],
+    relatedArticles: [{ title: "図形ボタンで選択セルの値を増減するExcel VBA汎用プロシージャ", href: "/articles/vba/down-up-value-by-move-button", category: "Excel VBA" }],
+  },
   {
     slug: "gas-photo-report-webapp",
     title: "写真付き現場報告書作成Webアプリ",
@@ -51,22 +234,22 @@ export const caseStudies: CaseStudy[] = [
     ogImage: "/articles/gas/construction-photo-report-webapp/cover.png",
     images: [
       {
-        src: "/articles/gas/construction-photo-report-webapp/cover.png",
+        src: "/articles/gas/construction-photo-report-webapp/cover.png", width: 1731, height: 909,
         alt: "工事現場向け写真報告書Webアプリのカバー画像",
         caption: "現場写真の撮影・入力からDrive保存、PDF報告書作成までの流れをまとめたカバー画像です。",
       },
       {
-        src: "/cases/gas-photo-report/09-usage-form.jpg",
+        src: "/cases/gas-photo-report/09-usage-form.jpg", width: 4258, height: 2559,
         alt: "写真付き報告書作成Webアプリの入力画面",
         caption: "スマートフォンから写真と選択項目を登録する入力画面です。",
       },
       {
-        src: "/cases/gas-photo-report/11-output-result.jpg",
+        src: "/cases/gas-photo-report/11-output-result.jpg", width: 2490, height: 2870,
         alt: "Driveに保存された画像とPDF報告書の出力結果",
         caption: "送信ごとに専用フォルダを作り、画像とPDFをまとめて保存します。",
       },
       {
-        src: "/cases/gas-photo-report/02-report-template.jpg",
+        src: "/cases/gas-photo-report/02-report-template.jpg", width: 1143, height: 1649,
         alt: "Googleスプレッドシートの写真付き報告書テンプレート",
         caption: "スプレッドシートを帳票テンプレートとして使い、写真付きPDFへ変換します。",
       },

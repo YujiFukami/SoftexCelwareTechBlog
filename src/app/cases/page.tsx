@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import { getAllCases } from "@/lib/cases";
 
 export const metadata: Metadata = {
@@ -25,56 +26,66 @@ export default function CasesPage() {
           開発事例
         </h1>
         <p className="max-w-3xl text-base leading-7 text-gray-600">
-          このTech Blogで紹介している技術記事が、どのようなアプリやツール開発で
-          実際に使われているかを整理したページです。各事例ページから、関連する
-          技術記事へたどれるようにしていきます。
+          Excel VBA・GAS・Webアプリなど、現場の業務に合わせて作ったツールを
+          紹介しています。動画や画面とともに、できること・業務の流れ・設計の
+          ポイントをご覧いただけます。
+        </p>
+        <p className="mt-3 text-sm text-gray-500">
+          全{cases.length}件 / 紹介動画付き {cases.filter((item) => item.video).length}件（公開予定を含む）
         </p>
       </header>
 
-      <section className="mb-10 rounded-lg border border-blue-100 bg-blue-50 p-5">
-        <h2 className="mb-3 text-lg font-semibold text-gray-900">
-          今後の整理方針
-        </h2>
-        <p className="text-sm leading-7 text-gray-700">
-          まずは開発事例の入口を作り、各事例ページに関連技術記事を紐づけます。
-          今後は、技術記事側からも該当する開発事例へ戻れるようにし、実装ノウハウと
-          実際の成果物を相互に参照できる構成に拡張していきます。
-        </p>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-2">
+      <section aria-label="開発事例一覧" className="grid items-start gap-6 md:grid-cols-2">
         {cases.map((caseStudy) => (
           <Link
             key={caseStudy.slug}
             href={`/cases/${caseStudy.slug}`}
-            className="group block rounded-lg border border-gray-200 p-5 transition-colors hover:border-blue-300 hover:bg-blue-50/40"
+            className="group block min-w-0 overflow-hidden rounded-lg border border-gray-200 transition-colors hover:border-blue-300 hover:bg-blue-50/40"
           >
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
-                {caseStudy.category}
-              </span>
-              <span className="rounded bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
-                {visibilityLabels[caseStudy.visibility]}
-              </span>
-            </div>
-            <h2 className="text-xl font-bold text-gray-900 group-hover:text-blue-700">
-              {caseStudy.title}
-            </h2>
-            <p className="mt-1 text-sm font-medium text-gray-500">
-              {caseStudy.subtitle}
-            </p>
-            <p className="mt-3 text-sm leading-7 text-gray-600">
-              {caseStudy.summary}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {caseStudy.stack.slice(0, 5).map((item) => (
-                <span
-                  key={item}
-                  className="rounded bg-white px-2 py-1 text-xs text-gray-600 ring-1 ring-gray-200"
-                >
-                  {item}
+            {caseStudy.ogImage && (
+              <div className="relative aspect-video bg-gray-50">
+                <Image
+                  src={caseStudy.ogImage}
+                  alt={caseStudy.title}
+                  fill
+                  sizes="(max-width: 767px) 100vw, 480px"
+                  className="object-contain"
+                />
+                {caseStudy.video && (
+                  <span className="absolute bottom-2 right-2 rounded bg-gray-900 px-2 py-1 text-xs font-medium text-white">
+                    紹介動画
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="p-5">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                  {caseStudy.category}
                 </span>
-              ))}
+                <span className="rounded bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                  {visibilityLabels[caseStudy.visibility]}
+                </span>
+              </div>
+              <h2 className="text-xl font-bold text-gray-900 group-hover:text-blue-700">
+                {caseStudy.title}
+              </h2>
+              <p className="mt-1 text-sm font-medium text-gray-500">
+                {caseStudy.subtitle}
+              </p>
+              <p className="mt-3 text-sm leading-7 text-gray-600">
+                {caseStudy.summary}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {caseStudy.stack.slice(0, 5).map((item) => (
+                  <span
+                    key={item}
+                    className="rounded bg-white px-2 py-1 text-xs text-gray-600 ring-1 ring-gray-200"
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
             </div>
           </Link>
         ))}

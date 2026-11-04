@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
+import CaseVideo from "@/components/CaseVideo";
 import { notFound } from "next/navigation";
 import { getAllCases, getCaseBySlug } from "@/lib/cases";
 import { DEFAULT_OG_IMAGE, SITE_NAME, TWITTER_CARD } from "@/lib/seo";
@@ -25,8 +27,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const image = caseStudy.ogImage
     ? {
         url: caseStudy.ogImage,
-        width: 1731,
-        height: 909,
         alt: caseStudy.title,
       }
     : DEFAULT_OG_IMAGE;
@@ -86,6 +86,23 @@ export default async function CaseDetailPage({ params }: Props) {
         <p className="text-base leading-8 text-gray-700">{caseStudy.summary}</p>
       </header>
 
+      {caseStudy.video ? (
+        <CaseVideo {...caseStudy.video} />
+      ) : caseStudy.ogImage ? (
+        <div className="relative mb-8 aspect-video">
+          <Image
+            src={caseStudy.ogImage}
+            alt={caseStudy.title}
+            fill
+            sizes="(max-width: 896px) 100vw, 864px"
+            className="object-contain"
+          />
+        </div>
+      ) : null}
+      {caseStudy.mediaNote && (
+        <p className="mb-6 text-sm leading-6 text-gray-500">{caseStudy.mediaNote}</p>
+      )}
+
       <div className="mb-8 flex flex-wrap gap-3">
         {caseStudy.projectUrl && (
           <a
@@ -137,6 +154,22 @@ export default async function CaseDetailPage({ params }: Props) {
           </div>
         </section>
 
+        {caseStudy.workflow && (
+          <section>
+            <h2 className="mb-3 text-xl font-bold text-gray-900">業務の流れ</h2>
+            <ol className="grid gap-3 border-y border-gray-200 py-4 sm:grid-cols-2">
+              {caseStudy.workflow.map((step, index) => (
+                <li key={step} className="flex min-w-0 items-start gap-3 text-sm leading-7 text-gray-700">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-50 font-semibold text-blue-700">
+                    {index + 1}
+                  </span>
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+
         <section>
           <h2 className="mb-3 text-xl font-bold text-gray-900">使用技術</h2>
           <div className="flex flex-wrap gap-2">
@@ -167,23 +200,43 @@ export default async function CaseDetailPage({ params }: Props) {
             <h2 className="mb-3 text-xl font-bold text-gray-900">
               画面・出力イメージ
             </h2>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-6">
               {caseStudy.images.map((image) => (
                 <figure
                   key={image.src}
                   className="overflow-hidden rounded-lg border border-gray-200 bg-white"
                 >
-                  <img
-                    src={image.src}
-                    alt={image.alt}
-                    className="h-auto w-full"
-                  />
+                  <a href={image.src} target="_blank" rel="noopener noreferrer" aria-label={`${image.alt}を拡大（別タブ）`}>
+                    <Image
+                      src={image.src}
+                      alt={image.alt}
+                      width={image.width}
+                      height={image.height}
+                      sizes="(max-width: 896px) 100vw, 864px"
+                      className="mx-auto h-auto max-h-[850px] max-w-full object-contain"
+                    />
+                  </a>
                   <figcaption className="border-t border-gray-100 px-4 py-3 text-sm leading-6 text-gray-600">
                     {image.caption}
                   </figcaption>
                 </figure>
               ))}
             </div>
+          </section>
+        )}
+
+        {caseStudy.relatedCases && (
+          <section>
+            <h2 className="mb-3 text-xl font-bold text-gray-900">あわせて見たい開発事例</h2>
+            <ul className="space-y-2 text-sm">
+              {caseStudy.relatedCases.map((item) => (
+                <li key={item.slug}>
+                  <Link href={`/cases/${item.slug}`} className="text-blue-700 underline underline-offset-4">
+                    {item.title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </section>
         )}
 
