@@ -25,12 +25,14 @@ export type CaseStudy = {
     availableFrom?: string;
   };
   workflow?: string[];
+  workflowTitle?: string;
   mediaNote?: string;
   relatedCases?: { title: string; slug: string }[];
   images?: {
     src: string;
     width: number;
     height: number;
+    title?: string;
     alt: string;
     caption: string;
   }[];
@@ -39,6 +41,109 @@ export type CaseStudy = {
 };
 
 export const caseStudies: CaseStudy[] = [
+  {
+    slug: "excel-vba-3d-rubiks-cube",
+    title: "Excelの図形だけで動く3Dルービックキューブ",
+    subtitle: "12クラスで幾何計算・描画・回転状態を分けた自主制作",
+    category: "Excel VBA・3D描画",
+    summary: "Excelの平面図形を組み合わせ、立体の回転・陰影・前後関係を表現する自主制作プログラムです。2022年1月に制作し、ベクトルや行列による計算から、回転履歴の逆再生までをVBAで実装しました。",
+    description: [
+      "ワークシート上で動くキューブは、動画や3Dモデルを貼り付けたものではなく、Excelの図形の集まりです。空間内の頂点を画面上の座標へ変換し、面を多角形として描くことで立体に見せています。",
+      "設計の中心は12個のクラスです。ベクトル・直線・平面の計算、空間の形、Excelへの描画、立方体、キューブ全体と回転管理を分けています。計算と描画、見た目と状態を混ぜずに扱う構成が、この作品の技術的なポイントです。",
+      "各コマでは、視点に応じた座標を計算し、面の前後関係を判定して図形を重ね、光の向きに応じて色を調整します。見た目を少しずつ回す処理とは別に、90度ごとに部品の配置を3次元配列へ反映します。",
+      "一辺の個数を変える構成で、紹介素材には1×1・2×2・5×5の例があります。内部に隠れる部品を描画対象から省くなど、表示しない要素を作らない工夫も取り入れています。大きさにかかわらず一定の速度で動くことを保証するものではありません。",
+      "そろった状態へ戻す機能は、記録した回転を逆順・逆方向に実行する仕組みです。任意の配置から最短手順を探索する自動解法ではありません。操作履歴と再生を分ける設計は、編集ツールなどの状態管理を考えるうえでも参考になります。",
+    ],
+    stack: ["Excel", "VBA", "クラスモジュール", "ベクトル・行列", "図形描画", "3次元配列"],
+    highlights: [
+      "12クラスを数学・形・描画・部品・全体の5層に整理",
+      "視点の基底ベクトルと逆行列から、画面に描く座標を計算",
+      "Shapes.AddPolylineで面をExcelの多角形として描画",
+      "裏向きの面を除き、交点と多角形の内外判定で面の前後を比較",
+      "光と面の向きから色の明るさを計算",
+      "連続的な見た目の回転と、90度単位の配列更新を分離",
+      "回転の軸・段・回数・方向を記録して逆再生",
+    ],
+    workflowTitle: "描画と回転の流れ",
+    workflow: ["視点と部品の向きを計算", "頂点を画面座標へ変換", "面の前後と陰影を反映して描画", "回転を進め、90度ごとに配列と履歴を更新"],
+    ogImage: "/cases/excel-vba-3d-rubiks-cube/cover.webp",
+    externalArticleUrl: "https://www.softex-celware.com/post/excel-vba-3d-rubiks-cube-shapes",
+    video: {
+      youtubeId: "Y2DAQUtxfS4",
+      title: "Excelの図形だけで動く3Dルービックキューブの技術解説・本編",
+      poster: "/cases/excel-vba-3d-rubiks-cube/cover.webp",
+      availableFrom: "2026-11-13T12:00:00+09:00",
+    },
+    images: [
+      {
+        src: "/cases/excel-vba-3d-rubiks-cube/05_proof2.webp", width: 1600, height: 900,
+        title: "1. 立体の正体は、一枚ずつ選べるExcelの図形",
+        alt: "Excelのキューブから図形を引き抜き、内側の黒い面まで見せた画面",
+        caption: "描画済みの面を動かすと、一枚ずつの図形に分かれます。元の立体には3次元の座標を持たせていますが、画面に出しているのはExcelの平面図形です。計算した座標と描く順番を組み合わせ、立体の見え方を作っています。",
+      },
+      {
+        src: "/cases/excel-vba-3d-rubiks-cube/03_layers.webp", width: 1600, height: 900,
+        title: "2. 12クラスを5つの層へ分ける",
+        alt: "数学・形・描画・部品・全体の5層に分けた12クラスの構成図",
+        caption: "数学の層はclsVector3D・clsLineEq・clsPlateEq、形の層はclsPlate3D・clsLine3Dが担当します。描画の層を通してExcelの図形へ変換し、clsCubeが部品、clsRubiksCubeとclsRubiksCubeRotationが全体と回転状態を管理します。役割を分け、幾何計算を表示処理から切り離しています。",
+      },
+      {
+        src: "/cases/excel-vba-3d-rubiks-cube/07_vectors.webp", width: 1600, height: 900,
+        title: "3. 基準点と方向ベクトルで立方体を表す",
+        alt: "立方体の基準点・X方向・Y方向と外積による向きの表現",
+        caption: "立方体は基準点とX・Y方向のベクトルを持ち、残るZ方向を外積から求めます。回転行列でこれらを更新し、各面の位置を再計算する構成です。画面に描いた四角形を直接動かすのではなく、元の3次元情報を更新して描き直します。",
+      },
+      {
+        src: "/cases/excel-vba-3d-rubiks-cube/09_project2.webp", width: 1600, height: 900,
+        title: "4. 3次元の頂点から、描画用の2次元座標へ",
+        alt: "視点からの座標変換とAddPolylineによる多角形の描画",
+        caption: "視点の右・前・上のベクトルで作った行列の逆行列を使い、頂点を視点基準の座標へ変換します。この実装では左右・上下の角度から画面上の位置を求め、頂点の座標配列をShapes.AddPolylineに渡して面を描きます。Excel側に3D描画を任せず、計算結果を平面図形へ変換しています。",
+      },
+      {
+        src: "/cases/excel-vba-3d-rubiks-cube/12_judge.webp", width: 1600, height: 900,
+        title: "5. 面を2枚ずつ比べて、正しい重なり順を決める",
+        alt: "視点からの直線と平面の交点を使う面の前後判定図",
+        caption: "裏を向く面は描画対象から外し、残る面について視点からの直線と平面の交点を求めます。交点が多角形の内側にあるかと距離を調べ、2枚の前後関係を比較。比較結果を順位に整理して奥から描くことで、後から描いた面が意図せず前に出る問題へ対応しています。",
+      },
+      {
+        src: "/cases/excel-vba-3d-rubiks-cube/14_light.webp", width: 1600, height: 900,
+        title: "6. 光の向きから面ごとの明るさを計算",
+        alt: "光源と面の向きに応じてキューブの色の明るさを変える図",
+        caption: "各面を同じ明るさで塗るだけでなく、光と面の向きに応じて色の強さを変えています。光の角度などから算出した明るさを面の色に反映することで、平面図形の集まりでも向きや奥行きを把握しやすくしています。",
+      },
+      {
+        src: "/cases/excel-vba-3d-rubiks-cube/15_dual.webp", width: 1600, height: 900,
+        title: "7. 見た目の回転と、配置データを別々に管理",
+        alt: "少しずつ回す見た目と90度ごとに入れ替える配列の比較",
+        caption: "アニメーションでは角度を少しずつ進めます。一方、『どの位置にどの部品があるか』は名前を格納した3次元配列で持ち、90度回り切った時点で配置を更新します。途中の見た目と、操作が確定した状態を区別する設計です。",
+      },
+      {
+        src: "/cases/excel-vba-3d-rubiks-cube/16_array.webp", width: 1600, height: 900,
+        title: "8. 対象の段を2次元配列として回転",
+        alt: "3次元配列から段を取り出し90度回転させて戻す図",
+        caption: "回す軸と段に応じて3次元配列の一面を取り出し、2次元配列上で90度の入れ替えを行ってから元へ戻します。回転する部品の選択と配置の更新を配列処理へまとめ、描画用の座標計算とは分離しています。",
+      },
+      {
+        src: "/cases/excel-vba-3d-rubiks-cube/17_undo.webp", width: 1600, height: 900,
+        title: "9. 操作ログを逆順・逆方向に再生して元へ戻す",
+        alt: "回転のログを下から逆向きに実行して元の状態へ戻す図",
+        caption: "軸・段・回数・方向を記録し、後から逆順にたどって方向を反転させます。既知の操作を取り消す仕組みなので、完成状態から崩した履歴を戻せます。ここでの『元に戻す』は解法探索ではなく、説明図のログ数値も仕組みを示すための例です。",
+      },
+      {
+        src: "/cases/excel-vba-3d-rubiks-cube/18_anyn.webp", width: 1600, height: 900,
+        title: "10. 個数をパラメーター化し、見えない内部は省く",
+        alt: "1×1・2×2・5×5の表示例と、内部の部品を作らない構成",
+        caption: "一辺の個数を変えて構成できる設計です。5×5では全125位置のうち内部27個を除き、外側の98個を扱います。表示に関係しない部品を作らない工夫ですが、個数が増えるほど面の計算・比較・描画の負荷も増えるため、対応サイズや速度は実行環境に依存します。",
+      },
+    ],
+    mediaNote: "2022年1月に制作した自主制作プログラムを、公開紹介用の本編動画・図解で解説しています。回転ログの数値は説明用の例です。",
+    visibility: "public",
+    relatedCases: [{ title: "図形操作を業務ツールに活かした歯科の治療計画・見積書作成", slug: "dental-estimate-excel" }],
+    relatedArticles: [
+      { title: "Excel VBAの処理を汎用部品として残すための考え方", href: "/articles/vba/vba-componentization-technique", category: "Excel VBA・設計" },
+      { title: "指定名の図形を取得するExcel VBA汎用関数 GetShapeByName", href: "/articles/vba/get-shape-by-name", category: "Excel VBA・図形" },
+    ],
+  },
   {
     slug: "development-brief-maker",
     title: "お客様向け説明資料メーカー",

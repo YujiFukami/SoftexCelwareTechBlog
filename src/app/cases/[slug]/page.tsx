@@ -156,7 +156,7 @@ export default async function CaseDetailPage({ params }: Props) {
 
         {caseStudy.workflow && (
           <section>
-            <h2 className="mb-3 text-xl font-bold text-gray-900">業務の流れ</h2>
+            <h2 className="mb-3 text-xl font-bold text-gray-900">{caseStudy.workflowTitle ?? "業務の流れ"}</h2>
             <ol className="grid gap-3 border-y border-gray-200 py-4 sm:grid-cols-2">
               {caseStudy.workflow.map((step, index) => (
                 <li key={step} className="flex min-w-0 items-start gap-3 text-sm leading-7 text-gray-700">
@@ -217,7 +217,8 @@ export default async function CaseDetailPage({ params }: Props) {
                     />
                   </a>
                   <figcaption className="border-t border-gray-100 px-4 py-3 text-sm leading-6 text-gray-600">
-                    {image.caption}
+                    {image.title && <h3 className="mb-2 text-base font-semibold text-gray-900">{image.title}</h3>}
+                    <p>{image.caption}</p>
                   </figcaption>
                 </figure>
               ))}
