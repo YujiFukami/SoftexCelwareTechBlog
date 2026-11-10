@@ -1,0 +1,68 @@
+---
+title: "openpyxlで読めないxlsmのハイパーリンクをXMLから取り出す"
+category: "python-windows"
+slug: "openpyxl-xlsm-hyperlink-xml"
+tags: ["Python", "openpyxl", "Excel", "XML", "ハイパーリンク"]
+description: "openpyxlのread_onlyではハイパーリンクが取れず、通常モードでは図形のXMLでValueErrorになるxlsmから、URLだけを取り出す方法です。xlsmをZIPとして開き、シートのXMLとrelsを照合します。"
+date: "2026-11-10"
+---
+
+セルの表示が「●」などの記号だけで、実体のURLはハイパーリンクにだけ入っている<Term>Excel</Term>の表を、<Term>Python</Term>で読み取りたい場面があります。
+
+<Term>openpyxl</Term>で読もうとすると、次の両方に当たることがあります。
+
+- `read_only=True`で開くと、ハイパーリンクを取得できない
+- 通常モードで開くと、図形の情報が原因で`ValueError: Max value is 52`（`pitchFamily`）となり、ブック全体を読めない
+
+## xlsmをZIPとして直接読む
+
+xlsmの実体は<Term>ZIPファイル</Term>です。値は`read_only=True`で読み、ハイパーリンクだけシートのXMLと関連付けファイル（rels）から取得して、セルの番地で突き合わせます。
+
+~~~python
+import xml.etree.ElementTree as ET
+import zipfile
+
+M = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+NS = {"m": M}
+
+with zipfile.ZipFile("book.xlsm") as z:
+    workbook = ET.fromstring(z.read("xl/workbook.xml"))
+    rid = next(
+        s.get(f"{{{R}}}id")
+        for s in workbook.find("m:sheets", NS)
+        if s.get("name") == "シート名"
+    )
+
+    book_rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+    target = next(r.get("Target") for r in book_rels if r.get("Id") == rid)
+    name = target.split("/")[-1]
+
+    sheet = ET.fromstring(z.read(f"xl/worksheets/{name}"))
+    sheet_rels = ET.fromstring(z.read(f"xl/worksheets/_rels/{name}.rels"))
+
+rels = {r.get("Id"): r.get("Target") for r in sheet_rels}
+links = {
+    h.get("ref"): rels.get(h.get(f"{{{R}}}id"))
+    for h in sheet.findall("m:hyperlinks/m:hyperlink", NS)
+}
+
+print(links.get("D9"))  # セルD9のURL
+~~~
+
+処理の流れは、ブック内のシート名から関係IDを求め、関係IDからシートのファイル名を求め、シートの`hyperlink`要素と関連付けファイルを結び付ける、というものです。
+
+## 注意点
+
+`=HYPERLINK()`の数式で作られたリンクは、ここでは取得できません。セルの数式（`<f>`要素）に入っているので、別に読み取ります。
+
+`hyperlinks`要素が1つもないシートは、シートのrelsファイルが存在しないことがあります。その場合は`z.read`で`KeyError`になるため、対象シートが決まっていない処理では、存在を確認してから読みます。
+
+`read_only=True`の行は、シートの先頭行から順に数えます。値とリンクの行がずれていないかは、見出しの行で確かめます。
+
+ブックを開いている最中でも読めるように、ファイルをコピーしてから読むのが安全です。元のブックには書き込みません。読み取りの方式の違いは、[openpyxlの公式ドキュメント](https://openpyxl.readthedocs.io/en/stable/optimized.html)で確認できます。
+
+## 関連記事
+
+- [ZIPファイル内の一覧を取得するExcel VBA汎用プロシージャ](/articles/vba/getfilelistinzip)
+- [記事の流れ図と注釈画像をYAML・固定HTMLから作る](/articles/python-windows/yaml-html-png-article-figures)

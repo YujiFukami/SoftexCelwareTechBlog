@@ -1,0 +1,78 @@
+---
+title: "noteの本文へ見出しや太字を崩さずに貼り付ける：クリップボードにHTMLを載せる"
+category: "vanillajs"
+slug: "note-editor-html-clipboard-paste"
+tags: ["note", "クリップボード", "JavaScript", "HTML", "Markdown"]
+description: "noteのエディタへMarkdownで原稿を貼ると、かっこ付きの太字などで記号が残ることがあります。クリップボードにtext/htmlを載せて貼る方法と、対応している要素、file://のページでも動くコピー処理を説明します。"
+date: "2026-11-10"
+---
+
+noteのエディタへ原稿を貼り付けるとき、<Term>Markdown</Term>の文字で貼ると、見出しや太字に変換されます。ただし、`**「かっこ付きの太字」**が続く`のように閉じる記号の直前が約物だと、`**`が文字として残ります。これは[CommonMark](https://spec.commonmark.org/0.31.2/)の強調の判定規則によるものです。
+
+<Term>クリップボード</Term>に`text/html`を載せて貼り付けると、この問題を避けられます。
+
+## HTMLで貼り付けた結果
+
+2026年11月10日に実際のエディタで確認した結果です。
+
+| 要素 | 結果 |
+|---|---|
+| h2、h3 | 入る |
+| strong（かっこ付きの太字を含む） | 崩れずに入る |
+| br、ul、ol、blockquote、hr | 入る |
+| a | 入る |
+| 段落の中のYouTubeのURL | 埋め込みにならず、文字のまま |
+
+YouTubeの埋め込みは、エディタ上で別途入れる必要があります。
+
+## コピーの実装
+
+`file://`で開いたローカルのページでも動くよう、`navigator.clipboard`ではなく`copy`イベントで書き込みます。
+
+~~~js
+function copyData(map) {
+  const ta = document.createElement("textarea");
+  ta.value = " ";
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+
+  const handler = (e) => {
+    for (const k in map) e.clipboardData.setData(k, map[k]);
+    e.preventDefault();
+  };
+  document.addEventListener("copy", handler);
+
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch (e) {}
+
+  document.removeEventListener("copy", handler);
+  ta.remove();
+  return ok;
+}
+
+copyData({ "text/html": html, "text/plain": markdown });
+~~~
+
+`text/plain`にも元の原稿を入れておくと、HTMLを受け付けない貼り付け先でも使えます。
+
+`document.execCommand`は非推奨とされている機能です。ブラウザの更新で動かなくなる可能性があるので、戻り値を確認して、失敗時には手動でコピーする案内を出します。[`copy`イベントの説明](https://developer.mozilla.org/ja/docs/Web/API/Element/copy_event)も参考にしてください。
+
+## 画像と投稿の補足
+
+- 新しい記事は`https://note.com/notes/new`で開ける
+- カバー画像や本文のGIFは、ファイル選択画面の「ファイル名」欄へフルパスを貼ると選べる
+- PNGはクリップボードから`Ctrl+V`で本文に入れられる
+- カバー画像の寸法は1280×670で作った。HTMLを`chrome --headless=new --window-size=1280,670 --screenshot`で書き出すと、この寸法どおりになる
+
+## JavaScriptでWindowsのパスを扱うときの注意
+
+`String.raw`のテンプレート文字列で、末尾が`\`のWindowsのパスを書くと、バッククォートが閉じていないものとして扱われます。通常の文字列で`"C:\\sample\\"`のように書きます。
+
+## 関連記事
+
+- [Chrome拡張のクリップボードコピーをオフスクリーン文書へ集約する](/articles/vanillajs/chrome-extension-offscreen-clipboard)
+- [Wixブログ記事をREST APIとPythonで自動投稿する方法](/articles/wix/wix-blog-rest-api-python-auto-post)

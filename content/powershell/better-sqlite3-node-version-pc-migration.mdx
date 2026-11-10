@@ -1,0 +1,65 @@
+---
+title: "PC移行後にbetter-sqlite3が入らないときは、アプリが使うNodeの版を指定する"
+category: "powershell"
+slug: "better-sqlite3-node-version-pc-migration"
+tags: ["better-sqlite3", "Node.js", "npm", "Windows", "PC移行", "トラブルシュート"]
+description: "PCの買い替えやSSD移行の後、npm ciでbetter-sqlite3のビルドに失敗する原因と対処です。PC全体のNodeを変えずに、アプリが使う版の完成品を取得する方法と、NODE_MODULE_VERSION不一致への注意を説明します。"
+date: "2026-11-10"
+---
+
+PCを買い替えたりSSDを引っ越したりした後、以前作った<Term>Node.js</Term>アプリで`npm ci`を実行すると、<Term>better-sqlite3</Term>のインストールで失敗することがあります。
+
+~~~text
+prebuild-install warn install No prebuilt binaries found (target=24.20.0 runtime=node arch=x64 ...)
+gyp ERR! find VS You need to install the latest version of Visual Studio
+including the "Desktop development with C++" workload.
+~~~
+
+Visual Studioを入れる前に、原因を確認します。
+
+## 原因は2つの重なり
+
+1. 新しいPCのNode.jsが新しく（例：v24）、固定しているbetter-sqlite3（例：11.10）にそのNode用の完成品がない
+2. 完成品がないのでC++でビルドしようとするが、Visual StudioのC++環境がない
+
+アプリを旧環境の版で動かしてよいなら、C++環境を用意するより、その版の完成品を取得する方が早く済みます。
+
+## PC全体のNodeを変えずに完成品を取得する
+
+アプリが本来使うNode.jsの版を指定して、依存パッケージを入れ直します。配布用に`node.exe`を同梱している場合は、その版に合わせます。
+
+~~~bash
+# 同梱しているnode.exeの版を確認
+dist/app/node/node.exe -v          # 例: v20.15.0
+
+# その版用の完成品を取得する
+npm_config_target=20.15.0 npm_config_runtime=node npm ci
+
+# 起動とテストも同じnode.exeで行う
+dist/app/node/node.exe src/index.js
+dist/app/node/node.exe --test test/
+~~~
+
+他の案件のために、PC全体のNode.jsは新しいまま残せます。
+
+## 注意点
+
+`node_modules`は旧PCからコピーしません。better-sqlite3のようなネイティブ部品は、Node.jsの版に紐づいています。robocopyで移す場合は`/XD node_modules`で除外し、移行先で入れ直します。
+
+この方法で入れた部品はv20用です。PC全体のv24で`npm start`や`.bat`を起動すると、`NODE_MODULE_VERSION`の不一致で落ちます。あくまで指定した`node.exe`で実行してください。
+
+恒久的に解決する場合は、次のいずれかを選びます。
+
+- 開発用にNode 20を用意する
+- [better-sqlite3](https://github.com/WiseLibs/better-sqlite3)を新しいNodeに対応した版へ上げ、配布物の同梱Nodeも上げる
+
+## 別ドライブのリポジトリが使えないとき
+
+PCを移行した後に別ドライブのリポジトリで<Term>Git</Term>を実行すると、所有者の情報が以前のユーザーのままで`dubious ownership`エラーが出ることがあります。
+
+リモートに最新があるなら、新しい作業場所へcloneし直すのが簡単です。設定で例外を増やす前に、古い場所にしかない変更がないかを、ファイルの比較で確かめておくと安心です。
+
+## 関連記事
+
+- [Node製ローカルアプリをWindowsでオフライン配布する起動設計](/articles/powershell/windows-node-offline-launcher-distribution)
+- [OneDrive配下のNodeビルド遅延を避け、C:\\devで開発するワークフロー](/articles/powershell/onedrive-node-build-slow-c-dev-workflow)

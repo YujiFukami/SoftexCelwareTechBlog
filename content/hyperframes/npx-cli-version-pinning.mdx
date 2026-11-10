@@ -1,0 +1,71 @@
+---
+title: "npxで動かすCLIの版を固定して、AIチャットごとのズレと配布物の改ざんに備える"
+category: "hyperframes"
+slug: "npx-cli-version-pinning"
+tags: ["npx", "npm", "HyperFrames", "サプライチェーン攻撃", "AI開発運用"]
+description: "版を書かないnpxは、実行のたびに最新版を取りに行きます。複数のAIチャットで作業するときの結果のズレと、公開直後の版を取り込む危険を、版の固定と一括置換、npmのmin-release-ageで抑える方法を説明します。"
+date: "2026-11-10"
+---
+
+手順書やAIエージェント用のスキルに`npx hyperframes init`のように版を書かずに記載すると、実行するたびに、その時点の最新版が使われます。
+
+<Term>HyperFrames</Term>では、2026年11月2日から3日の2日間だけで0.9.0から0.9.9まで10回の版が公開されました。依存関係に入っていない<Term>npx</Term>実行では、次の問題が起こります。
+
+- チャットごとに違う版で作業し、見た目や検証結果がずれる
+- 配布物が改ざんされた場合、公開直後の版をそのまま実行してしまう
+
+後者は<Term>サプライチェーン攻撃</Term>への備えです。手元のPCにSNSの認証トークンなどがある場合は、特に影響が大きくなります。
+
+## 指示の中の版を固定する
+
+まず、手順書やスキルに書かれたコマンドに版を付けます。件数が多い場合は、機械的に置換します。この事例では、56ファイル・349か所を<Term>Node.js</Term>で置換しました。
+
+~~~js
+const re = /npx (-y )?hyperframes(?![@\w-])/g; // すでに@版があるもの、別名は除く
+
+const pinned = text.replace(re, (_, y) => "npx " + (y || "") + "hyperframes@0.9.9");
+~~~
+
+置換のあとは、指示の側にも「版を書かないnpx、`@latest`、自動アップグレードは使わない」と書いておきます。ツール自身のガイドに「upgradeで上げる」という手順があると、AIエージェントはそれに従ってしまうためです。
+
+## 版を上げる手順を決める
+
+固定したままでは更新が止まるので、上げる条件を決めます。
+
+1. 公開から7日以上たった版を選ぶ
+2. 1つの制作物だけで`check`と`render`を試す
+3. 問題がなければ全体の指定を更新する
+4. 版を上げる作業は、並行して動く複数のチャットのうち1つだけが担当する
+
+公開日時は次のコマンドで確認できます。
+
+~~~bash
+npm view hyperframes time --json
+~~~
+
+## npmのmin-release-ageを使う
+
+<Term>npm</Term> 11には、公開から指定日数がたっていない版を入れない`--min-release-age`があります（npm 11.19で確認）。
+
+~~~bash
+npm install hyperframes --dry-run --min-release-age=7   # 7日以上前の最新版が選ばれる
+npm install hyperframes --dry-run                       # 公開直後を含む最新版が選ばれる
+~~~
+
+PC全体で有効にする場合は`npm config set min-release-age 7`、元に戻す場合は`npm config delete min-release-age`を使います。設定の詳細は[npmの公式ドキュメント](https://docs.npmjs.com/cli/v11/using-npm/config)で確認してください。
+
+注意点として、固定している版がまだ公開から7日未満の場合、この設定と両立せず、該当する版がないというエラーになります。今回は明示的な固定だけを先に適用しました。固定した版が十分に古くなってから設定を有効にすると、両方の効果を得られます。
+
+## 固定後の確認
+
+版を固定したコマンドで動くことと、既存の制作物が通ることを確かめます。
+
+~~~bash
+npx hyperframes@0.9.9 --version
+npx hyperframes@0.9.9 check
+~~~
+
+## 関連記事
+
+- [並行チャット開発で共有ファイルと通知を安全に扱う方法](/articles/codex/parallel-chat-shared-worktree-operations)
+- [GitHub ActionsとDependabotで依存更新と権限の退行を継続チェックする](/articles/codex/github-actions-dependabot-regression-checks)

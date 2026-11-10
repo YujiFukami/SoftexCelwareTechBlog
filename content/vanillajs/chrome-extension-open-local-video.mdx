@@ -1,0 +1,75 @@
+---
+title: "Chrome拡張機能からローカルの動画をワンクリックで開く"
+category: "vanillajs"
+slug: "chrome-extension-open-local-video"
+tags: ["Chrome拡張機能", "Manifest V3", "file URL", "JavaScript", "動画"]
+description: "拡張機能の画面に表示したWindowsのフルパスを、ボタン一つで再生する方法です。日本語や#を含むパスをfile URLへ変換する処理、ファイルURLへのアクセス許可の確認、Chromeが再生できない形式への備えを説明します。"
+date: "2026-11-10"
+---
+
+<Term>Chrome拡張機能</Term>の画面に`C:\動画\紹介 #1.mp4`のようなフルパスを表示していて、ボタン一つでその動画を再生したいときの実装です。
+
+通常のWebページから`file:///`のリンクを開こうとしても、Chromeにブロックされます。パスをそのままURLにすると、`#`や`%`、日本語の部分も壊れます。
+
+## 実装の流れ
+
+1. manifestの`host_permissions`に`"file:///*"`を追加する
+2. パスを区切りごとにエンコードして`file:///`のURLへ変換する
+3. ファイルURLへのアクセスが許可されているかを確かめる
+4. `chrome.tabs.create`で新しいタブに開く
+
+`host_permissions`を追加すると、拡張機能の詳細画面に「ファイルの URL へのアクセスを許可する」のトグルが表示されるようになります。
+
+## パスをfile URLへ変換する
+
+区切りごとに`encodeURIComponent`を掛けると、`#`や空白、日本語を含むパスでも正しいURLにできます。ネットワーク上の共有フォルダ（UNCパス）も分けて扱います。
+
+~~~js
+export function pathToFileUrl(path) {
+  const text = String(path ?? "").trim();
+  if (!/^(?:[A-Za-z]:\\|\\\\[^\\]+\\[^\\]+)/.test(text)) return null;
+
+  const encode = (parts) => parts.filter(Boolean).map(encodeURIComponent).join("/");
+
+  if (text.startsWith("\\\\")) {
+    const [server, ...rest] = text.slice(2).split(/[\\/]/);
+    return `file://${server}/${encode(rest)}`;
+  }
+
+  const [drive, ...rest] = text.split(/[\\/]/);
+  return `file:///${drive}/${encode(rest)}`;
+}
+~~~
+
+## 許可を確かめてから開く
+
+[`chrome.extension.isAllowedFileSchemeAccess()`](https://developer.chrome.com/docs/extensions/reference/api/extension)で許可の状態を確認します。許可がないときは、案内を表示して拡張機能の詳細画面を開きます。
+
+~~~js
+async function openMedia(path) {
+  if (!(await chrome.extension.isAllowedFileSchemeAccess())) {
+    showGuide(); // 「ファイルの URL へのアクセスを許可する」をオンにする案内
+    chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` });
+    return;
+  }
+
+  const url = pathToFileUrl(path);
+  if (!url) return;
+  await chrome.tabs.create({ url, active: true });
+}
+~~~
+
+## 注意点
+
+この方法で開けるのは、Chromeがタブとして表示するからです。拡張機能がファイルの中身を読めるようになるわけではありません。中身を読む場合は、File System Access APIでフォルダの許可を得る必要があります。
+
+`.mov`などChromeが再生できない形式は、ダウンロード扱いや再生エラーになります。パスをコピーするボタンも残しておくと、別のプレーヤーで開けます。
+
+## 動作確認のコツ
+
+`--load-extension`で読み込んだ拡張機能は、ファイルアクセスが最初からオンになっています。許可がない場合の動きを試すときは、`isAllowedFileSchemeAccess`の結果をスタブに差し替える方法が確実です。今回は、拡張機能として実際に読み込み、日本語、空白、`#`を含むパスで開けることを確認しました。
+
+## 関連記事
+
+- [Chrome拡張からFile System Access APIでローカル保存する](/articles/vanillajs/chrome-extension-filesystem-save)
+- [Chrome拡張の画面を実物に近い状態でCDP検証する](/articles/vanillajs/chrome-extension-cdp-realistic-testing)

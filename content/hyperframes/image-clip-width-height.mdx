@@ -1,0 +1,45 @@
+---
+title: "HyperFramesの画像クリップは幅と高さの両方を指定する"
+category: "hyperframes"
+slug: "image-clip-width-height"
+tags: ["HyperFrames", "FFmpeg", "動画制作", "トラブルシュート"]
+description: "HyperFramesで書き出した動画のロゴが、一部のコマだけ横に伸びて見える場合の原因と直し方です。画像クリップに幅と高さの両方とobject-fitを指定する方法、崩れたコマをFFmpegの一覧画像で見つける方法を説明します。"
+date: "2026-11-10"
+---
+
+<Term>HyperFrames</Term>で縦長の動画を作ったとき、画面上部に出し続けているロゴが、書き出した動画の多くのコマで横に伸び、高さが潰れて映ることがありました。
+
+正しい形のコマと崩れたコマが入れ替わるので、再生するとちらついて見えます。静止画の`snapshot`では正しく見える場合があり、見落としやすい不具合です。
+
+## 原因は幅の指定がないこと
+
+原因は、画像クリップに`height`だけを指定し、`width`を指定していなかったことです。書き出しのときに画像の幅が定まらないコマがあり、縦横比が崩れました。
+
+## 幅と高さの両方を指定する
+
+画像の縦横比から幅を計算し、`width`、`height`、`object-fit: contain`をまとめて指定します。
+
+例えば1926×779の画像を高さ76pxで表示するなら、幅は76 × 1926 ÷ 779 ≒ 188pxです。
+
+~~~html
+<img id="logo-a" class="clip" src="assets/brand/logo.png" alt=""
+     data-start="0" data-duration="5.17" data-track-index="3"
+     style="position:absolute;left:60px;top:190px;width:188px;height:76px;object-fit:contain;z-index:5" />
+~~~
+
+ひな形をコピーして動画を量産している場合は、ひな形の`style`も同時に直します。直さないと、以後の動画でも同じ崩れが再発します。
+
+## 書き出した動画で確かめる
+
+`snapshot`だけでは発見できないため、完成した動画からロゴの部分だけを切り出して並べます。<Term>FFmpeg</Term>で一覧画像にすると、数コマに1回の崩れも見つけられます。
+
+~~~bash
+ffmpeg -t 12 -i renders_short.mp4 -vf "fps=2,crop=420:120:40:170,tile=4x6" -frames:v 1 logo_check.png
+~~~
+
+`crop`の値は、幅、高さ、左端、上端の順です。ロゴの位置に合わせて変更してください。一覧画像の中でロゴの形がそろっていれば、問題ありません。
+
+## 関連記事
+
+- [短い生成クリップをつなぐ編集で、台詞・黒帯・音量を確認する](/articles/hyperframes/short-clip-dialogue-editing)
+- [npxで動かすCLIの版を固定して、AIチャットごとのズレと配布物の改ざんに備える](/articles/hyperframes/npx-cli-version-pinning)

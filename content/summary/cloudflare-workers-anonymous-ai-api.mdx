@@ -1,0 +1,58 @@
+---
+title: "Cloudflare Workersでログイン不要のAI相談APIを公開するときの守り方"
+category: "summary"
+slug: "cloudflare-workers-anonymous-ai-api"
+tags: ["Cloudflare Workers", "Turnstile", "Durable Objects", "Workers KV", "セキュリティ", "AI API"]
+description: "ログインなしで使える公開AI APIを、Bot、費用の暴走、APIキー漏えいから守る設計です。Turnstile検証後の短命セッション、Durable Objectsでの回数制限、KVの使いどころ、緊急停止の考え方を整理します。"
+date: "2026-11-10"
+---
+
+ログインなしで使えるAI相談の窓口を公開すると、Botによる大量アクセスや、API利用料の暴走、APIキーの漏えいが問題になります。
+
+<Term>Cloudflare Workers</Term>で公開するときの、守りの設計を整理します。1つの対策に頼らず、段階的に止められるようにするのが基本の考え方です。
+
+## 全体の構成
+
+| 守るもの | 対策 |
+|---|---|
+| APIキー | ブラウザへ渡さず、Workerの秘密情報として保持する |
+| Bot | <Term>Cloudflare Turnstile</Term>の検証を通った場合だけセッションを発行する |
+| 費用 | 月、日、接続元、セッションごとに回数を制限する |
+| 想定外の事態 | 環境変数で緊急停止し、AI提供元の利用上限を最後の歯止めにする |
+
+画面とAPIは1つのWorkerで配信できます。`assets.run_worker_first`に`/api/*`を指定すると、APIへのリクエストを先にWorkerで処理できます。公開しない管理用のパスは、本番では404を返すようにします。
+
+## Turnstileの後に短命セッションを発行する
+
+<Term>Cloudflare Turnstile</Term>の検証が通ったら、<Term>HMAC</Term>署名を付けた短命のセッションを発行します。以後のAPIはこのセッションを必須にします。
+
+毎回のリクエストでTurnstileを検証する必要がなくなり、セッションごとの回数制限にも使えます。
+
+## カウンターはDurable Objectsで数える
+
+回数の集計には<Term>Durable Objects</Term>を使います。1つのオブジェクトに処理が集まるので、同時アクセスがあっても正確に数えられます。
+
+<Term>Workers KV</Term>は[結果整合性](https://developers.cloudflare.com/kv/concepts/how-kv-works/)なので、カウンターには向きません。読み取りの多い検索用データの置き場所に使います。
+
+検索用データを静的アセットに置くと、URLを知る誰もが全件を取得できます。公開したくないデータはKVに置き、Workerを通して必要な分だけ使います。
+
+## 秘密情報の登録
+
+秘密情報は`wrangler deploy --secrets-file`で一括登録できます。一時的に作ったファイルは、実行後に必ず消します。登録済みの値は、以後の通常のdeployで引き継がれます。
+
+## 動作確認の注意点
+
+Turnstileは、自動化されたヘッドレスブラウザでは検証に失敗し、セッションを取得する処理が呼ばれないまま止まることがあります。設定ミスと見分けるため、まず人が操作するブラウザで試します。
+
+自動テストでは、Cloudflareが公開している[テスト用のキー](https://developers.cloudflare.com/turnstile/troubleshooting/testing/)をローカル環境だけで使います。本番の設定にテスト用のキーが残らないように確認します。
+
+ブラウザのコンソールに`Connecting to 'data:,' violates ... connect-src`と表示されることがありますが、これはTurnstileのiframe内部のもので、自サイトのCSPの問題ではありません。
+
+## コードの作り方
+
+AI処理の中核から`node:fs`や`node:crypto`への依存を外し、データを取得する部分だけを差し替えられるようにしておくと、ローカル環境とWorkerで同じコードを使えます。
+
+## 関連記事
+
+- [RAG資料をIDとrevision単位で承認する台帳の設計](/articles/codex/rag-id-revision-approval-ledger)
+- [技術記事を公開する前のリスクチェックリスト](/articles/codex/publication-risk-checklist)

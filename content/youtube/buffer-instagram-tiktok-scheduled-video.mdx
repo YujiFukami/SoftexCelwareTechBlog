@@ -1,0 +1,112 @@
+---
+title: "Buffer APIでInstagramリールとTikTokに動画を予約投稿する"
+category: "youtube"
+slug: "buffer-instagram-tiktok-scheduled-video"
+tags: ["Buffer", "Instagram", "TikTok", "Cloudinary", "GraphQL", "Node.js", "予約投稿"]
+description: "各SNSの公式APIを個別に実装せず、BufferのGraphQL APIで縦長動画を予約投稿する方法です。動画の置き場所にCloudinaryを使う構成、metadata指定のつまずき、無料プランの制限と二重予約の防止を整理します。"
+date: "2026-11-10"
+---
+
+InstagramリールとTikTokへ同じ縦長動画を予約投稿したいとき、各SNSの公式APIを個別に実装すると、審査や権限の準備が重くなります。
+
+ここでは投稿の窓口を<Term>Buffer</Term>にまとめ、動画ファイルは<Term>Cloudinary</Term>に置く構成を説明します。<Term>Node.js</Term>標準の`fetch`、`FormData`、`fs.openAsBlob`、`crypto`だけで実装できます。
+
+## 全体の流れ
+
+1. 動画を<Term>Cloudinary</Term>へアップロードし、公開URLを受け取る
+2. 公開URLと投稿日時を<Term>Buffer</Term>の<Term>GraphQL</Term> APIへ渡して予約する
+3. 予約の結果を自分の記録と照合する
+
+Buffer APIは動画ファイルそのものを受け取らないため、公開URLを用意する置き場所が必要です。URLは公開状態かつhttpsの直リンクで、予約時刻まで消えないものにします。期限付きの署名URLは、投稿時に切れていると失敗します。
+
+## Cloudinaryへ署名付きでアップロードする
+
+SDKを使わなくても、並べたパラメータとAPI SecretのSHA-1で署名を作れば、アップロードできます。署名方法は[Cloudinaryの署名の説明](https://cloudinary.com/documentation/signatures)で確認できます。
+
+~~~js
+import { createHash } from "node:crypto";
+import { openAsBlob } from "node:fs";
+import { basename } from "node:path";
+
+const params = {
+  overwrite: "true",
+  public_id: "sns/sample-video-v1",
+  timestamp: Math.floor(Date.now() / 1000),
+};
+const toSign = Object.keys(params).sort().map((k) => `${k}=${params[k]}`).join("&");
+const signature = createHash("sha1").update(toSign + API_SECRET).digest("hex");
+
+const form = new FormData();
+for (const [k, v] of Object.entries(params)) form.append(k, String(v));
+form.append("api_key", API_KEY);
+form.append("signature", signature);
+form.append("file", await openAsBlob(file), basename(file));
+
+const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/video/upload`, {
+  method: "POST",
+  body: form,
+});
+const uploaded = await res.json();
+// uploaded.secure_url をBufferへ渡す
+~~~
+
+## Bufferで予約を作る
+
+`POST https://api.buffer.com`へ、`Authorization: Bearer <APIキー>`を付けて<Term>GraphQL</Term>のミューテーションを送ります。`dueAt`は協定世界時で指定します。例えば日本時間の19時は、同じ日の10時（UTC）です。
+
+~~~graphql
+mutation($input: CreatePostInput!) {
+  createPost(input: $input) {
+    ... on PostActionSuccess { post { id status dueAt } }
+    ... on MutationError { message }
+  }
+}
+~~~
+
+~~~js
+const input = {
+  text: caption,
+  channelId,
+  schedulingType: "automatic",
+  mode: "customScheduled",
+  dueAt: "2026-11-20T10:00:00.000Z",
+  assets: [{ video: { url: uploaded.secure_url, metadata: { thumbnailOffset: 0 } } }],
+  metadata: { instagram: { type: "reel", shouldShareToFeed: true } },
+  // TikTokの場合は metadata: { tiktok: { isAiGenerated: false } }
+};
+~~~
+
+## つまずきやすい点
+
+`metadata.instagram.type`は配列ではなく1つの値で渡します。2026年11月の確認では、型の資料に`[PostType]!`と読める記載があっても、配列で渡すと「Enum "PostType" cannot represent non-string value」で失敗しました。
+
+アカウント側の条件にも注意します。
+
+| 媒体 | 確認できたこと |
+|---|---|
+| Instagram | プロアカウントで「Professional」接続にしないと自動投稿にならず、Personalは通知のみ |
+| TikTok | 個人アカウントのままでもAutomaticを選択できた |
+
+TikTokをビジネスアカウントへ切り替えると、法人の確認を求められて進まない場合があります。必要になるまで切り替えない方が安全です。
+
+## 無料プランの制限を前提にする
+
+2026年11月に確認した無料プランの主な制限は次のとおりです。料金や上限は変わることがあるため、利用前に[Bufferの開発者向け情報](https://developers.buffer.com/)と契約画面を確認してください。
+
+- つなげるチャンネルは3つまで
+- 予約は1チャンネルにつき10件まで
+- APIは1チャンネルあたり30日1,000回、15分150回まで
+- 429が返ったら`Retry-After`の秒数だけ待つ
+
+Cloudinaryの無料プランも、月間クレジットや1ファイルあたりの容量に上限があります。投稿済みの動画は、`/video/destroy`へ`public_id`と署名を送ると削除できます。
+
+## 二重予約を防ぐ
+
+予約の前に「動画の番号、媒体、版」の組み合わせで自分の記録を照合します。このとき、失敗した記録まで「予約済み」と判定すると、原因を直した後にやり直せません。Bufferの投稿IDを持たない記録は、二重予約の判定から外します。
+
+APIキーは必要な権限に絞ります。予約の用途なら`account:read`、`posts:read`、`posts:write`で足ります。動作確認は、遠い日付で予約してすぐ取り消す方法にすると、実際に公開せずに予約と取り消しの両方を試せます。
+
+## 関連記事
+
+- [YouTube Data APIで予約投稿するNode.jsツールの設計と確認点](/articles/youtube/scheduled-upload-node)
+- [投稿予定をローカルHTMLのカレンダーにまとめ、日付のずれを防ぐ](/articles/youtube/local-schedule-calendar-jst)

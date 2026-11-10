@@ -1,0 +1,71 @@
+---
+title: "日本語の解説動画から英語版を作る：音声・字幕・画面文字の置き換え手順"
+category: "hyperframes"
+slug: "japanese-explainer-video-english-version"
+tags: ["HyperFrames", "Kokoro", "TTS", "英語版", "動画制作"]
+description: "HyperFramesで作った日本語の解説動画を英語版にする手順です。無料でローカル実行できるKokoroの音声合成、英語字幕の区切り方、対訳表による画面文字の置き換え、作業中につまずく点をまとめます。"
+date: "2026-11-10"
+---
+
+日本語で作った解説動画を、英語圏のYouTubeやTikTok、Instagramへ展開したい場合の手順です。元の動画は<Term>VOICEVOX</Term>のナレーション、字幕、図解のシーンで構成された<Term>HyperFrames</Term>の制作物を想定しています。
+
+<Term>VOICEVOX</Term>は日本語専用なので、音声合成は英語に対応したものへ変えます。画面上の文字と動きのタイミングも、一緒に置き換える必要があります。
+
+## 制作フォルダを丸ごと写す
+
+日本語版を残すため、制作フォルダを別の場所へコピーして作業します。書き出し結果の`renders`、一時データの`.hyperframes`、日本語の音声`assets/audio/voice`はコピーしません。
+
+## 英語の音声はKokoroで作る
+
+[Kokoro](https://github.com/thewh1teagle/kokoro-onnx)は無料でPCの中だけで動く音声合成です。必要なパッケージを入れると、<Term>HyperFrames</Term>の`tts`コマンドから使えます。
+
+~~~bash
+python -m pip install kokoro-onnx soundfile
+npx hyperframes@0.9.9 tts --text-file line01.txt -v af_heart -o line01.wav
+~~~
+
+声は`af_heart`（アメリカ英語の女性）、`bf_emma`（イギリス英語の女性）、`am_michael`（アメリカ英語の男性）などから選べます。略語を正しく読ませたいときは、読み上げ用の文章を`Excel V.B.A.`や`A.I.`のように書きます。
+
+文章はコマンド引数ではなく、テキストファイルで渡します。Windowsで`shell: true`のままコマンド引数に渡すと、`"Add this condition."`のような引用符が崩れるおそれがあるためです。
+
+## 英語字幕の区切り方
+
+句読点の後ろで区切ります。引用符の閉じも考慮します。
+
+~~~js
+const parts = text.split(/(?<=[,.?!;:]["”]?)\s+/);
+~~~
+
+1行の長さの目安は、横長の動画で50文字、縦長の動画で30文字です。12文字以下の短い切れ端は、次の行とつなげると読みやすくなります。
+
+## 画面の文字は対訳表で置き換える
+
+シーンごとに`[日本語, 英語]`の組を用意して置換します。動きの秒数も、英語のナレーションに合わせて別途置き換えます。
+
+作業の前に、プレビューで開いたファイルに付いた`data-hf-id`属性を取り除きます。これが残っていると、`<br />`を含む文字列などが一致しません。
+
+~~~bash
+sed -i 's/ data-hf-id="[^"]*"//g' index.html
+~~~
+
+秒数の置き換えは1回だけ行います。やり直しで全部の組を再適用すると、同じ秒数の書き換えが連鎖してしまいます。やり直すときは、日本語を含む組だけを適用します。
+
+置き換えの後は、コメントを除いた部分に日本語が残っていないかを、正規表現で確かめます。
+
+## 海外向けに内容を見直す
+
+翻訳だけでは足りない箇所があります。
+
+- 日本国内でしか通じないサービス名や札を外す
+- 長くなった英語の文字が、はみ出したり重なったりしていないかを`check`と静止画で確かめる
+- 重なる場合は、短い語に置き換える（例：「The real problem」を「Problem」に）
+
+英語は同じ原稿でも読み上げが速く、この事例では横長の動画が約2分58秒から2分29秒に、縦長の動画が47秒から45秒になりました。尺が変わるので、動きの秒数の調整が必要になります。
+
+フォントはNoto Sans JPのままで問題ありません。英字も含まれています。
+
+## 関連記事
+
+- [長文音声を分割合成し、失敗した文だけ作り直すキャッシュ設計](/articles/audio/chunked-tts-cache-retry)
+- [npxで動かすCLIの版を固定して、AIチャットごとのズレと配布物の改ざんに備える](/articles/hyperframes/npx-cli-version-pinning)
+- [PDF報告書からナレーションと字幕が同期した要約動画を作る](/articles/hyperframes/pdf-report-narration-caption-video)

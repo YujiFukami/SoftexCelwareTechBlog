@@ -1,0 +1,72 @@
+---
+title: "Windowsで作ったVBAブックをMacでも動かすときのチェックリスト"
+category: "vba"
+slug: "mac-excel-vba-compatibility-checklist"
+tags: ["Excel VBA", "Mac", "互換性", "実行時エラー429", "トラブルシュート"]
+description: "Windowsでは動くExcel VBAのブックがMacで動かないときの確認項目です。コード名の丸数字による実行時エラー429、円記号、CreateObject、Shell、ActiveXの置き換えと、書き出したコードを検索する手順をまとめます。"
+date: "2026-11-10"
+---
+
+Windowsで問題なく動く<Term>VBA</Term>のブックが、Macの<Term>Excel</Term>ではブックを開いた直後に止まることがあります。
+
+~~~text
+実行時エラー '429'：ActiveX コンポーネントはオブジェクトを作成できません
+~~~
+
+Macではデバッグを押しても止まった行が黄色く表示されない場合があり、原因の特定に時間がかかります。VBEのタイトルに出る行番号やプロシージャの欄で、カーソルが移動した位置を確認できます。
+
+実際にWindowsのブックをMac対応したときに直した項目を、チェックリストにまとめます。
+
+## 確認する項目
+
+| # | 原因 | 直し方 |
+|---|---|---|
+| 1 | シートのコード名に「①②」などの丸数字を使っている | `Sh11_仕様1`のように普通の数字にする |
+| 2 | コードに円記号（バックスラッシュ）を書いている | 下の「円記号の置き換え」を参照 |
+| 3 | `CreateObject("Scripting.Dictionary")` | Macでも動く自作の辞書クラスへ置き換える |
+| 4 | `CreateObject("Scripting.FileSystemObject")` | `Dir`を使う処理へ置き換える |
+| 5 | `Shell`でエクスプローラーを開く | Macでは実行しないように条件分岐で囲む |
+| 6 | 参照設定に自作アドインが残っている | 納品前に参照設定から外す |
+| 7 | ActiveXコントロール | フォームコントロール、または図形とマクロにする |
+
+## 最終的な原因は丸数字のコード名だった
+
+この事例では、1番の丸数字が最終的な原因でした。コード名でシートを参照した行で、429エラーになっていました。エラーの文言からは原因を推測できず、Macの実機で動かして初めて判明しました。
+
+シート名（タブ名）も合わせて変更する場合は、`"仕様①"`のように文字列で持っている箇所も忘れずに直します。
+
+コード名、モジュール名、プロシージャ名、変数名には、丸数字などの機種依存文字を使わないようにします。Windowsでは問題なく動くため、後から気づくのが難しい項目です。
+
+## 円記号の置き換え
+
+| 用途 | 書き換え |
+|---|---|
+| 整数の割り算 | `WorksheetFunction.RoundDown(A / B, 0)` |
+| パスの区切り | [`Application.PathSeparator`](https://learn.microsoft.com/ja-jp/office/vba/api/excel.application.pathseparator) |
+| 文字として必要なとき | `Chr(92)` |
+
+## 書き出したコードをまとめて検索する
+
+モジュールを`.bas`などに書き出すと、次のように該当箇所を一括で確認できます。書き出したファイルがShift_JISの場合は、先に`iconv -f CP932 -t UTF-8`でUTF-8へ変換します。
+
+~~~bash
+# 円記号（コメント行を除く）
+grep -nF '\' *.bas *.cls *.frm | grep -v "^[^:]*:[0-9]*:\s*'"
+
+# 丸数字
+grep -nF -e "①" -e "②" -e "③" *.bas *.cls *.frm | grep -v "^[^:]*:[0-9]*:\s*'"
+
+# CreateObjectとShell
+grep -n "CreateObject\|Shell " *.bas *.cls *.frm
+~~~
+
+## 注意点
+
+`Scripting.Dictionary`の代わりに自作クラスを使う場合、上書きやオブジェクトの格納、全削除に対応しているかを確かめ、使い方の違いに合わせて呼び出し側を直します。
+
+コードの検索で確認できるのは、書かれた内容だけです。古くてもよいので、可能であればMacの実機で動作を確認してください。
+
+## 関連記事
+
+- [Excel VBAの処理を汎用部品として残すための考え方](/articles/vba/vba-componentization-technique)
+- [ZIPファイル内の一覧を取得するExcel VBA汎用プロシージャ](/articles/vba/getfilelistinzip)
