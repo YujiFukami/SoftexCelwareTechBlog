@@ -72,7 +72,27 @@ copyData({ "text/html": html, "text/plain": markdown });
 
 `String.raw`のテンプレート文字列で、末尾が`\`のWindowsのパスを書くと、バッククォートが閉じていないものとして扱われます。通常の文字列で`"C:\\sample\\"`のように書きます。
 
+## Chrome拡張機能から自動で貼り付ける
+
+2026年11月10日の確認では、拡張機能のcontent scriptから、`DataTransfer`を持つ`ClipboardEvent("paste")`を本文の欄へ送ると、エディタが受け付けました。`text/html`の本文も、`File`にしたPNGやGIFも入ります。
+
+~~~js
+const data = new DataTransfer();
+data.setData("text/html", html); // 画像なら data.items.add(file)
+editor.focus();
+editor.dispatchEvent(new ClipboardEvent("paste", {
+  clipboardData: data, bubbles: true, cancelable: true, composed: true,
+}));
+~~~
+
+目印の行を`selectNodeContents`で選んでから画像を送ると、その位置に入ります。
+
+画像を入れた直後に下書き保存を押すと、画像のアップロード中であることを知らせるalertが出て、閉じられるまでページの処理が止まります。画像が画面に表示されただけでは、アップロードは完了していません。数秒待ってから保存します。alertは`click()`の呼び出しを止めるので、`click()`にかかった時間で検知できます。
+
+タイトル欄は、textareaへprototypeのsetterで値を入れて`input`イベントを送ると反映されました。カバー画像は同じ方法では入らなかったので、パスをコピーして人が選ぶ形にしています。
+
 ## 関連記事
 
 - [Chrome拡張のクリップボードコピーをオフスクリーン文書へ集約する](/articles/vanillajs/chrome-extension-offscreen-clipboard)
 - [Wixブログ記事をREST APIとPythonで自動投稿する方法](/articles/wix/wix-blog-rest-api-python-auto-post)
+- [Vue 2とOrugaのフォームへ拡張機能から入力し、反映されたかを確かめる](/articles/vanillajs/vue2-oruga-form-input-verification)

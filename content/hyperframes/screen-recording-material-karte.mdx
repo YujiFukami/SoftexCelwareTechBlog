@@ -1,0 +1,84 @@
+---
+title: "長い操作録画を手元で下調べして「素材カルテ」にする"
+category: "hyperframes"
+slug: "screen-recording-material-karte"
+tags: ["HyperFrames", "Whisper", "OCR", "FFmpeg", "PowerShell", "動画制作"]
+description: "数百本ある長い操作録画を、動画づくりのたびに最初から見直さないための下調べの仕組みです。文字起こし、場面の切り替わりのコマ、WindowsのOCR、機密の候補一覧を手元だけで作り、AIが1枚のカルテにまとめます。"
+date: "2026-11-11"
+---
+
+お客様向けの説明録画（5〜40分）が数百本あり、紹介動画を作るたびに、録画を最初から見て使う場面と隠すべき所を探していました。録画にはお客様の情報が含まれるので、外部のサービスには送れません。
+
+そこで、録画1本ごとに手元だけで下調べをして、「素材カルテ」を作る仕組みにしました。動画を作るときはカルテから始め、必要な区間だけ録画を開きます。
+
+## カルテの材料
+
+| 作るもの | 道具 | 目安（CPU） |
+|---|---|---|
+| 時刻付きの文字起こし | faster-whisper（small、日本語、int8） | 録画の長さの約1/4 |
+| 場面の切り替わりのコマ（最大40枚）と一覧画像 | <Term>FFmpeg</Term> | 1本10秒〜1分半 |
+| コマごとの画面の文字 | Windowsの日本語<Term>OCR</Term> | 1本5〜15秒 |
+| 機密の候補の一覧 | 画面の文字を正規表現で検索 | すぐ |
+
+これらを読んだAIが、見どころの時刻、機能の流れ、隠すもの、向いている動画の型、話し手の言い回し、文字起こしの読み替えを1枚にまとめます。10本（計3.4時間）の下調べは、CPUで約47分でした。
+
+## 場面の切り替わりは、しきい値を極端に下げる
+
+画面録画は変化が小さく、`gt(scene,0.12)`では5分で1件しか拾えませんでした。`0.004`まで下げて全候補を出し、スコアの高い順に「5秒以上離れたもの」を選びます。90秒以上切り替わりがない所には途中のコマを足して、全体を覆います。
+
+~~~python
+# 作業フォルダに移って相対パスで書く（metadata=print:file= は日本語のパスを扱いにくい）
+run(["ffmpeg", "-v", "error", "-i", src, "-an", "-vf",
+     "fps=1,scale=640:-2,select='gt(scene,0.004)',metadata=print:file=scenes.txt",
+     "-f", "null", "-"], cwd=out)
+~~~
+
+コマは、OCR用の原寸PNGと、時刻を焼き込んだ一覧用の縮小JPGを1回のFFmpegで作ります。一覧は`tile=5xN`でつなぎます。
+
+## WindowsのOCRをPowerShell 5.1から呼ぶ
+
+Windowsに組み込まれた日本語OCRは、追加のインストールなしで使えます。<Term>PowerShell</Term>では、WinRTの型を1つずつ読み込む必要があります。
+
+~~~powershell
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null = [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime]
+$null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
+$null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Foundation, ContentType = WindowsRuntime]
+$null = [Windows.Globalization.Language, Windows.Foundation, ContentType = WindowsRuntime]
+
+$asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
+  $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
+  $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+
+function Await($op, [type]$t) {
+  $task = $asTask.MakeGenericMethod($t).Invoke($null, @($op))
+  $null = $task.Wait(-1)
+  $task.Result
+}
+
+$engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage(
+  (New-Object Windows.Globalization.Language 'ja'))
+~~~
+
+`Windows.Globalization.Language`の読み込みを忘れると、`New-Object`が型を見つけられません。結果の日本語は文字の間に空白が入るので、日本語の文字に挟まれた空白を正規表現で詰めます。
+
+## GPUが使えないときはCPUへ切り替える
+
+faster-whisperは、`cuda`を指定しても必要なライブラリがないと、最初の推論で失敗します。1秒の無音で試し、失敗したらCPUのsmallモデルに切り替えます。
+
+## つまずきどころ
+
+- **OCRは表の中の小さい氏名を取りこぼす**：URL、メール、パス、ファイル名は拾えても、名簿の端の列の実名は拾えませんでした。機密の確認は「OCRの候補」と「名簿や一覧のコマの目視」の二段にします
+- **機密の候補は雑音が多い**：「区」「市」などで大量に拾うので、同じ文字列は「最初に出た時刻＋ほかに何コマ」にまとめて表示します
+- **導入手順の区間は使わない**：Webアプリの説明録画では、導入の手順でメールアドレスやURLが必ず映ります
+- **冒頭と末尾に注意**：相手とのメッセージ画面、金額、相手の名前の読み上げが入りやすい区間です
+- **専門用語の誤認識**：文字起こしは業界の言葉の誤りが多いので、カルテに読み替えの表を付けます
+- **AIが読む量を減らす**：長い文字起こしは、30〜90秒ごとにまとめて表示する小さなスクリプトを挟みます
+
+カルテや材料にはお客様の情報が含まれるので、クラウドの同期フォルダには置かずに管理します。
+
+## 関連記事
+
+- [動く録画に映る番号を、静止画の連番でダミーに置き換える](/articles/hyperframes/recording-number-dummy-still-images)
+- [納品時の操作録画から、機密を隠した短いPR動画を作る手順](/articles/hyperframes/screen-recording-redaction-pr-video)
+- [ローカルPCで動画から文字起こし議事録を作るPythonツール設計](/articles/python-windows/local-video-transcription-meeting-minutes-mvp)

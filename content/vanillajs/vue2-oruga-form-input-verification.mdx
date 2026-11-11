@@ -1,0 +1,74 @@
+---
+title: "Vue 2とOrugaのフォームへ拡張機能から入力し、反映されたかを確かめる"
+category: "vanillajs"
+slug: "vue2-oruga-form-input-verification"
+tags: ["Chrome拡張機能", "Vue.js", "Oruga", "JavaScript", "フォーム自動入力"]
+description: "Vue 2とOruga UIで作られたフォームは、input.valueに代入するだけでは内部の状態に入りません。入力欄、選択欄、タグ入力のそれぞれに値を入れる方法と、ページが値を認識したかを確かめる方法、つまずきどころを説明します。"
+date: "2026-11-11"
+---
+
+ログインが必要なWebサービスの登録フォームへ、<Term>Chrome拡張機能</Term>やブラウザのコンソールから値を入れたいことがあります。フォームが<Term>Vue.js</Term> 2とOruga UIで作られている場合、`input.value = "..."`と代入するだけでは、Vueの内部の状態に値が入りません。
+
+Vue 2.7で作られた実際のフォームで、入力と反映の確認方法を調べました。調査中は保存を行っていません。
+
+## 部品ごとの入力方法
+
+| 部品 | 入力方法 | 反映の確認 |
+|---|---|---|
+| `OInput`（inputやtextarea） | prototypeのsetterで値を入れ、`input`イベントを送る | 文字数カウンター |
+| `OSelect`（select） | prototypeのsetterで値を入れ、`change`イベントを送る | selectの値と、未選択を示すクラスが消えたこと |
+| `OInputitems`（タグ） | setterと`input`の後、`keydown`でEnterを送る | タグの数とカウンター |
+
+## コード
+
+~~~js
+const setValue = (el, v) => {
+  const proto = el.tagName === "TEXTAREA"
+    ? HTMLTextAreaElement.prototype
+    : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(proto, "value").set.call(el, v);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+};
+
+const setSelect = (el, v) => {
+  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(el, v);
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+};
+
+function confirmTag(input, text) {
+  setValue(input, text);
+  input.dispatchEvent(new KeyboardEvent("keydown", {
+    key: "Enter", code: "Enter", keyCode: 13, which: 13,
+    bubbles: true, cancelable: true,
+  }));
+}
+~~~
+
+`el.value`へ直接代入すると、Vueが値の変化を検知できない場合があります。prototypeのsetterを使ってから`input`イベントを送ると、ページ側の処理が動きます。タグの確定では、`key`だけでなく`keyCode: 13`も必要でした。
+
+## つまずきどころ
+
+- **エラー文は常にDOMにある**：入力規則の文がすべてDOMに入っていて、違反したものだけが表示される作りでした。`textContent`だけを読むと、毎回エラーに見えます。`getClientRects()`で実際に表示されている要素に絞ります
+- **タグのカンマは区切りになる**：`a,b`は2個のタグに分かれます。Orugaの確定キーの既定にカンマが含まれるためです。入力前に弾きます
+- **確定されない値がある**：`maxlength`を持つタグ欄では、超えた値は確定されません。同じタグの重複も確定されません
+- **上限を自分で数える**：`maxlength`がなく、カウンターだけの欄もあります。超過しても入力できるので、入力前に数えます。カウンターは絵文字や改行を2文字と数え、`value.length`とずれました
+- **条件で出る欄は待つ**：カテゴリを選ぶと出るサブカテゴリなどは、表示されてから探し直します
+- **成功すると部品ごと消えることがある**：調べるコードは、親の部品の中だけを探す作りにしない
+
+調査用のコードでは、`window`のキャプチャで送信（`submit`）と保存のボタンを止めておくと、試験の内容が保存される事故を防げます。
+
+## YouTubeの動画が公開中かをサムネイルで見分ける
+
+フォームにYouTubeのURLを入れる前に、動画が公開されているかを確かめたいことがあります。`https://img.youtube.com/vi/{動画ID}/hqdefault.jpg`の画像の大きさ（`naturalWidth`）で、次のように分かれました（2026年11月の確認）。
+
+| 動画の状態 | 画像の大きさ |
+|---|---|
+| 公開、限定公開 | 480×360 |
+| 予約公開前、非公開、存在しないID | 120×90 |
+
+公開と限定公開は区別できません。公式の仕様ではないので、目安として使います。
+
+## 関連記事
+
+- [入力は拡張機能、送信は利用者に任せるフォーム補助の設計](/articles/vanillajs/human-confirmed-form-automation)
+- [Chrome拡張のポップアップから入力欄へ確実に文字を挿入する](/articles/vanillajs/chrome-extension-reliable-input-injection)

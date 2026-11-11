@@ -1,0 +1,65 @@
+---
+title: "音声と字幕から毎日の動画を作る：HTMLをEdgeでPNGにしてFFmpegで合成する"
+category: "audio"
+slug: "narration-subtitle-video-edge-png-ffmpeg"
+tags: ["FFmpeg", "Microsoft Edge", "ASS字幕", "Python", "動画の自動生成"]
+description: "ニュース読み上げの音声に、見出しの画面と字幕を付けた動画を毎日無人で作る方法です。画面はHTMLをEdgeのheadlessでPNGにし、FFmpegのxfadeとassフィルタで合成します。表示領域の欠け、字幕の細字、読み仮名の混入などのつまずきどころも整理します。"
+date: "2026-11-11"
+---
+
+ニュースを読み上げる3〜5分の音声に、見出しの画面と字幕を付けた動画を、毎日無人で作る仕組みです。
+
+画面の動きが少ない動画なら、ブラウザで全コマを描く動画ツールは必要ありません。画面は静止画にして、<Term>FFmpeg</Term>でつなぐ方が速く、安定します。
+
+## 全体の流れ
+
+1. 画面はHTMLで作り、シーンごとにMicrosoft EdgeのheadlessモードでPNGにする（CSSで自由にデザインでき、1枚数秒）
+2. FFmpegで`-loop 1 -t 秒数 -i scene.png`を並べ、`xfade`でつなぐ
+3. `ass`フィルタで字幕を焼き込み、音声と合わせる
+
+210秒の1080pの動画が、約45秒で完成しました（エンコーダーは`h264_nvenc`。使えない環境では`libx264`へ切り替えます）。
+
+## xfadeで合計の長さを合わせる
+
+`xfade`は前後の画面を重ねるので、その分だけ全体が短くなります。重なる分だけ各入力を長くしておくと、合計が各画面の秒数の和に一致します。
+
+~~~python
+lengths = [d + (FADE if i < n - 1 else 0) for i, d in enumerate(durations)]
+
+chain, prev, t = [], "[0:v]", 0.0
+for i in range(1, n):
+    t += durations[i - 1]
+    chain.append(f"{prev}[{i}:v]xfade=transition=fade:duration={FADE}:offset={t:.3f}[x{i}]")
+    prev = f"[x{i}]"
+~~~
+
+字幕の時刻は「オープニング音楽の秒数＋ナレーション内の開始秒数」になります。オープニングの長さを、合成時に記録しておきます。
+
+## つまずいたところ
+
+| 症状 | 原因 | 対処 |
+|---|---|---|
+| 画面の下64pxが欠ける | `--headless=new`の`--window-size`は窓の大きさで、表示領域はそれより小さい | 高さを200px多く撮って、<Term>Pillow</Term>で切り抜く |
+| 字幕が細くて読みにくい | 字幕の描画ライブラリ（libass）が、Noto Sans JPの可変フォントを既定の細字で描く | 字幕だけ静的なフォントにする |
+| 字幕が読み仮名になる | 読み上げ用に置換した文を字幕に使っていた | 置換の前に文を分割し、読み（`text`）と表記（`display`）を両方持つ |
+| 見出しが不自然な位置で折り返す | 日本語の既定の改行規則 | `word-break: auto-phrase; text-wrap: balance`（Chromium系のみ） |
+| 文の間で字幕が一瞬消えてちらつく | 発話の長さどおりに表示していた | 次の字幕まで0.8秒以内なら表示を続ける |
+| assのパスで`C:`が壊れる | フィルタの中の`:`と`\`のエスケープ | FFmpegを作業フォルダで実行し、相対パスで渡す |
+
+## 背景写真を大量の写真から選ぶ
+
+背景に使う写真は、10万枚の写真フォルダから200枚に絞りました。
+
+1. フォルダ名の地名で絞る。写真管理ソフトが作る編集前の重複フォルダは除く
+2. 横長、解像度で絞り、知覚ハッシュで似た写真をまとめ、鮮明なものを残す
+3. 顔検出（OpenCVのYuNet）で、人が写っている写真を除く
+4. 48枚ずつ番号付きの一覧画像にして、AIが目で見て分類する（895枚が19枚の一覧に収まった）
+5. 確認ページで人が採否を決める。縮小するときにEXIFを捨て、位置情報を残さない
+
+Windowsの日本語パスは`cv2.imread`で読めないことがあるので、Pillowで読んでNumPyの配列に変換してから渡します。
+
+## 関連記事
+
+- [長文音声を分割合成し、失敗した文だけ作り直すキャッシュ設計](/articles/audio/chunked-tts-cache-retry)
+- [FFmpegで声に合わせてBGMを下げ、ラウドネスを整える](/articles/audio/ffmpeg-ducking-loudness)
+- [numpyで番組の音を作曲する：継ぎ目のないBGMループと声をよけるEQ](/articles/audio/numpy-bgm-seamless-loop)

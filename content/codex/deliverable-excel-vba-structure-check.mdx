@@ -1,0 +1,72 @@
+---
+title: "案件の成果物Excelを開かずに機能を確認し、開発事例の記載と照合する"
+category: "codex"
+slug: "deliverable-excel-vba-structure-check"
+tags: ["RAG", "oletools", "openpyxl", "Python", "開発事例", "公開リスク"]
+description: "過去の案件から開発事例を作るとき、連絡履歴の文章だけで機能を書くと、実装していない機能が混ざります。成果物のxlsmをExcelで開かずにシート構成とVBAの手続きを一覧にし、確認できた機能だけを書く方法と、固有名の誤検出を減らす工夫を説明します。"
+date: "2026-11-11"
+---
+
+過去の案件から、AI相談窓口向けの開発事例（<Term>RAG</Term>の資料）を作るときの手順です。連絡履歴の文章だけで機能を書くと、「相談はあったが実装していない機能」や「後日の別の取引で作った機能」が事例に混ざります。
+
+成果物の`.xlsm`を1つずつ<Term>Excel</Term>で開けば確認できますが、時間がかかり、マクロの自動実行や個人情報の表示という危険もあります。そこで、Excelを起動せずに<Term>Python</Term>で読み取り専用の解析をします。
+
+## 解析する内容
+
+- <Term>openpyxl</Term>（`read_only=True`）で、シート名、使用範囲、先頭数行の見出しだけを取る
+- <Term>oletools</Term>の`VBA_Parser`で、VBAのモジュール名、行数、`Sub`と`Function`の名前を一覧にする
+- 手続きの本文から、`ExportAsFixedFormat`（PDF出力）、`Outlook.Application`、`XMLHTTP`、`QueryTables`などを使っているかだけを判定する
+
+事例の本文には、手続きの一覧で存在を確認できた機能だけを書きます。
+
+~~~python
+import re
+import sys
+import warnings
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # Windowsでの文字化け対策
+warnings.filterwarnings("ignore")
+
+import openpyxl
+from oletools.olevba import VBA_Parser
+
+wb = openpyxl.load_workbook(path, read_only=True, keep_vba=False)
+for ws in wb.worksheets:
+    print(ws.title, ws.calculate_dimension())
+
+vp = VBA_Parser(path)
+if vp.detect_vba_macros():
+    for (_, _, name, code) in vp.extract_macros():
+        procs = re.findall(r"^\s*(?:Public |Private )?(?:Sub|Function)\s+(\w+)", code, re.M)
+        print(name, len(code.splitlines()), procs)
+~~~
+
+実行は`python -I`（隔離モード）で行い、案件フォルダにあるファイルを読み込んで実行しないようにします。
+
+## 解析結果の扱い
+
+成果物には、実在の氏名、取引先名、口座、検査値などが入っていることがよくあります。解析結果はチャットや公開資料に貼りません。見えた固有名は「照合用の禁止語」に追加し、事例の本文に出ていないことを機械的に照合します。
+
+## 敬称から名前を拾うときの誤検出を減らす
+
+禁止語を「〇〇様」の形から抽出すると、「仕様」「様式」「同様」の「様」を敬称と誤認し、「の仕」のような語が禁止語になります。次の2つで、誤検出がほぼ消えました。
+
+~~~js
+const re = /([\p{L}\p{N}_・]{2,24})(?<![仕同模多])様(?![々式子相])/gu;
+~~~
+
+- 「様」の直前が仕・同・模・多のもの、直後が々・式・子・相のものを除く
+- 「お客」「利用者」「会員」「顧客」など、役割を表す一般名詞を除外語にする
+
+## 照合で気をつけること
+
+- **値だけを照合する**：記録を`JSON.stringify`した全体で照合すると、`category`などの項目名に3文字程度の英字の利用者名が一致して、誤検出になります。値を再帰的に集めてから照合します
+- **規則を変えたら古い記録も再照合する**：変更のない記録を読み飛ばす作りだと、禁止語の規則を変えても古い記録は照合されません。テストで1件の記録の指紋を消して再照合させ、検出と非検出の両方を確かめます
+- **数字の言い回し**：「1日」「1年」などの機能説明の数字が、自動チェックで期間の数字として拾われることがあります。必要がなければ言い換えます
+- **動作環境の制約を書く**：ブラウザ版ExcelやMacで動かない機能（Windows APIなど）は、制約の欄に書きます
+
+## 関連記事
+
+- [アドイン（.xlam）のVBAをExcelを開かずに読む：olevbaでテキストに書き出す](/articles/vba/olevba-read-addin-vba-without-excel)
+- [RAG資料をIDとrevision単位で承認する台帳の設計](/articles/codex/rag-id-revision-approval-ledger)
+- [技術記事を公開する前のリスクチェックリスト](/articles/codex/publication-risk-checklist)

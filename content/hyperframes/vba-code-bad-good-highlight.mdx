@@ -1,0 +1,73 @@
+---
+title: "解説動画でVBAのコードを「悪い例→良い例」で色分け表示する"
+category: "hyperframes"
+slug: "vba-code-bad-good-highlight"
+tags: ["HyperFrames", "Excel VBA", "シンタックスハイライト", "JavaScript", "動画制作"]
+description: "技術解説動画でVBAのコードを何十枚も見せるとき、シーンごとに手で色付けすると手間がかかります。台本のJSONにコードを文字列で持たせ、組み立てスクリプトでVBE風に色分けしたHTMLへ変換し、悪い所と良い所に印を付ける方法を説明します。"
+date: "2026-11-11"
+---
+
+<Term>HyperFrames</Term>で<Term>VBA</Term>の技術解説動画を作ると、コードを何十枚も見せることになります。シーンごとにHTMLを手で色付けすると手間がかかり、後からの修正にも弱くなります。悪い所と良い所の印も、全体でそろえたいところです。
+
+そこで、台本のJSONにコードを文字列で持たせ、組み立てスクリプトで自動的に色分けしたHTMLへ変換しました。
+
+## 台本にコードを書く
+
+各シーンに、ラベル、種類、コードを持たせます。
+
+~~~json
+"codes": [
+  { "label": "悪い例", "kind": "bad",  "code": "! Range(\"A1\") = Range(\"B1\")\n転記する" },
+  { "label": "良い例", "kind": "good", "code": "+ Range(\"A1\").Value = Range(\"B1\").Value\nCall 転記する" }
+]
+~~~
+
+- 行頭の`!`は悪い所（波線）、`+`は良い所（緑の帯）の印
+- 印の後の半角空白1つは取り除き、それ以降の字下げは残す
+- 悪い例と良い例の行数が合計10行までなら上下に並べ、超える場合は差し替えて見せる
+
+組み立てスクリプトは、変換したHTMLをシーンのテンプレートの`{{CODE0}}`、`{{CODE1}}`に入れます。
+
+## VBE風に色分けする関数
+
+コメント（文字列の外の`'`以降）を緑、`"..."`を赤、予約語を青にします。
+
+~~~js
+const KW_RE = /\b(Sub|End|Function|Dim|As|Long|String|Double|Variant|For|To|Next|If|Then|Else|Call|Exit|Do|Loop|Select|Case|GoTo|Public|Private|Set|With|Not|And|Or)\b/g;
+
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function hlCode(t) {
+  // 文字列の外にある最初の ' を探す
+  let q = false, ci = -1;
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === '"') q = !q;
+    else if (t[i] === "'" && !q) { ci = i; break; }
+  }
+  const code = ci < 0 ? t : t.slice(0, ci);
+  const cm = ci < 0 ? "" : t.slice(ci);
+
+  return code.split(/("[^"]*")/).map((p, i) =>
+    i % 2
+      ? `<span class="st">${esc(p)}</span>`
+      : esc(p).replace(KW_RE, (w) => `<span class="kw">${w}</span>`)
+  ).join("") + (cm ? `<span class="cm">${esc(cm)}</span>` : "");
+}
+~~~
+
+予約語の正規表現を`new RegExp("\b...")`のように文字列で書くと、`\b`がバックスペース文字になり一致しません。正規表現リテラルで書くか、文字列では`\\b`とします。
+
+フォントは`font-family: "Source Code Pro", "Noto Sans JP"`にしました。日本語の変数名も崩れません。28pxで、横1080pxに半角約55文字が入ります。
+
+## つまずきどころ
+
+- **選択子はシーンのid付きにする**：同じページに全シーンが載るので、`.hd em { ... }`のように書くと、他のシーンの見出しの色まで変わります
+- **置換は関数で行う**：`String.replace(a, b)`は、`b`の中の`$1`などを置換記号として扱います。コードを含む文字列は、`replace(a, () => b)`の形で置換します
+- **縦長の動画での折り返し**：`word-break: break-all`ではなく`overflow-wrap: anywhere`にすると、単語の途中で切れにくくなります
+- **読む時間を確保する**：`check`で「コードを読む時間が足りない」と指摘された場面だけ、ナレーションの後に1.5秒の間を足します
+- **場面ごとの印の切り替え**：`tl.set(el, { attr: { class: "ln mk-bad" } }, t)`で切り替えると、時間を戻したときに元に戻るので、静止画の書き出しでも正しく表示されます
+
+## 関連記事
+
+- [日本語の解説動画から英語版を作る：音声・字幕・画面文字の置き換え手順](/articles/hyperframes/japanese-explainer-video-english-version)
+- [Excel VBAの処理を汎用部品として残すための考え方](/articles/vba/vba-componentization-technique)

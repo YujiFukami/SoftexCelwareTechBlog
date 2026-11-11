@@ -1,0 +1,69 @@
+---
+title: "Streamlitでツールバーを消すCSSを入れたら、サイドバーが開けなくなった"
+category: "summary"
+slug: "streamlit-toolbar-css-sidebar-hidden"
+tags: ["Streamlit", "Python", "CSS", "Playwright", "トラブルシュート"]
+description: "Streamlitで右上のメニューを消すためにstToolbarを非表示にすると、畳まれたサイドバーを開くボタンも消え、他のページへ移動できなくなります。原因と、消す部品を絞るCSS、本文上部にも同じメニューを置く対策を説明します。"
+date: "2026-11-11"
+---
+
+サイドバーでページを切り替える<Term>Streamlit</Term>アプリで、利用者から「最初のページしか見られない」「他のページが無くなった」と言われたときの原因と対策です。Streamlit 1.67で確認しました。
+
+## 原因
+
+右上のメニューやDeployボタンを消すため、次のCSSを入れていました。
+
+~~~css
+[data-testid="stToolbar"] { display: none }
+~~~
+
+一方、ブラウザの幅が狭い（おおよそ768px未満）と、`initial_sidebar_state="auto"`によってサイドバーが自動で畳まれます。
+
+畳まれたサイドバーを開くボタン（`stExpandSidebarButton`）は、`stToolbar`の中にあります。ツールバーごと非表示にすると、開くボタンも消えてしまいます。その結果、ページ切り替えのメニューに届かず、最初のページしか使えなくなります。
+
+広い画面でも、利用者が一度サイドバーを畳むと同じ状態になります。データや機能は消えていないので、広い画面で確認している開発側は気づきにくい不具合です。
+
+## 対策1：消す部品を絞る
+
+ツールバー全体ではなく、消したい部品だけを非表示にします。
+
+~~~css
+[data-testid="stToolbarActions"],
+[data-testid="stMainMenu"],
+[data-testid="stAppDeployButton"] { display: none }
+~~~
+
+## 対策2：本文の上部にも同じメニューを置く
+
+ページの切り替えをサイドバーだけに頼らず、本文の上部にも置きます。既存のサイドバーのラジオボタン（`key="nav"`）は残し、上部のメニューから同じ状態を書き換えます。
+
+~~~python
+with st.sidebar:
+    nav = st.radio("メニュー", NAV, key="nav", label_visibility="collapsed")
+
+
+def top_nav_changed():
+    if st.session_state.get("nav_top"):
+        st.session_state.nav = st.session_state.nav_top
+
+
+st.session_state.nav_top = nav  # ウィジェットを作る前なら、毎回代入できる
+st.segmented_control("ページ", NAV, key="nav_top",
+                     on_change=top_nav_changed, label_visibility="collapsed")
+~~~
+
+コールバックは次の実行の先頭で動くので、その時点ではサイドバーのラジオボタンはまだ作られていません。そのため、`st.session_state.nav`を書き換えられます。
+
+`segmented_control`は、選択を解除すると`None`を返します。コールバックで`None`を無視し、毎回`nav`の値を入れ直すと、選択が外れた見た目になりません。
+
+## 確認方法
+
+既存のテストがサイドバーのラジオボタンを操作している場合、ラジオボタンを残しておけば、テストを変えずに済みます。
+
+画面の確認は、<Term>Playwright</Term>で幅を変えて行います（例：1500pxと700px）。`stExpandSidebarButton`の大きさが0×0なら、開くボタンが隠れています。
+
+設定で`fileWatcherType = "none"`にしている場合、コードを直してもサーバーを再起動するまで反映されません。再起動するときは、そのアプリのコマンドラインとポートに一致するプロセスだけを対象にします。
+
+## 関連記事
+
+- [Chrome拡張の画面を実物に近い状態でCDP検証する](/articles/vanillajs/chrome-extension-cdp-realistic-testing)
