@@ -1,0 +1,87 @@
+---
+title: "Excel VBAで回転したスマホ写真を枠内にトリミングする"
+category: "vba"
+slug: "rotated-picture-crop-to-frame"
+tags: ["Excel VBA", "画像", "トリミング", "EXIF", "図形"]
+description: "スマホで縦に撮った写真をExcelに取り込むと、見た目は正しくてもRotationが90度になっています。回転したままPictureFormat.Cropを設定すると値が連動して合わないため、作業位置で回転を0に戻して計算し、回転前の向きに直して設定する方法を説明します。"
+date: "2026-11-16"
+---
+
+スマホで縦に撮った写真を`Shapes.AddPicture`で<Term>Excel</Term>に取り込み、セルの枠に合わせてトリミングしようとしたら、縦長の枠になったり、位置がずれたりしました。その原因と、<Term>VBA</Term>での対処方法です。
+
+## 原因：取り込んだ写真が回転している
+
+スマホの縦の写真は、画素は横向きのまま保存され、<Term>EXIF</Term>の向きの情報（Orientationが6なら右に90度、8なら左に90度）で縦向きを表しています。Excelはこの情報を図形の`Rotation`に変えて取り込むので、見た目は正しい向きでも`Rotation = 90`（または270）になります。
+
+図形を選ぶと、回転ハンドルが上ではなく右（または左）に出るのが目印です。
+
+## 回転したままCropを設定すると合わない
+
+回転したままで`PictureFormat.Crop`の値を設定すると、Excel側の動きが不安定でした。
+
+- `ShapeWidth`を変えると、`ShapeTop`と`PictureOffsetX`まで変わる
+- `ShapeHeight`を大きくすると、`PictureHeight`が縮められる
+
+回転を考慮した計算をいくら正しくしても、結果が合いません。さらに、回転を0に戻したとき、回転前の枠がシートの上端や左端より外に出ると、大きさが制限されて写真が縮みます。
+
+## 対処の手順
+
+1. 図形の中心（`Left + Width / 2`、`Top + Height / 2`）を記録する。回転は中心が軸なので、回転の有無で変わらない
+2. `IncrementLeft`と`IncrementTop`で、シートの端に当たらない作業位置（例：3000pt）へ動かしてから`Rotation = 0`にする
+3. 回転0の状態で`Crop`の値を読み、**シート上の見た目の向き**で計算し、**回転前の向き**に直して設定する
+4. 設定の順番は「写真本体の大きさ→表示枠の大きさ→表示枠の位置→ずれ」にする。表示枠は写真より大きくできないので、写真を先に大きくする
+5. 作業中は`LockAspectRatio`を`msoFalse`にし、最後に元に戻す
+6. `Rotation`を元に戻し、枠の位置へ移動する
+
+横倒し（90度や270度）の場合は、表示枠の幅と高さ、写真の幅と高さを入れ替えて計算します。ずれ（`PictureOffset`）は回転行列で変換します。Excelの回転は時計回りで、y軸は下向きです。
+
+- 回転前→見た目：`vx = ox × cos − oy × sin`、`vy = ox × sin + oy × cos`
+- 見た目→回転前：`ox = vx × cos + vy × sin`、`oy = −vx × sin + vy × cos`
+
+## コードの要点
+
+~~~vb
+Const 作業位置 As Double = 3000
+
+角度 = CLng(対象画像.Rotation) Mod 360
+CosR = Round(Cos(角度 * PI / 180), 0)
+SinR = Round(Sin(角度 * PI / 180), 0)
+横倒し = (角度 Mod 180 = 90)
+
+縦横比固定 = 対象画像.LockAspectRatio
+対象画像.LockAspectRatio = msoFalse
+図形中心X = 対象画像.Left + 対象画像.Width / 2
+図形中心Y = 対象画像.Top + 対象画像.Height / 2
+対象画像.IncrementLeft 作業位置 - 図形中心X
+対象画像.IncrementTop 作業位置 - 図形中心Y
+If 角度 <> 0 Then 対象画像.Rotation = 0
+
+With 対象画像.PictureFormat.Crop
+    '見た目の向きで倍率とずれを計算したうえで設定する
+    .PictureWidth = 写真幅: .PictureHeight = 写真高さ      '先に写真本体
+    .ShapeWidth = 図形幅: .ShapeHeight = 図形高さ          '横倒しなら幅と高さを入れ替えた値
+    .ShapeLeft = 作業位置 - 図形幅 / 2
+    .ShapeTop = 作業位置 - 図形高さ / 2
+    .PictureOffsetX = ずれX * CosR + ずれY * SinR
+    .PictureOffsetY = -ずれX * SinR + ずれY * CosR
+End With
+
+If 角度 <> 0 Then 対象画像.Rotation = 角度
+対象画像.Left = 新Left
+対象画像.Top = 新Top
+'0で止まった分はIncrementで動かす（回転した図形はこれで置ける）
+If Abs(対象画像.Left - 新Left) > 0.1 Then 対象画像.IncrementLeft 新Left - 対象画像.Left
+If Abs(対象画像.Top - 新Top) > 0.1 Then 対象画像.IncrementTop 新Top - 対象画像.Top
+対象画像.LockAspectRatio = 縦横比固定
+~~~
+
+## テストのポイント
+
+- EXIF付きの試験画像は、PowerShellの<Term>System.Drawing</Term>で作れます。画素を`Rotate270FlipNone`で回し、向きの情報（ID `0x0112`、型3、値6）を付けて保存すると、取り込んだときに`Rotation = 90`になります
+- 回転した図形の`Crop`の値は信用できないので、確認するときも「作業位置へ動かす→回転0で読む→戻す」の手順で、写真が枠を覆っているかを計算します
+- 枠がシートの上の方にある場合と、同じ写真を2回続けてトリミングする場合も試します。回転を戻すときに上端に当たる問題は、この条件で出ました
+
+## 関連記事
+
+- [Shapeを90度回転してセル範囲に合わせるExcel VBA汎用プロシージャ](/articles/vba/rotate-shape-fit-cell)
+- [PowerShellのCOMテストで非表示のExcelを残さない後片付け](/articles/powershell/excel-com-test-process-cleanup)

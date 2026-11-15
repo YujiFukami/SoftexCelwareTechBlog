@@ -1,0 +1,80 @@
+---
+title: "Excelのセル範囲だけを安全に画像化して、実績紹介に使う"
+category: "powershell"
+slug: "excel-range-safe-capture-image"
+tags: ["PowerShell", "Excel", "COM", "System.Drawing", "openpyxl", "公開リスク"]
+description: "過去に作ったExcelツールの画面を実績紹介に使うとき、画面全体の撮影ではファイル名やシート名まで写り、xlsmを開くとマクロも動きます。マクロを止めて読み取り専用で開き、セル範囲だけをPNGにする方法と、仮のデータのシートを見分ける方法を説明します。"
+date: "2026-11-16"
+---
+
+過去に作った<Term>Excel</Term>ツールの実際の画面を、実績紹介のサムネイルに使いたいことがあります。ただし、次の問題があります。
+
+- 画面全体を撮ると、タイトルバーのファイル名や、シート見出し（地名や社名が入ることがある）まで写る
+- `.xlsm`を開くと、`Workbook_Open`などのマクロが動いてしまう
+- 納品したファイルには、お客様の実データ（実名、口座、取引先）が多く含まれる
+
+そこで、次の3段階で進めました。
+
+1. <Term>COM</Term>でExcelを読み取り専用、マクロ無効で開き、セル範囲だけを画像にする（保存せずに閉じる）
+2. 画像に残った個人情報は、<Term>System.Drawing</Term>でモザイクや白塗りにする
+3. 使う前に<Term>openpyxl</Term>で全シートを調べ、「仮のデータ」らしいシートだけを候補にする
+
+## セル範囲だけをPNGにする
+
+<Term>PowerShell</Term>のスクリプトです。日本語を含む場合は、UTF-8 BOM付きで保存します。
+
+~~~powershell
+param([string]$Path, [string]$Sheet, [string]$Range, [string]$Out)
+
+$xl = New-Object -ComObject Excel.Application
+$xl.Visible = $false
+$xl.DisplayAlerts = $false
+$xl.AutomationSecurity = 3                     # マクロを無効にする（ForceDisable）
+try {
+  $wb = $xl.Workbooks.Open($Path, 0, $true)    # 外部参照を更新しない、読み取り専用
+  $ws = $wb.Worksheets.Item($Sheet)
+  $ws.Activate()
+  $rg = $ws.Range($Range)
+  $rg.CopyPicture(1, 2) | Out-Null             # 画面の見た目、ビットマップ
+  $co = $ws.ChartObjects().Add(0, 0, $rg.Width, $rg.Height)
+  $co.Activate() | Out-Null
+  Start-Sleep -Milliseconds 300
+  $co.Chart.Paste() | Out-Null
+  $co.Chart.Export($Out, "PNG") | Out-Null      # セル範囲だけのPNG
+  $co.Delete() | Out-Null
+} finally {
+  if ($wb) { $wb.Close($false) }               # 保存しない
+  $xl.Quit()
+  [Runtime.InteropServices.Marshal]::ReleaseComObject($xl) | Out-Null
+}
+~~~
+
+セル範囲を一度グラフに貼り付けてから書き出すので、タイトルバーやシート見出しは写りません。読み取り専用で開くので、元のファイルも変わりません。
+
+## 個人情報をモザイクや白塗りで消す
+
+モザイクは、ブロックごとに中心の1画素の色で塗りつぶして作ります（`Bitmap.GetPixel`で色を取り、`FillRectangle`で塗る）。白塗りは`FillRectangle([Brushes]::White, ...)`です。
+
+## 仮のデータのシートを見分ける
+
+openpyxl（`read_only=True, data_only=True`）で全シートのセルを調べ、シートごとに「仮らしい語の数」「実データらしい語の数」「文字のセルの数」を集計します。
+
+| 判定 | 正規表現の例 |
+|---|---|
+| 仮らしい語 | `名前\d`、`法人[A-Z]`、`商品\d`、`テスト`、`サンプル`、`○○`、`example` |
+| 実データらしい語 | `株式会社`、`㈱`、`有限会社`、`@`、`銀行`、`支店`、`病院`、電話番号の形 |
+
+仮らしい語が多く、実データらしい語が0のシートだけを撮影の候補にします。実際には、仮のデータを持っていたファイルは全体の約1割でした。残りは、アイコンなどで代用する前提で計画します。
+
+## 注意点
+
+- **図形は範囲の外からも写り込む**：テキストボックスなどの図形は、範囲の外に置かれていても写ることがあります。撮った画像は必ず目で確認します
+- **シート名は写らないが、表の中身は別に確認する**：範囲だけを撮るので、シート名に地名が入っていても写りません
+- **お客様のファイルを増やさない**：開く前にコピーを作る必要はありません。読み取り専用で開けば、元のファイルは変わりません
+- **大きなフォルダの検索は一覧を作ってから**：毎回`Get-ChildItem -Recurse`で探すと遅いので、最初にファイルの一覧を作り、その一覧から探します
+
+## 関連記事
+
+- [PowerShellのCOMテストで非表示のExcelを残さない後片付け](/articles/powershell/excel-com-test-process-cleanup)
+- [事例記事の画像を、案件資料のモザイクと解説図で作る](/articles/wix/case-article-images-mosaic-diagram)
+- [技術記事を公開する前のリスクチェックリスト](/articles/codex/publication-risk-checklist)

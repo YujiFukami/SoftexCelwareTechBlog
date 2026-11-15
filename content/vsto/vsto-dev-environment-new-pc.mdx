@@ -1,0 +1,72 @@
+---
+title: "VSTOの開発環境を新しいPCで立ち上げる手順（Visual Studio 2026）"
+category: "vsto"
+slug: "vsto-dev-environment-new-pc"
+tags: ["VSTO", "Visual Studio", "MSBuild", "ClickOnce", "コード署名", "PC移行"]
+description: "PCを入れ替えた後にVSTOアドインをビルドするまでの手順です。Visual Studio 2026のワークロード、.NET SDKが見つからないエラー、署名証明書の警告、ビルドで配布版のアドインがリボンから消える問題と回避方法をまとめます。"
+date: "2026-11-16"
+---
+
+PCを入れ替えた後、<Term>VSTO</Term>アドインをビルドしようとして、次の4つでつまずきました。
+
+1. Visual Studioが入っていない
+2. インストール直後のシェルから<Term>MSBuild</Term>を実行すると、.NET SDKが見つからない
+3. コード署名の証明書が見つからないという警告が出る
+4. ビルドすると、配布版のアドインがリボンから消える
+
+順に対処方法を説明します。
+
+## 1. Visual Studio 2026のインストール
+
+[Visual Studioのダウンロードページ](https://visualstudio.microsoft.com/ja/downloads/)からCommunityを入れ、次のワークロードを選びます。
+
+- .NET デスクトップ開発
+- Microsoft 365 開発
+
+Visual Studio 2026では、以前の「Office/SharePoint 開発」が「Microsoft 365 開発」という名前になっています。右側のオプションで、「Visual Studio Tools for Office (VSTO)」と「.NET Framework 4.8 開発ツール」にチェックが入っていることを確認します。
+
+## 2. .NET SDKが見つからない（MSB4236）
+
+SDK形式のプロジェクト（`<Project Sdk="Microsoft.NET.Sdk">`）は、`dotnet`をPATHから探します。Visual Studioのインストールで`C:\Program Files\dotnet`は入りますが、**インストール前から起動していたシェルは、PATHが古いまま**です。
+
+エディターやターミナルを再起動すれば解消します。再起動せずに試す場合は、PATHを足して実行します。
+
+~~~bash
+export PATH="/c/Program Files/dotnet:$PATH"
+"/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" \
+  "MyAddin/MyAddin.csproj" -restore -t:Build -p:Configuration=Debug -v:m
+~~~
+
+## 3. 署名証明書が見つからない（MSB3327）
+
+プロジェクトに設定された証明書は、**現在のユーザーの個人ストア（CurrentUser\My）**から探されます。pfxファイルがあっても、ストアに取り込んでいないと警告になり、発行時にはエラーになります。
+
+~~~powershell
+Import-PfxCertificate -FilePath ".\MyAddin_Key.pfx" -CertStoreLocation Cert:\CurrentUser\My
+~~~
+
+これは、配布先のPCで行う信頼済み発行元への登録とは別の作業です。開発用のPCでは、署名用の個人ストアと、実行を許可する信頼済み発行元の両方が必要です。
+
+## 4. ビルドすると配布版のアドインがリボンから消える
+
+VSTOプロジェクトのビルドは、`RegisterOfficeAddin`という処理で、レジストリの`HKCU\Software\Microsoft\Office\Excel\Addins\<名前>`を、ビルドしたファイルを指すように書き換えます。<Term>ClickOnce</Term>で配布版を入れているPCでは、配布版が読み込まれなくなります。さらに、リビルドやクリーンを行うと、このキーごと削除されます。
+
+コンパイルの確認だけをしたいときは、登録処理を飛ばします。
+
+~~~bash
+MSBuild.exe MyAddin.csproj -t:Build -p:Configuration=Debug "-p:PrepareForRunDependsOn=CopyFilesToOutputDirectory"
+~~~
+
+コマンドラインで指定したプロパティは、プロジェクトファイルの定義より優先されるので、登録処理が依存関係から外れます。
+
+消えてしまった場合は、レジストリの`Manifest`を配布元のURL（`https://.../MyAddin.vsto`）に、`LoadBehavior`を3に戻すと復旧します。ClickOnceのキャッシュが残っていれば、再インストールは必要ありません。
+
+## 確認
+
+`-t:Rebuild -p:Configuration=Release`でビルドし、MSB3327の警告が消えれば準備完了です。ただし、上のとおりリビルドは配布版の登録を消すので、配布版を使っているPCでは実行後に登録を確認してください。
+
+## 関連記事
+
+- [VSTOのClickOnce発行でRuntimeIdentifiers 'win' エラーが出たときの対策](/articles/vsto/clickonce-runtimeidentifiers-win-error)
+- [VSTO ClickOnce 自動更新の仕組み](/articles/vsto/clickonce-auto-update)
+- [PC移行後にbetter-sqlite3が入らないときは、アプリが使うNodeの版を指定する](/articles/powershell/better-sqlite3-node-version-pc-migration)

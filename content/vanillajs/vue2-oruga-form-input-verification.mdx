@@ -68,7 +68,29 @@ function confirmTag(input, text) {
 
 公開と限定公開は区別できません。公式の仕様ではないので、目安として使います。
 
+## 画像のアップロード欄に、拡張機能から画像を入れる
+
+`<input type="file">`の`value`は書き換えられませんが、`DataTransfer`で作った`FileList`は`input.files`に代入できます。Vue 2の画像アップロード部品は、これと`change`イベントで画像を受け付けました。
+
+~~~js
+// 画像はService Workerでローカルのファイルから読み、base64でcontent scriptへ渡す（FileはJSONにできない）
+const bytes = Uint8Array.from(atob(job.image.base64), (c) => c.charCodeAt(0));
+const file = new File([bytes], job.image.name, { type: job.image.type, lastModified: Date.now() });
+const data = new DataTransfer();
+data.items.add(file);
+input.files = data.files;
+input.dispatchEvent(new Event("input", { bubbles: true }));
+input.dispatchEvent(new Event("change", { bubbles: true }));
+// 反映の確認：プレビューのimgが読み込み済みで、縦横が元の画像と同じ
+~~~
+
+- 先にコンソールで、切り抜き画面が出ないこと、プレビュー時に通信が発生しないこと（`PerformanceObserver`でリソースを監視）を確かめました。部品のprops（`__vue__.$props`）に、最大枚数、縦横、バイト数、縮小の方式などの上限がそのまま入っていました
+- 縦横の上限を超えると部品が縮める設定だったので、上限より小さい画像だけを使い、プレビューの縦横の一致で「別の画像が入っていない」ことも確かめます
+- 画像は保存のときに送信されるので、保存の完了を待つ時間を、文字だけのときより長くします
+- Service Workerでは、IndexedDBに保存した`FileSystemDirectoryHandle`から`getFile()`で読み、`createImageBitmap(file)`で縦横も取れます。大きな`Uint8Array`を`String.fromCharCode(...bytes)`に一度に渡すと失敗するので、32KBずつ区切ってbase64にします
+
 ## 関連記事
 
 - [入力は拡張機能、送信は利用者に任せるフォーム補助の設計](/articles/vanillajs/human-confirmed-form-automation)
 - [Chrome拡張のポップアップから入力欄へ確実に文字を挿入する](/articles/vanillajs/chrome-extension-reliable-input-injection)
+- [Chrome拡張からFile System Access APIでローカル保存する](/articles/vanillajs/chrome-extension-filesystem-save)

@@ -1,0 +1,89 @@
+---
+title: "VSTO＋WPF（AvalonDock）でExcelの終了時に必ずクラッシュする原因と対処"
+category: "vsto"
+slug: "avalondock-hook-excel-exit-crash"
+tags: ["VSTO", "WPF", "AvalonDock", "C#", "Excel", "トラブルシュート"]
+description: "AvalonDockを使ったVSTOアドインのフォームを一度でも表示すると、Excelの終了時に異常終了し、次回起動で「前回起動に失敗しました」と出る問題です。原因はAvalonDockが仕掛けたフックの残留でした。リフレクションでフックを外す対処と、調査に使った手順を説明します。"
+date: "2026-11-16"
+---
+
+<Term>VSTO</Term>アドインのフォーム（WinFormsのFormに<Term>WPF</Term>を載せ、<Term>AvalonDock</Term>でドッキングする構成）を一度でも表示すると、Excelを閉じたときに異常終了する問題がありました。次回の起動時に「Excel は前回起動に失敗しました。セーフ モードで起動しますか?」と表示されます。表示されない回もあるので、このメッセージの有無では判定できません。
+
+## 症状
+
+- イベントログに、アプリケーションエラー（ID 1000）、`EXCEL.EXE`、障害モジュール`KERNELBASE.dll`、例外コード`0xe0434352`（.NETの例外を表すコード）が記録される
+- `ThisAddIn_Shutdown`をすべてtry/catchで囲んでも、アドインの`UnhandledException`や`FirstChanceException`には何も出ない
+- フォームを作るだけ（表示しない）なら落ちない。**表示すると落ちる**
+
+## 原因
+
+AvalonDockは、DockingManagerを表示するときに、フォーカス管理のためのフック（WH_CBT）をスレッドに仕掛けます。フックの処理は.NETのデリゲートです。
+
+このフックを外すのは、WPFの`Unloaded`イベントか`Application.Current.Exit`のときです。しかし、VSTOには`Application.Current`がなく、フォームはWinForms側で閉じるので`Unloaded`も来ません。
+
+その結果、フックが残ったままアドインの<Term>AppDomain</Term>がアンロードされます。Excelの終了処理中に、Office側のフックが次のフックとしてこれを呼び出し、`AppDomainUnloadedException`が発生して、Excelが異常終了していました。
+
+## 対処：フォームを閉じる前にフックを外す
+
+`ThisAddIn_Shutdown`でフォームを閉じる**前に**、リフレクションでAvalonDockのフックを外します。
+
+~~~csharp
+// DockingManagerを持つ側
+public void ReleaseNativeHooks()
+{
+    const BindingFlags S = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+    const BindingFlags I = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+    try
+    {
+        var fem = typeof(AvalonDock.DockingManager).Assembly
+            .GetType("AvalonDock.Controls.FocusElementManager");
+        if (fem == null) return;
+
+        try { fem.GetMethod("FinalizeFocusManagement", S)?.Invoke(null, new object[] { DockManager }); } catch { }
+
+        // 念のため、フックの管理オブジェクトを直接外す
+        var field = fem.GetField("_windowHandler", S);
+        var handler = field?.GetValue(null);
+        if (handler != null)
+        {
+            try { handler.GetType().GetMethod("Detach", I)?.Invoke(handler, null); } catch { }
+            try { field.SetValue(null, null); } catch { }
+        }
+    }
+    catch { }
+}
+~~~
+
+~~~csharp
+// ThisAddIn_Shutdown
+_mainForm.MainView?.ReleaseNativeHooks();   // Close / Dispose より前に呼ぶ
+_mainForm.AllowRealClose = true;
+_mainForm.Close();
+_mainForm.Dispose();
+~~~
+
+Dirkster.AvalonDock 4.72.1で確認しました。内部の名前が将来変わった場合は、`GetType`や`GetField`がnullを返すだけで、落ちることはありません。
+
+`Dispatcher.InvokeShutdown()`、`Application.ExitThread()`、`SystemEvents`の隠しウィンドウの破棄など、WPFの後片付けとしてよく紹介される対策では直りませんでした。
+
+## 調査に使った方法
+
+### 1. VBA経由でアドインを呼び、自動で再現する
+
+PowerShellなどの外部プロセスから`COMAddIns("X").Object`のメソッドを呼ぶと、Excelのメインスレッドではなく別のスレッドで実行され、実際の操作とは別の動きになります。
+
+そこで、空のブックにVBAのモジュールを`VBProject.VBComponents.Add(1).CodeModule.AddFromString`で入れ、`Run("Repro")`で呼び出しました。これでメインスレッドで実行されます。その後Excelを終了させ、プロセスの終了を待って、イベントログのID 1000の有無で判定します。
+
+### 2. AppDomainのアンロード後に起きる例外を捕まえる
+
+アドインの中に置いた例外の記録処理は、AppDomainのアンロードで一緒に消えます。そこで、既定のAppDomainに記録用のオブジェクトを作り、そこからベクター例外ハンドラーを登録しました。例外発生時のスタックを走査して「モジュール名＋オフセット」を並べると、Officeのフックから.NETが呼ばれていることが分かりました。
+
+### 3. 条件を切り分ける
+
+「作成だけ」「表示だけ」などを個別に試すと、「表示」が条件だと分かります。表示のときにフックやサブクラスを仕掛ける部品（ドッキング、ツールチップ、ドラッグ＆ドロップなど）を疑います。残っているウィンドウの一覧に差がなければ、ウィンドウではなくフックが原因です。
+
+## 関連記事
+
+- [AvalonDockレイアウト保存が永続化されないバグをOnBeforeHideで防ぐ](/articles/vsto/avalondock-save-layout-on-before-hide)
+- [VSTOでWPF UIを独立ウィンドウ表示するWinForms Form + ElementHostパターン](/articles/vsto/winforms-elementhost-wpf-window)
+- [VSTOでExcel終了後もプロセスが残る原因とVBE COM参照の解放方法](/articles/vsto/vsto-excel-process-remains-vbe-com-release)
