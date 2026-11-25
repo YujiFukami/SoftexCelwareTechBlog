@@ -1,0 +1,62 @@
+---
+title: "Python標準ライブラリだけで作る、JSONに保存するローカルアプリ"
+category: "python-windows"
+slug: "python-stdlib-json-local-app"
+tags: ["Python", "http.server", "JSON", "JavaScript", "ローカルアプリ", "bat"]
+description: "個人用の管理ツールを、インストールもビルドも不要で作る構成です。Pythonのhttp.serverにAPIを2つ足し、データはAIも直接読めるJSONファイルに保存します。版番号による上書き事故の防止や、応答が返らなくなる落とし穴も説明します。"
+date: "2026-11-25"
+---
+
+手続きやタスクの台帳のような個人用の管理ツールを、インストールもビルドも不要で作りたいときの構成です。
+
+ブラウザの<Term>localStorage</Term>に保存すると、AIがデータを読めず、バックアップもしにくくなります。そこで、データはAIも直接読んで書き換えられるJSONファイルにしました。
+
+## 構成
+
+- **サーバー**：<Term>Python</Term>の`http.server`の`SimpleHTTPRequestHandler`を継承し、`GET`と`PUT`の`/api/tasks`だけを足す。`pip install`は不要
+- **画面**：素のHTMLとES Modules。期限の判定などの計算は純粋関数に分け、Node.jsでテストする
+- **起動**：`.bat`（ASCIIとCRLF）からPowerShellのスクリプト（UTF-8 BOM付き）を呼び、サーバーを最小化したウィンドウで起動し、ポートの応答を待ってからブラウザを開く
+
+## サーバーの要点
+
+~~~python
+class Handler(SimpleHTTPRequestHandler):
+    def __init__(self, *a, **kw):
+        super().__init__(*a, directory=str(APP_DIR), **kw)  # 配信元を固定する
+
+    def do_PUT(self):
+        length = int(self.headers["Content-Length"])
+        incoming = json.loads(self.rfile.read(length))
+        current = read_data()
+        if incoming.get("rev") != current.get("rev"):         # 版番号で上書き事故を防ぐ
+            return self._json(409, {"error": "別の場所で更新されています"})
+        incoming["rev"] = current["rev"] + 1
+        write_data(incoming)  # 控えを残してから、一時ファイルに書いて os.replace
+        return self._json(200, incoming)
+
+ThreadingHTTPServer(("127.0.0.1", 8765), Handler).serve_forever()  # 自分のPCからだけ
+~~~
+
+## 版番号を持たせる理由
+
+アプリを開いたままAIがJSONを直接直すと、画面側の保存で上書きされて、AIの変更が消えます。データに`rev`（版番号）を持たせ、`PUT`のときに版が違えば409を返します。画面は読み込み直しを促します。
+
+## つまずきどころ
+
+- **ログ出力で接続が切れる**：`log_message`を上書きして`args[0]`で絞り込んでいたところ、`send_error(404)`のときは`args[0]`が数値で、`"/api/" in args[0]`がTypeErrorになりました。応答を返さずに接続が切れます。`str(args[0])`にします
+- **`hidden`属性が効かない**：CSSで`display: grid`などを付けた要素は、`hidden`属性を付けても表示されたままです。`[hidden] { display: none !important }`を最初に書きます
+- **`.bat`をbashで作るとき**：`printf`の書式に`\v1.0`のような文字列が入ると、垂直タブになります。`printf '%s\r\n' '行1' '行2'`のように、行は引数として渡します
+
+## そのほかの工夫
+
+- データのフォルダは静的配信から外し、API以外から読めないようにする
+- `Cache-Control: no-store`を付けて、古いJavaScriptが残らないようにする
+- 書き込みは一時ファイルに書いてから`os.replace`で置き換え、途中で落ちてもJSONが壊れないようにする
+- 書き込みの前に、日時付きの控えを残す（最新の数件）
+- Pythonは`-X utf8`で起動し、Windowsでも文字コードをUTF-8にそろえる
+- 画面の確認は、`chrome --headless=new --virtual-time-budget=4000 --screenshot=out.png URL`で撮る。詳細パネルなどは`#open=ID`のようなハッシュで開けるようにしておくと撮影しやすい
+
+## 関連記事
+
+- [文章の書き直しを確認するページ：左右の差分、コピー、採用の履歴](/articles/vanillajs/text-rewrite-review-diff-page)
+- [PowerShellスクリプトとbatランチャーの文字コード・改行コード対策](/articles/powershell/bat-ps1-encoding-line-ending)

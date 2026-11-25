@@ -1,0 +1,78 @@
+---
+title: "Electronアプリの入力欄のdatalistを、絞り込み付きの自作プルダウンに置き換える"
+category: "electron"
+slug: "datalist-custom-picker"
+tags: ["Electron", "JavaScript", "datalist", "UI", "並び替え"]
+description: "入力欄とdatalistで候補を出していると、候補が増えたときに画面の下で見切れたり、勝手に絞り込まれたりします。datalistをやめて自作のポップアップにし、全件表示、絞り込みワード、並び替えを付ける方法を説明します。"
+date: "2026-11-25"
+---
+
+入力欄と`<datalist>`で候補を出していたところ、候補が30〜50件を超えると次の問題が出ました（<Term>Electron</Term>、つまりChromiumでの動作です）。
+
+- 候補リストの高さをブラウザが決めるため、画面の下で見切れてスクロールもできない。新しく登録した候補（末尾）が選べない
+- 欄に文字が入っていると、その文字を含む候補だけに勝手に絞られる。「登録したのに出てこない」と言われる
+- 並び順は`<option>`の順だけで、似た候補がばらばらに並ぶ
+- `<option value="${name}">`をエスケープしないと、名前に`"`があったとき文字が切れる
+
+## 自作のポップアップにする
+
+`<datalist>`をやめて、依存ライブラリなしの自作のポップアップに置き換えました。
+
+- ポップアップは画面に1つだけ作り、`position: fixed`で`body`の直下に置く。表の`overflow`で切られない
+- 入力欄の位置から、下と上の空きを計算する。下が狭ければ上に開き、高さは空きに合わせる
+- **開いた直後は全件を表示**し、文字を打ったら絞り込む
+- 上部のツールバーに、絞り込みワードのボタン（データベースに保存し、×で削除）と、「登録順」「名前順」のボタンを置く。同じボタンをもう一度押すと昇順と降順が切り替わる
+- 選んだら`input.value`を書き換えて`change`イベントを送る。**既存の`change`の処理（金額の自動計算や保存）をそのまま使える**
+- ポップアップの`mousedown`で`preventDefault()`すると、中のボタンを押しても入力欄のフォーカスが外れない
+
+~~~js
+// 位置合わせ：下が狭ければ上に開く
+function position() {
+  const rect = current.input.getBoundingClientRect();
+  const spaceBelow = innerHeight - rect.bottom - 8;
+  const spaceAbove = rect.top - 8;
+  if (spaceBelow < 320 && spaceAbove > spaceBelow) {
+    popup.style.top = "";
+    popup.style.bottom = `${innerHeight - rect.top + 2}px`;
+    popup.style.maxHeight = `${spaceAbove}px`;
+  } else {
+    popup.style.bottom = "";
+    popup.style.top = `${rect.bottom + 2}px`;
+    popup.style.maxHeight = `${spaceBelow}px`;
+  }
+}
+
+// 選択：既存の change 処理に乗せる
+input.value = item.name;
+input.dataset.id = item.id;
+input.dispatchEvent(new Event("change", { bubbles: true }));
+~~~
+
+## 名前順は「文字コード順＋数字だけ数値で比較」
+
+~~~js
+function compareNames(a, b) {
+  const ta = a.normalize("NFKC").toLowerCase().match(/\d+|\D+/g) || [];
+  const tb = b.normalize("NFKC").toLowerCase().match(/\d+|\D+/g) || [];
+  for (let i = 0; i < Math.min(ta.length, tb.length); i++) {
+    if (ta[i] === tb[i]) continue;
+    if (/^\d/.test(ta[i]) && /^\d/.test(tb[i])) return Number(ta[i]) - Number(tb[i]);
+    return ta[i] < tb[i] ? -1 : 1;
+  }
+  return ta.length - tb.length;
+}
+~~~
+
+`localeCompare(..., "ja")`は国際的な照合順なので、似た書き出しの候補の間に、別の候補が入ることがあります。「似たものをまとめて並べたい」用途では、文字コード順のほうが分かりやすくなりました。
+
+## そのほかのポイント
+
+- 外側の表がスクロールしたら位置がずれるので、ポップアップを閉じる（`window`の`scroll`をキャプチャで拾い、ポップアップ内のスクロールは除く）
+- 並び替えと絞り込みの状態は<Term>localStorage</Term>に保存し、次に開いたときも同じにする
+- 絞り込みワードのテーブルを追加したら、起動時の`CREATE TABLE IF NOT EXISTS`に加えて、データベースファイルを読み込む処理の後にもスキーマの更新を呼ぶ。古いファイルを読み込むと、テーブルがなくなるため
+- 1つのボタンで4つの状態（登録順の昇順、降順、名前順の昇順、降順）を切り替える方式は、分かりにくいと言われた。種類ごとにボタンを分けるほうが好まれた
+
+## 関連記事
+
+- [VS Codeの拡張機能からPlaywrightでElectronアプリを起動できないときの対処](/articles/electron/playwright-electron-run-as-node)
+- [sql.jsとElectron IPCでインストール不要のローカルDBを永続化する方法](/articles/electron/sqljs-electron-ipc)

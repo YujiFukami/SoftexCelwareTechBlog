@@ -1,0 +1,80 @@
+---
+title: "区切り線のドラッグで、Canvasのプレビューも追従させる"
+category: "vanillajs"
+slug: "splitter-drag-canvas-preview-resize"
+tags: ["JavaScript", "Canvas", "Pointer Events", "CSS", "レイアウト"]
+description: "上下2段の画面で区切り線をドラッグしても、Canvasの絵が固定サイズのまま広がらない問題の直し方です。CSS変数で高さを持ち、Canvasは使える領域から毎回計算し、Pointer Eventsでマウスとタッチの両方に対応します。左メニューの開閉の作り方も紹介します。"
+date: "2026-11-25"
+---
+
+上段に画像のプレビュー、下段に編集用のグリッドを置いた画面で、区切り線のドラッグを直したときの記録です。修正前は、次の問題がありました。
+
+- 区切り線をドラッグしても、入れ物の高さだけが変わり、Canvasの絵は固定サイズのまま。広げると空白ができ、縮めると絵が切れる
+- `mousedown`と`mousemove`だけで実装していて、タッチで動かない
+- 下のグリッドの自動拡大が、ほぼ幅0の要素を基準にしていて、最小のマス目に張り付いていた
+
+## 1. 高さはCSS変数、Canvasは使える領域から毎回計算する
+
+~~~css
+#drop-zone { height: var(--preview-h, 300px); display: flex; flex-direction: column; }
+#preview-row { flex: 1; min-height: 0; }
+#resize-handle { height: 10px; touch-action: none; cursor: row-resize; }
+#grid-wrap { display: block; flex: 1 1 0; min-height: 0; } /* 残り全部を自動拡大の基準にする */
+~~~
+
+~~~js
+function previewArea() {  // プレビュー1枚に使える幅と高さ
+  const box = origCanvas.closest(".preview-box");
+  const zs = getComputedStyle(dropZone);
+  const padY = parseFloat(zs.paddingTop) + parseFloat(zs.paddingBottom);
+  const labelH = box.querySelector(".label").offsetHeight + 4;
+  return { maxW: box.clientWidth, maxH: dropZone.clientHeight - padY - labelH };
+}
+~~~
+
+## 2. Pointer Eventsでドラッグし、描き直しはrAFで間引く
+
+Pointer Eventsを使うと、マウスとタッチを同じ処理で扱えます。
+
+~~~js
+handle.addEventListener("pointerdown", (e) => {
+  id = e.pointerId; y0 = e.clientY; h0 = dropZone.offsetHeight;
+  try { handle.setPointerCapture(id); } catch {}
+  e.preventDefault();
+});
+handle.addEventListener("pointermove", (e) => {
+  if (e.pointerId !== id) return;
+  dropZone.style.setProperty("--preview-h", clamp(h0 + e.clientY - y0) + "px");
+  cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(() => layoutPreviews(true));
+});
+handle.addEventListener("pointerup", end);          // 高さを保存し、下のグリッドを合わせ直す
+handle.addEventListener("dblclick", resetToDefault);
+~~~
+
+## 3. 「描き直し」と「作り直し」を分ける
+
+元の更新処理は、プレビューの描画とグリッドの作り直しが一体になっていて、呼ぶと手で編集したマスが消えていました。絵だけを描き直す処理と、グリッドを作り直す処理に分け、リサイズのときは絵だけを描き直します。
+
+トリミングの枠は、表示の座標ではなく元画像のピクセル座標で持ちます。表示の座標で持つと、拡大縮小のたびにずれます。
+
+## 4. 自動拡大は「利用者が手でズームしたか」で切り替える
+
+- 手でズームしていない間は、リサイズ、パネルの開閉、タブの表示のたびに、表示領域いっぱいに合わせる
+- スライダーやホイールで手動ズームしたら、自動では変えない
+- 新しい画像を読み込んだり、マスの数を変えたりしたら、自動に戻す
+
+## 5. 左メニューの開閉は後付けの共通処理で
+
+- 各タブの左パネルの直後に、細い開閉ボタンを`after()`で差し込み、クラスの付け外しで隠す
+- 開閉の状態と、区画ごとの折りたたみの状態は<Term>localStorage</Term>に保存する。区画は見出しの翻訳キーで識別すると、言語を切り替えても安定する
+- 開閉の後に`CustomEvent("layoutresize")`を送り、各タブが自分の盤面を合わせ直す。タブを切り替えたときも同じイベントを送る（非表示のタブは大きさを測れないため）
+- スマホ幅では最初から閉じておき、開いたときは盤面に重ねて表示する。外をタップすると閉じる
+- 主なボタンは`position: sticky; bottom: -8px; margin-top: auto;`でパネルの下に常に表示する
+
+flexの主領域には`min-width: 0`を付けます。付けないと、折り返さない文字などの中身に押し広げられ、ページ全体が画面幅を超えます。
+
+## 関連記事
+
+- [サーバーなしでEdgeのヘッドレス撮影をし、操作後の画面の状態を作って確認する](/articles/vanillajs/edge-headless-inject-state-screenshot)
+- [ノノグラムの問題は、候補を大量に作って解けるものを選ぶ](/articles/vanillajs/nonogram-generate-select-solvable)

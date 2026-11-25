@@ -1,0 +1,78 @@
+---
+title: "動画の書き出しをロックファイルで順番待ちにし、完成した動画をDiscordへ送る"
+category: "audio"
+slug: "render-lock-discord-webhook"
+tags: ["Python", "排他制御", "Discord", "Webhook", "FFmpeg", "動画の自動生成"]
+description: "番組が2つに増え、音声合成やブラウザ、GPUを同時に使うと壊れたり遅くなったりする問題を、ロックファイルによる順番待ちで解決した方法です。リンク先ページの画像を安全に取り込む工夫と、完成した動画をDiscordのWebhookへ送る方法も説明します。"
+date: "2026-11-25"
+---
+
+毎日自動で動画を作る番組が2つに増えたとき、音声合成のエンジン、ブラウザ（画面の撮影用）、GPU（エンコード用）を同時に使うと、処理が壊れたり遅くなったりするようになりました。そこで、書き出しを1つずつ順番に行う仕組みを入れました。
+
+## ロックファイルで順番待ちにする
+
+`os.open(path, O_CREAT | O_EXCL)`で印のファイルを作れたプロセスだけが書き出します。ファイルがすでにあれば作成に失敗するので、同時に2つが書き出すことはありません。
+
+~~~python
+import json, os, time
+
+def acquire(path, owner):
+    while True:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "w") as f:
+                json.dump({"owner": owner, "pid": os.getpid(), "started": time.time()}, f)
+            return
+        except FileExistsError:
+            if is_stale(path):   # 書いたプロセスがもう無い、または3時間を超えた
+                os.remove(path)
+                continue
+            time.sleep(10)
+~~~
+
+- 印の中身には、だれが、どのプロセスで、いつ始めたかを書く
+- **書いたプロセスがもう存在しない**か、**3時間を超えた**印は、古いとみなして片付ける。Windowsでは`OpenProcess`と`GetExitCodeProcess`（戻り値が259なら動作中）でプロセスの有無を確かめられる
+- 同じプロセスの中での入れ子（本編の中でショート動画を作るなど）は、待たずに通す
+- 終わったら、自分のプロセスIDの印だけを消す
+
+## リンク先ページの画像を安全に取り込む
+
+ニュースのリンク先のページから画像を取り込むときは、次の順で探します。
+
+1. `og:image`
+2. 本文の`<img>`（`src`と`data-src`）
+
+URLにlogo、icon、sprite、banner、avatar、emojiを含むものや、SVGとGIFは除きます。
+
+取り込んだ画像は、**Pillowで開いて検査し、JPEGに書き直してから使います**。中身の分からないファイルをそのまま使わないためです。短い辺が360px未満の画像は除き、15MBを超えるダウンロードは途中で止めます。
+
+AIに画像を選ばせる場合は、候補を決まったフォルダに置き、プログラムはそのフォルダの外を指すパスを使わないようにします（`resolve()`した後、フォルダの中かを確かめる）。
+
+## 完成した動画をDiscordへ送る
+
+Discordのチャンネルに完成した動画を送ると、スマホからすぐに確認できます。
+
+~~~python
+import json, requests
+
+with open(path, "rb") as f:
+    r = requests.post(
+        f"{webhook_url}?wait=true",
+        files={"files[0]": (name, f, "video/mp4")},
+        data={"payload_json": json.dumps({"content": "", "allowed_mentions": {"parse": []}})},
+        timeout=120,
+    )
+r.raise_for_status()
+~~~
+
+- ファイルの上限は、ブーストしていないサーバーで1ファイル10MBでした。超える場合は、目標のサイズと動画の長さから映像のビットレートを決めて、書き直します（`映像kbps = 目標バイト数×8÷秒数÷1000 − 音声96`、`scale=1280:-2`）
+- <Term>Webhook</Term>のURLは鍵と同じ扱いにします。ユーザーの環境変数に置き、動いているプロセスに反映されていなければ、レジストリの`HKCU\Environment`から読みます。使う前に、URLの形が正しいかを確かめます
+
+## 番組を増やすときの設定
+
+番組ごとの違いは、番組ごとの設定ファイルを全体の設定に重ねる形にしました。**指定しない項目は元の番組と同じ動き**にしておくと、動いている制作を止めずに番組を追加できます。
+
+## 関連記事
+
+- [毎日の自動生成動画で、背景の写真を繰り返さない：使用記録と選び方](/articles/audio/daily-video-background-photo-rotation)
+- [音声と字幕から毎日の動画を作る：HTMLをEdgeでPNGにしてFFmpegで合成する](/articles/audio/narration-subtitle-video-edge-png-ffmpeg)

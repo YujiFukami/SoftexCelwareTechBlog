@@ -1,0 +1,60 @@
+---
+title: "Excel VBAで改ページの位置に太線を引き、印刷で表の枠が開かないようにする"
+category: "vba"
+slug: "page-break-thick-border"
+tags: ["Excel VBA", "印刷", "改ページ", "罫線", "HPageBreaks"]
+description: "表が次のページに続くとき、改ページの位置に太線がないと枠が開いたように見えます。HPageBreaksから改ページの行を読み、前後の行の両方に太線を引く方法と、改ページ位置が古いまま返ってくる問題の対処を説明します。"
+date: "2026-11-25"
+---
+
+「すべての列を1ページに印刷」の設定にすると、縦方向の改ページは<Term>Excel</Term>が決めます。表の途中で切れると、前のページの最後と次のページの最初に太線がなく、枠が開いたように見えます。
+
+<Term>VBA</Term>で改ページの位置を読み、そこに太線を引く方法です。
+
+## 手順
+
+1. 表を作り直す処理（罫線を毎回すべて引き直す）の最後で、`HPageBreaks`から改ページの行を読む
+2. 改ページの行Rが表の明細の範囲内なら、その表の列だけ、「R-1行の下」と「R行の上」の**両方**を太線にする
+3. 太線を消す専用の処理は作らない。作り直すときに罫線をすべて引き直すので、前の太線はそこで消える
+
+罫線はセルごとに持つので、「R-1行の下」だけを太線にしても、次のページの最初の行の上には印刷されません。両方に引く必要があります。
+
+2ページ目以降の見出しは、`PageSetup.PrintTitleRows`で繰り返します。ただし、表が左右に並ぶシートで表の見出しまで繰り返すと、続きのページに別の表の見出しが出て紛らわしくなります。その場合は表題の行だけにします。
+
+## 改ページの行を読むコード
+
+~~~vb
+Sheet_印刷.Activate
+Lng_表示 = ActiveWindow.View
+ActiveWindow.View = xlPageBreakPreview
+
+On Error Resume Next
+Lng_ページ = Sheet_印刷.PageSetup.Pages.Count  'ページ割りを計算し直させる
+For I = 1 To Sheet_印刷.HPageBreaks.Count
+    Row_改 = 0
+    Row_改 = Sheet_印刷.HPageBreaks(I).Location.Row
+    If Row_改 > 0 Then List.Add Row_改
+Next
+On Error GoTo 0
+
+ActiveWindow.View = Lng_表示
+Sheet_元.Activate
+~~~
+
+## 改ページの行を読むときの注意点
+
+- **標準の表示のままだと読めないことがある**：`HPageBreaks`が古い値や空のことがあります。シートを一時的に表示し、改ページプレビューにしてから読みます
+- **余白を変えた直後は古い位置が返ることがある**：読む前に`PageSetup.Pages.Count`を参照すると、ページ割りが計算し直されます
+- **最後の改ページでエラーになることがある**：`Location`の取得がまれに失敗するので、1つずつ`On Error Resume Next`で囲みます
+- **手動の改ページは動かない**：シートに手動の改ページ（`Type = xlPageBreakManual`）が残っていると、その位置は余白や倍率を変えても動きません
+
+## 運用のポイント
+
+改ページの位置は、プリンターや、WindowsかMacかによって変わります。太線は「作った時点」の位置に引かれるので、印刷するPCが変わったら作り直します。
+
+最後のページに載る量は、左右の余白を変えるボタン（押すと表を作り直す）で、利用者が調整できるようにしました。
+
+## 関連記事
+
+- [Windowsで作ったVBAブックをMacでも動かすときのチェックリスト](/articles/vba/mac-excel-vba-compatibility-checklist)
+- [GAS Webアプリで1レコード1ページの印刷PDFを作る](/articles/gas/gas-webapp-page-break-print)

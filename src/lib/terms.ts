@@ -24,6 +24,25 @@ export type LinkedTermTextSegment = {
 
 export const terms: TermEntry[] = [
   {
+    slug: "hreflang",
+    title: "hreflang",
+    category: "SEO",
+    aliases: ["hreflang属性"],
+    summary: "同じ内容の別の言語版のページがあることを、検索エンジンに伝える指定です。",
+    description: ["各言語のページに、すべての言語版のURLを互いに書いておきます。", "言語が決まっていない利用者向けのページは x-default で示します。"],
+    useCases: ["多言語サイトのSEO", "地域別のページの案内"],
+    references: [{ title: "Google 検索セントラル: ローカライズ版のページ", url: "https://developers.google.com/search/docs/specialty/international/localized-versions?hl=ja" }],
+  },
+  {
+    slug: "nonogram",
+    title: "ノノグラム",
+    category: "アルゴリズム",
+    aliases: ["イラストロジック", "お絵かきロジック", "Nonogram"],
+    summary: "行と列に書かれた数字をもとに、マスを塗りつぶして絵を完成させるパズルです。",
+    description: ["数字は、その行や列で連続して塗るマスの数を表します。", "問題によっては答えが1つに決まらなかったり、論理だけでは解き切れなかったりします。"],
+    useCases: ["パズルの自動生成", "自動解答のアルゴリズムの学習"],
+  },
+  {
     slug: "msbuild",
     title: "MSBuild",
     category: "開発環境",

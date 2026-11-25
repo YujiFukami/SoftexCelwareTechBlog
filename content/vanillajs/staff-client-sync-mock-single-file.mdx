@@ -1,0 +1,82 @@
+---
+title: "担当者画面とスマホ画面を1ファイルで並べ、リアルタイム共有を実演する商談用モック"
+category: "vanillajs"
+slug: "staff-client-sync-mock-single-file"
+tags: ["JavaScript", "HTML", "モック", "localStorage", "BroadcastChannel", "商談"]
+description: "「お客様がスマホで入力すると担当者側にすぐ届く」Webアプリを、データベースもサーバーもなしで打ち合わせ中に実演する方法です。HTML1ファイルに2つの画面を持たせて状態を共有し、描き直しでも入力中の欄やスクロールが飛ばない工夫を説明します。"
+date: "2026-11-25"
+---
+
+「お客様がスマホで入力すると、担当者の画面にすぐ届く」Webアプリを提案するとき、オンラインの打ち合わせの画面共有で、その動きを見せたいことがあります。データベースもサーバーも用意せずに実演するためのモックの作り方です。
+
+## iframeで並べない理由
+
+2つの画面をiframeで並べる方法もありますが、`file://`で開くと別のオリジンとして扱われ、BroadcastChannelや<Term>localStorage</Term>の共有が不安定になります。
+
+そこで、HTML 1ファイルに「担当者画面」と「お客様画面」の描画関数を両方持たせました。上部のボタンで「並べて表示」「担当者のみ」「スマホのみ」を切り替え、並べるときはお客様画面をCSSで作った端末の枠（390×780）に入れます。
+
+同じページの中なので、1つの`state`を共有して両方を描き直すだけで、即時に反映されたように見えます。
+
+## 別のタブにも反映する
+
+保存はlocalStorageで行い、本番のデータベースの役をさせます。別のタブ（`?view=client`のように開いたお客様画面）にも、`storage`イベントとBroadcastChannelで反映します。
+
+~~~js
+function save() {
+  state.rev++;
+  localStorage.setItem(KEY, JSON.stringify(state));
+  bc?.postMessage({ rev: state.rev });
+}
+addEventListener("storage", (e) => { if (e.key === KEY) onRemote(); }); // 別のタブから
+bc.onmessage = onRemote;                                               // 予備の経路
+~~~
+
+`state.rev`を毎回1つ増やし、同じrevの通知は無視して、二重の反映を防ぎます。新しく届いた行は「前のstateになかったid」で判定し、黄色く光らせてトーストを出します。
+
+## 描き直しで入力中の欄が飛ばないようにする
+
+状態が変わるたびに`innerHTML`で描き直すと、入力中の欄のフォーカスやスクロール位置が飛びます。描き直しの前後で、フォーカスしている要素のid、選択範囲、スクロール位置を保存して戻します。
+
+~~~js
+function render() {
+  const a = document.activeElement, fid = a && a.id;
+  let sel = null;
+  try { if (a && a.selectionStart != null) sel = [a.selectionStart, a.selectionEnd]; } catch (e) {}
+  const scr = {};
+  document.querySelectorAll("[data-scroll]").forEach((el) => (scr[el.dataset.scroll] = el.scrollTop));
+
+  staffRoot.innerHTML = renderStaff();
+  clientRoot.innerHTML = renderClient();
+
+  document.querySelectorAll("[data-scroll]").forEach((el) => {
+    if (scr[el.dataset.scroll] != null) el.scrollTop = scr[el.dataset.scroll];
+  });
+  if (fid) {
+    const el = document.getElementById(fid);
+    if (el) {
+      el.focus({ preventScroll: true });
+      try { sel && el.setSelectionRange(...sel); } catch (e) {}
+    }
+  }
+}
+~~~
+
+idは画面ごとに接頭辞（担当者は`s-`、お客様は`c-`）を付け、重ならないようにします。
+
+## 入力とイベントの扱い
+
+- 入力は`change`イベントでstateに反映する。`input`では、入力途中の空文字が0として反映されて戻ってしまう
+- スライダーはドラッグ中に描き直すと要素が差し替わり、ドラッグが切れる。`input`では隣の数値欄だけを連動させ、`change`で再計算する
+- お客様の入力途中の値は別の変数に持ち、他の画面からの描き直しでも消えないようにする
+- 操作はすべて`data-act`属性によるイベント委譲で処理する。モーダルの本体で`stopPropagation`すると中のボタンも委譲されなくなるので、「モーダルの背景自身がクリックされたときだけ閉じる」判定にする
+
+## スマホの実機で開いたとき
+
+スマホの実機で開いたときは、端末の枠をやめて全画面（`100dvh`）にします。このとき、詳細度の高いセレクタの指定がメディアクエリを上書きすることがあるので、メディアクエリ側にも同じセレクタを書きます。
+
+グラフはライブラリを使わずSVGで描いたので、オフラインでも打ち合わせで動きます。<Term>Playwright</Term>で「スマホ側で記録すると、担当者側の未確認件数が増える」ことも自動で確認できます。
+
+## 関連記事
+
+- [Chrome拡張の画面を実物に近い状態でCDP検証する](/articles/vanillajs/chrome-extension-cdp-realistic-testing)
+- [Python標準ライブラリだけで作る、JSONに保存するローカルアプリ](/articles/python-windows/python-stdlib-json-local-app)

@@ -1,0 +1,58 @@
+---
+title: "素のHTMLとVercelのAPI関数で、GASのスプレッドシートDBを中継する"
+category: "nextjs"
+slug: "vercel-api-functions-gas-relay"
+tags: ["Vercel", "GAS", "スプレッドシートDB", "Node.js", "テスト", "ビルド不要"]
+description: "GASのHtmlServiceで作った画面をVercelへ移すとき、Next.jsを使わず、素のHTMLとVercelのAPI関数だけで構成する方法です。GASの合言葉をブラウザに出さない中継の作り方と、追加パッケージなしで偽のGASを使って通しテストする方法を説明します。"
+date: "2026-11-25"
+---
+
+<Term>Google Apps Script</Term>のHtmlServiceで作った画面を<Term>Vercel</Term>へ移したいとき、Next.jsにするほどではない場合の構成です。`node_modules`もビルドもなしで、GASの合言葉（APIトークン）はブラウザに出しません。
+
+## 構成
+
+~~~text
+web/                ← VercelのRoot Directory（Framework: Other、ビルドなし）
+  index.html        ← 1枚。/staff や /admin も vercel.json の rewrites でここへ
+  assets/*.js *.css
+  api/_gas.js       ← 「_」で始まるファイルは関数として公開されない（共通処理の置き場）
+  api/call.js       ← POST { fn, args }。fn は許可リストで絞る
+  api/public.js     ← GET。CDNにキャッシュさせ、GASへの集中を防ぐ
+  vercel.json
+gas/                ← doPost(e) で { token, fn, args } を受けて処理する
+~~~
+
+- 環境変数は、GASのWebアプリのURL（`/exec`）と、GASのスクリプトプロパティと同じ値のトークンの2つ
+- API関数はCommonJS（`module.exports = async (req, res) => {}`）で書き、`package.json`は不要。`req.body`は、JSONなら解析済みで渡される
+- 公開用のGETは`Cache-Control: s-maxage=10`でCDNにキャッシュさせる
+- `vercel.json`で`functions: { "api/*.js": { "maxDuration": 30 } }`にする。GASの初回の起動とロック待ちで、10秒を超えることがある
+- URLにキーを載せるなら、全ページに`Referrer-Policy: no-referrer`を付ける
+
+GASへのPOSTは302で転送されるので、次のように呼びます。
+
+~~~js
+const res = await fetch(process.env.GAS_API_URL, {
+  method: "POST",
+  redirect: "follow",
+  headers: { "Content-Type": "text/plain;charset=utf-8" },
+  body: JSON.stringify({ token: process.env.GAS_API_TOKEN, fn, args }),
+});
+~~~
+
+## GAS側の要点
+
+- 呼べる関数の対応表は、**関数の中で作る**（`function apiActions_() { return { apiX: apiX }; }`）。トップレベルの定数で他のファイルの関数を参照すると、ファイルの読み込み順によってundefinedになることがある
+- トークンが違うときは`{ ok: false, code: "bad_token" }`、権限がないときは`code: "forbidden"`を返し、Vercel側で500や403に変換する
+- `doGet`はデータを返さず`{ ok: true }`だけにする
+
+## 追加パッケージなしで通しテストする
+
+1. **偽のGAS**：Node.jsの`vm.createContext`に、SpreadsheetApp、PropertiesService、LockService、CacheService、ContentServiceなどの最小限の偽物を入れ、本物の`gas/*.gs`を`vm.runInContext`で読み込みます。シートは2次元配列で表し、`getRange`、`getValues`、`setValues`、`getLastRow`程度を用意すれば足ります
+2. **偽のGASをHTTPで立てる**：GASのURLを`http://localhost:xxxx/exec`に向け、本物の`web/api/*.js`を、`res.status().json()`だけを足したNode.jsのHTTPサーバーで動かします。Vercelと同じ呼ばれ方になります
+3. **画面の確認**：Chromeを`--headless=new --remote-debugging-port=9333`で起動し、Node.js 22以降に組み込みの`WebSocket`でDevTools Protocolに接続します。スマホの画面サイズにして、クリックし、スクリーンショットを撮ります。JavaScriptのエラーがないことも確認できます。Puppeteerは不要です
+
+## 関連記事
+
+- [GAS WebアプリをURLのキーで「閲覧のみ」「入力係」「管理者」に分ける](/articles/gas/gas-url-key-role-separation)
+- [GASでGoogleスプレッドシートを簡易DB化し外部WebアプリからCRUDする構成](/articles/gas/spreadsheet-db-api-external-webapp)
+- [Next.jsとGASスプレッドシートDBで予約アプリを作る構成](/articles/nextjs/nextjs-gas-spreadsheet-booking-app)

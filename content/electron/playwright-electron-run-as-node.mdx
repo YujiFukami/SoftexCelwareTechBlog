@@ -1,0 +1,51 @@
+---
+title: "VS Codeの拡張機能からPlaywrightでElectronアプリを起動できないときの対処"
+category: "electron"
+slug: "playwright-electron-run-as-node"
+tags: ["Electron", "Playwright", "VS Code", "環境変数", "テスト"]
+description: "VS Codeの拡張機能として動くAIエージェントなどから、PlaywrightでElectronアプリを起動すると「Process failed to launch!」になる原因と対処です。原因は引き継がれた環境変数ELECTRON_RUN_AS_NODEでした。"
+date: "2026-11-25"
+---
+
+VS Codeの拡張機能として動くAIエージェント（Claude Codeなど）から、<Term>Playwright</Term>の`_electron.launch()`を実行すると、`Error: Process failed to launch!`となり、<Term>Electron</Term>アプリを起動できないことがありました。
+
+## 原因
+
+VS Codeの拡張機能のプロセスには、環境変数`ELECTRON_RUN_AS_NODE=1`が設定されていて、子プロセスにも引き継がれます。この変数があると、Electronはただの<Term>Node.js</Term>として動くので、ウィンドウが開きません。
+
+利用者のPCでも、同じ原因で「白い画面が一瞬出て閉じる」ことがあります。配布物の起動用`.bat`で、この変数を消してから起動する対策を入れています。
+
+## 対処：起動時の環境変数から取り除く
+
+~~~js
+import { _electron as electron } from "playwright-core";
+
+const app = await electron.launch({
+  executablePath: "C:\\dev\\my-app\\node_modules\\electron\\dist\\electron.exe",
+  args: ["C:\\dev\\my-app"],  // ビルド済みのEXEを直接指定する場合は []
+  env: Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => k !== "ELECTRON_RUN_AS_NODE")
+  ),
+  timeout: 60_000,
+});
+
+const page = await app.firstWindow();
+page.on("pageerror", (e) => console.log("pageerror", e.message));
+await page.waitForSelector("#some-ready-element");
+await page.screenshot({ path: "shots/01.png" });
+await app.close();
+~~~
+
+`electron-builder`や、アプリを起動するnpmスクリプトを実行するときも、先にPowerShellで`Remove-Item Env:ELECTRON_RUN_AS_NODE`を実行しておきます。
+
+## 運用のポイント
+
+- `playwright-core`はプロジェクトに入れず、作業用の一時フォルダにインストールして使うと、納品物を汚さない
+- Windowsでは実際にウィンドウが表示されるので、仮想ディスプレイなどは不要
+- 開発版（`electron.exe`とプロジェクトフォルダ）と、ビルド済みのEXEの両方で、同じスクリプトを使い回せる。環境変数で切り替える
+- データを変える操作をするので、テスト用のデータベースで行い、終わったら元に戻す
+
+## 関連記事
+
+- [Electronアプリの入力欄のdatalistを、絞り込み付きの自作プルダウンに置き換える](/articles/electron/datalist-custom-picker)
+- [electron-builderでwinCodeSignの展開に失敗する（シンボリックリンクを作れない）](/articles/electron/electron-builder-wincodesign-symlink)

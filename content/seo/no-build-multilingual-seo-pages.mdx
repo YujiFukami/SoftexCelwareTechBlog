@@ -1,0 +1,54 @@
+---
+title: "ビルドなしの多言語サイトを、言語別のURLで検索エンジンに対応させる"
+category: "seo"
+slug: "no-build-multilingual-seo-pages"
+tags: ["SEO", "多言語", "hreflang", "Node.js", "静的サイト", "i18n"]
+description: "JavaScriptで12言語を切り替える1ページのアプリは、URLが1つしかなく海外の検索にほとんど出ません。依存なしのNodeスクリプトで言語別の静的ページを生成し、hreflangやsitemapを整える方法を説明します。"
+date: "2026-11-25"
+---
+
+JavaScriptの辞書と`data-i18n`属性で12言語を切り替える1ページのWebアプリは、URLが1つしかありません。Googleは読み込み直後のHTML（日本語）しか言語として扱わないので、海外の検索にほとんど出ませんでした。実際に、検索での表示の92%が日本からでした。
+
+ほかにも、`canonical`が空、`sitemap.xml`と`robots.txt`がない、2つのホスティングに重複して公開している、という基本の漏れもありました。
+
+## 言語別のページを生成する
+
+依存パッケージのない<Term>Node.js</Term>のスクリプトで、`index.html`をひな形に、言語別の静的なページを生成します。
+
+1. **辞書を読み込む**：辞書ファイルが`I18n.register("en", {...})`の形なら、`vm`で偽の`I18n.register`を渡して実行するだけで取り出せる
+2. **`/{lang}/index.html`を生成し、次を書き換える**
+   - `<html lang>`、`<title>`、description、OGPの各項目、自分自身を指す`canonical`
+   - `data-i18n="キー"`を持つ要素の中身（子要素を含まない要素だけ）と、プレースホルダーやtitle属性の値
+   - **`<base href="../">`を入れる**：CSS、JavaScript、Web WorkerのURL、画像、相対リンクが、どの言語のページからでもサイトの先頭を基準に解決される。ファイルを複製しなくて済む
+3. **全ページに`<Term>hreflang</Term>`を出力する**：12言語と`x-default`を出す。ひな形（日本語のページ）にも、目印のコメントの間へ同じものを差し込む。何度実行しても増えないようにする
+4. **sitemapとrobots.txt**：`sitemap.xml`に各URLと代替言語のリンクを、`robots.txt`にサイトマップの場所を書く
+
+## JavaScript側の変更
+
+- 表示言語は、**ページの`<html lang>`で決める**。保存済みの言語やブラウザの言語で自動的に切り替えない（Googleの推奨に合わせる）
+- 言語の選択欄で選んだら、`new URL(lang === "ja" ? "./" : lang + "/", document.baseURI)`へ移動する
+- ブラウザの言語とページの言語が違うときは、その言語の文で「〇〇語でも見られます」というバーを出すだけにする
+
+使い方やFAQなどの解説ページは、本文だけを言語別のファイルに書き、ヘッダー、フッター、構造化データ（パンくず、FAQ、技術記事）をスクリプトで付けます。
+
+## つまずきどころ
+
+- **`file://`では確認できない**：`/zh-CN/`へのリンクはフォルダの一覧になります（サーバーなら`index.html`が返ります）。言語の切り替えは、ローカルサーバーか本番で確認します
+- **生成物はコミットする**：ホスティング側はビルド不要のままにします。ひな形、辞書、本文を直したら、必ず再生成してからコミットします
+- **翻訳の漏れ**：新しく追加した文言が他の言語で英語のままになっていないか、生成後の各言語のページで確認します。静的なページは、Googleにそのまま読まれます
+
+## 自動の検査
+
+検査用のスクリプトで、次を確かめると安心です。
+
+- `canonical`が自分自身を指している
+- `hreflang`の組が全ページで同じ
+- `<html lang>`がページの言語と合っている
+- 構造化データ（JSON-LD）がJSONとして正しい
+- sitemapのURLとページが一致している
+
+## 関連記事
+
+- [Google Search Console × Codexで回す自律型SEO改善サイクルの構想案](/articles/seo/gsc-codex-seo-cycle)
+- [ノノグラムの問題は、候補を大量に作って解けるものを選ぶ](/articles/vanillajs/nonogram-generate-select-solvable)
+- [Next.jsでOGP / Twitter Cardを設定してSNSリンクプレビューを整える](/articles/nextjs/ogp-twitter-card-social-preview)

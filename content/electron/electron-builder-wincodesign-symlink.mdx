@@ -1,0 +1,48 @@
+---
+title: "electron-builderでwinCodeSignの展開に失敗する（シンボリックリンクを作れない）"
+category: "electron"
+slug: "electron-builder-wincodesign-symlink"
+tags: ["Electron", "electron-builder", "Windows", "ビルド", "トラブルシュート"]
+description: "electron-builderでWindows向けにビルドすると、winCodeSignの展開で「Cannot create symbolic link」と出て失敗する原因と対処です。macOS用のフォルダを除いて自分で展開し、キャッシュに置くと解決します。"
+date: "2026-11-25"
+---
+
+<Term>Electron</Term>アプリを`electron-builder --win`でビルドすると、途中で次のエラーが出て、4回の再試行の後に失敗することがありました。exeファイル自体は作られますが、ビルドは失敗（exit 1）になります。
+
+~~~text
+ERROR: Cannot create symbolic link : クライアントは要求された特権を保有していません。
+  : ...\electron-builder\Cache\winCodeSign\867438263\darwin\10.12\lib\libcrypto.dylib
+~~~
+
+## 原因
+
+exeファイルにバージョン情報を書き込むツール（rcedit）は、winCodeSignという圧縮ファイルに入っています。これを展開するとき、中にある**macOS用のシンボリックリンク**を作ろうとして失敗しています。Windowsでは、管理者の権限か開発者モードがないと、シンボリックリンクを作れません。
+
+## 対処：macOS用のフォルダを除いて自分で展開する
+
+winCodeSignを、macOS用のフォルダ（`darwin`）を除いて展開し、electron-builderが探すフォルダ名（`winCodeSign-2.6.0`）で置いておきます。
+
+~~~powershell
+$c   = "$env:LOCALAPPDATA\electron-builder\Cache\winCodeSign"
+$dst = "$c\winCodeSign-2.6.0"
+
+# 失敗時に残った .7z（数字の名前）のどれか1つを使う
+& ".\node_modules\7zip-bin\win\x64\7za.exe" x -bd "-xr!darwin" "$c\867438263.7z" "-o$dst"
+
+# 失敗の残り（数字の名前のフォルダと .7z）を片付ける
+Get-ChildItem $c -Directory | Where-Object Name -match '^\d+$' | Remove-Item -Recurse -Force
+Get-ChildItem $c -Filter *.7z | Remove-Item -Force
+~~~
+
+もう一度`npx electron-builder --win dir`を実行すると、成功しました。exeのバージョン情報も書き込まれます。electron-builder 25.1.8、Windows 11で確認しました。
+
+## ポイント
+
+- コマンドラインで`-c.win.signAndEditExecutable=false`を渡す方法は、設定のチェックで失敗しました（`"false"`という文字列として扱われるため）。キャッシュを直すほうが確実です
+- 一度直せば、そのPCでは以後発生しません。キャッシュを消すと再発します
+- 開発者モードをオンにするか、管理者のターミナルでビルドしても回避できます
+
+## 関連記事
+
+- [VS Codeの拡張機能からPlaywrightでElectronアプリを起動できないときの対処](/articles/electron/playwright-electron-run-as-node)
+- [package.jsonのversionをVite+Electronアプリ全体に自動反映する方法](/articles/electron/packagejson-version-inject)

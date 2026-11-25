@@ -1,0 +1,76 @@
+---
+title: "サーバーなしでEdgeのヘッドレス撮影をし、操作後の画面の状態を作って確認する"
+category: "vanillajs"
+slug: "edge-headless-inject-state-screenshot"
+tags: ["Microsoft Edge", "ヘッドレスブラウザ", "JavaScript", "テスト", "スクリーンショット"]
+description: "ビルド不要の静的Webアプリで、タブの切り替えや画像の読み込み、ドラッグの後の画面を画像で確かめる方法です。ローカルサーバーを使わず、コピーしたアプリに状態を作るスクリプトを差し込み、Edgeのheadlessモードで撮影します。"
+date: "2026-11-25"
+---
+
+ビルド不要の静的Webアプリ（`<script src>`を並べた構成）のレイアウトを直したとき、「タブを切り替えた状態」「画像を読み込んだ状態」「区切り線をドラッグした後」などを、画像で確認したいことがあります。
+
+ところが、`python -m http.server`などのローカルサーバーを起動できない環境もあります。また、`msedge --screenshot`ではクリックなどの操作ができず、最初の画面しか撮れません。
+
+## 方法
+
+1. アプリを作業用の一時フォルダへ**コピー**し、コピー側の`</body>`の直前に、テスト用の`inject.js`を差し込む（本体は変更しない）
+2. `inject.js`でURLのパラメータを読み、画面の状態を作る（タブの切り替え、ファイルの投入、ドラッグ）
+3. Edgeで`file:///`のURLを開いて撮影する
+
+## 状態を作るスクリプト
+
+~~~js
+// inject.js（コピー側だけに入れる）
+window.addEventListener("load", () => setTimeout(async () => {
+  const p = new URLSearchParams(location.search);
+
+  if (p.get("tab")) switchTab(p.get("tab"));  // アプリの関数をそのまま呼ぶ
+
+  if (p.get("img")) {                           // ファイル選択欄にファイルを入れる
+    const b = await (await fetch("sample.png")).blob();
+    const dt = new DataTransfer();
+    dt.items.add(new File([b], "sample.png", { type: "image/png" }));
+    const inp = document.getElementById("file-input");
+    inp.files = dt.files;
+    inp.dispatchEvent(new Event("change"));
+  }
+
+  const dy = +(p.get("drag") || 0);             // Pointer Eventsでドラッグを再現
+  if (dy) setTimeout(() => {
+    const h = document.getElementById("resize-handle");
+    const r = h.getBoundingClientRect();
+    const o = { pointerId: 1, bubbles: true, button: 0, clientY: r.top + 4 };
+    h.dispatchEvent(new PointerEvent("pointerdown", o));
+    h.dispatchEvent(new PointerEvent("pointermove", { ...o, clientY: o.clientY + dy }));
+    h.dispatchEvent(new PointerEvent("pointerup", { ...o, clientY: o.clientY + dy }));
+  }, 600);
+}, 300));
+~~~
+
+## 撮影のコマンド
+
+~~~bash
+E="/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+WIN=$(cygpath -m "$WORK/webcopy/index.html")
+
+"$E" --headless=new --allow-file-access-from-files --disable-gpu --hide-scrollbars \
+  --user-data-dir="$(cygpath -m "$WORK")/profile_creator" \
+  --window-size=1366,768 --virtual-time-budget=6000 \
+  --screenshot="$(cygpath -m "$WORK")/shots/creator.png" \
+  "file:///$WIN?tab=creator&img=1&drag=180"
+~~~
+
+`fetch()`でローカルの画像を読むため、`--allow-file-access-from-files`を付けます。DOMの状態を数値で確かめたいときは、`--dump-dom`で出力し、`inject.js`で測った値を`<pre id="measure">`に書き出して取り出します。
+
+## つまずきどころ
+
+- **`--virtual-time-budget`を付ける**：付けないと、`setTimeout`や画像の読み込みを待たずに撮影されます
+- **撮影ごとに`--user-data-dir`を分ける**：同じフォルダを使うと、前の撮影の<Term>localStorage</Term>（区切りの位置など）が引き継がれ、結果がぶれます
+- **スマホ幅は実際の幅を測る**：`--window-size=390,844`を指定しても、実際の表示幅（`innerWidth`）は約492pxになりました。画像は390pxで切り取られるので、右端がはみ出しているように見えることがあります。`--dump-dom`で`innerWidth`と要素の幅を測って確かめます
+- **`setPointerCapture()`はtry/catchで囲む**：合成したPointerEventに対して呼ぶと`NotFoundError`になります。アプリ側を`try { ... } catch {}`にしておくと、テストでも本番でも安全です
+- **Web Workerは動かないことがある**：通常の`<script>`なら`file://`でも動きますが、<Term>Web Worker</Term>は動かないことがあります。この方法はレイアウトの確認に使います
+
+## 関連記事
+
+- [区切り線のドラッグで、Canvasのプレビューも追従させる](/articles/vanillajs/splitter-drag-canvas-preview-resize)
+- [Chrome拡張の画面を実物に近い状態でCDP検証する](/articles/vanillajs/chrome-extension-cdp-realistic-testing)

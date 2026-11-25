@@ -1,0 +1,67 @@
+---
+title: "GAS WebアプリをURLのキーで「閲覧のみ」「入力係」「管理者」に分ける"
+category: "gas"
+slug: "gas-url-key-role-separation"
+tags: ["GAS", "Webアプリ", "権限管理", "google.script.run", "セキュリティ"]
+description: "イベント当日などに、Googleアカウントなしで、閲覧のみ、入力係、管理者を1つのURLで使い分ける方法です。URLのキーで役割を決め、書き込みの関数では毎回サーバー側でキーを確認します。google.script.runから呼べてしまう関数などの落とし穴もまとめます。"
+date: "2026-11-25"
+---
+
+イベントの当日に、ログインなし（Googleアカウント不要）で、次の3つの使い方を1つのWebアプリで分けたいことがあります。
+
+- 参加者：結果を見るだけ（絶対に書き換えられない）
+- 入力係：数値の入力だけ
+- 管理者：マスタの登録や設定まで
+
+<Term>Google Apps Script</Term>のWebアプリで、URLのキーを使って役割を分けた方法です。
+
+## 仕組み
+
+- デプロイは`executeAs: USER_DEPLOYING`、`access: ANYONE_ANONYMOUS`にする
+- `.../exec?k=<キー>`のキーで役割を決める。キーはスクリプトプロパティに保存したランダムな40文字で、作り直せるようにする
+- **画面を隠すだけでなく、書き込みの関数は毎回サーバー側でキーを確認する**
+
+~~~js
+function roleOfKey_(k) {
+  if (!k) return "public";
+  const keys = getKeys_();  // スクリプトプロパティの ADMIN_KEY / STAFF_KEY
+  if (String(k) === keys.admin) return "admin";
+  if (String(k) === keys.staff) return "staff";
+  return "public";
+}
+
+function requireRole_(k, need) {
+  const r = roleOfKey_(k);
+  const ok = need === "admin" ? r === "admin" : (r === "admin" || r === "staff");
+  if (!ok) throw new Error("この操作をする権限がありません。");
+  return r;
+}
+
+function apiAddEntry(key, p) {
+  requireRole_(key, "staff");
+  // 書き込みの処理
+}
+~~~
+
+`doGet`でキーから役割を判定してテンプレートに渡し、画面は役割ごとに読み込むスクリプトを変えます。
+
+## 落とし穴
+
+1. **`_`で終わらない関数は、すべて`google.script.run`から呼べる**：内部の処理は必ず関数名の末尾を`_`にします。テンプレート用の`include`も`include_`にして問題ありません（テンプレートの中からは呼べます）
+2. **スプレッドシートのメニュー用の関数もWebから呼べてしまう**：先頭で`SpreadsheetApp.getUi()`を呼ぶと、Webからの呼び出しでは例外で止まります。キーの作り直しなどを匿名で実行されないようにできます。エディタで実行する初期設定の関数は、`Session.getActiveUser().getEmail()`が空なら止めます
+3. **`ScriptApp.getService().getUrl()`が開発用のURLを返すことがある**：エディタやメニューから呼ぶと`/dev`が返ることがあります。`doGet`で`/exec`として開かれたときにスクリプトプロパティへ保存し、URLの表示にはその値を使います
+4. **最初は持ち主の許可が必要**：新しいスクリプトは、持ち主がエディタで一度関数を実行して権限を許可するまで、匿名のアクセスで「アクセスが拒否されました」になります
+5. **JSONの埋め込みで構文エラーになることがある**：HTMLにJSONを埋め込む処理で、U+2028の文字をそのまま書くと、ファイルの保存時に実際の改行文字になり、構文エラーになることがあります。`String.fromCharCode(0x2028)`で組み立てます
+6. **Dateは返せない**：`google.script.run`の戻り値にDateを含めると失敗します。文字列にしてから返します
+
+## 当日の運用のための工夫
+
+- 同時に入力されても大丈夫なように、LockServiceで排他制御し、1件を1行として追記する
+- 再送による二重登録は、送信IDで防ぐ
+- 参加者向けの表示は、CacheServiceで10秒間キャッシュして、アクセスの集中に備える
+
+## 関連記事
+
+- [GAS Webアプリで本人限定表示をトークンURLで実現する](/articles/gas/gas-webapp-private-token-url)
+- [GAS公開Webアプリで顧客画面と管理者画面の権限を分ける方法](/articles/gas/gas-webapp-admin-menu-permission-separation)
+- [素のHTMLとVercelのAPI関数で、GASのスプレッドシートDBを中継する](/articles/nextjs/vercel-api-functions-gas-relay)
