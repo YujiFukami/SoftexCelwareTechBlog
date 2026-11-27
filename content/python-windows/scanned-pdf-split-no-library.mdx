@@ -1,0 +1,51 @@
+---
+title: "スキャンしたPDFを、PDFライブラリなし・画質劣化なしで書類ごとに分割する"
+category: "python-windows"
+slug: "scanned-pdf-split-no-library"
+tags: ["Python", "PDF", "Pillow", "スキャン", "CCITT", "JPEG"]
+description: "複合機でまとめてスキャンしたPDFを、書類ごとの別PDFに分ける方法です。PDFライブラリを使わずに画像を取り出して中身を確認し、元の画像データをそのまま埋め込んだPDFを書き出すので、画質が落ちません。"
+date: "2026-11-27"
+---
+
+複合機で何十枚もまとめてスキャンすると、1つのPDFに種類の違う書類が混ざります（申告書2枚、決算書4枚、証明書1枚など）。これを書類ごとの別のPDFに分けたいときの方法です。
+
+条件は次のとおりでした。
+
+- pypdf、PyMuPDF、popplerなどのPDFライブラリが入っていない環境で行う
+- 白黒（CCITT G4）とカラー（JPEG）のページが混ざっている
+- 再圧縮して画質を落としたくない
+
+## 1. ページごとの画像を取り出して中身を確認する
+
+<Term>Python</Term>でPDFを正規表現で読み、ページの順番（`/Pages`の`/Kids`をたどる）に画像のデータを取り出します。
+
+- JPEG（`/DCTDecode`）は、そのまま<Term>Pillow</Term>で開く
+- CCITT（`/CCITTFaxDecode`）は、**生のデータにTIFFのヘッダーを付けて**Pillowで開く
+- `/Length 13 0 R`のような間接参照や、`/Rotate 5 0 R`も解決する
+
+確認用に半分の大きさのPNGを書き出し、縮小した一覧画像（1枚に6ページ）を目で見て、書類の切れ目を決めます。
+
+~~~bash
+python pdfpages.py "scan.pdf" outdir      # p01.png などを作って中身を見る
+python pdfsplit.py "scan.pdf" plan.json   # plan.json のとおりに分割する
+~~~
+
+## 2. 元の画像データのままPDFを書き出す
+
+`{出力パス: [ページ番号, ...]}`のJSONを渡すと、**元の画像データをそのまま埋め込んだ**新しいPDFを書き出します。再エンコードしないので、画質は変わりません。ページの順番も並べ替えられます（逆順でスキャンした書類を正しい順に戻すなど）。
+
+分割した後は、全出力のページ数の合計と、使ったページ番号の集合が、元のPDFと一致するかを確かめます。
+
+## ポイント
+
+- **CCITTの白黒の反転**：TIFFのヘッダーの`Photometric`は、`BlackIs1`がtrueなら1、そうでなければ0にする。逆にすると黒い背景になる
+- **書き出すPDFの設定は元と同じにする**：CCITTの`/DecodeParms<</K -1/Columns 幅/Rows 高さ/BlackIs1 true>>`を元のページと合わせる
+- **用紙の向き**：MediaBoxは、画像の縦横に合わせてA4縦（595×841）とA4横（841×595）を切り替える
+- **書き込み中のファイルを読まない**：スキャンの書き出し中のファイルを読まないよう、ファイルサイズが3回続けて同じで、末尾に`%%EOF`があることを待ってから処理する
+- **白紙と重複**：白紙のページは、画像の平均の明るさで判定して外す。よく似た2ページは、`np.abs(A - B).mean()`で重複を判定できる
+- **暗号化されたPDFは読めない**：`/Encrypt`のあるPDFは、この方法では読めない
+
+## 関連記事
+
+- [ローカルPCで動画から文字起こし議事録を作るPythonツール設計](/articles/python-windows/local-video-transcription-meeting-minutes-mvp)
+- [openpyxlで読めないxlsmのハイパーリンクをXMLから取り出す](/articles/python-windows/openpyxl-xlsm-hyperlink-xml)

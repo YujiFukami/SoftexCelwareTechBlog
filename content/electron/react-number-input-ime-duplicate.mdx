@@ -1,0 +1,65 @@
+---
+title: "Reactの数値入力欄で、日本語入力のまま打つと数字が重複する問題の対策"
+category: "electron"
+slug: "react-number-input-ime-duplicate"
+tags: ["React", "IME", "TypeScript", "フォーム", "Electron", "バグ対策"]
+description: "Reactの金額欄で全角数字を半角に直す処理を入れたところ、日本語入力をオンのまま打つと「1100」のように数字が重複しました。原因は変換中の値の書き換えでした。変換の確定時に正規化する実装を説明します。"
+date: "2026-11-27"
+---
+
+<Term>React</Term>の金額欄を`type="text"`にし、`onChange`で全角数字を半角に直す（`normalize("NFKC")`）実装にしていました。日本語入力（IME）をオンのまま「１」「０」と打つと、`1100`や`1010`のように同じ数字が続けて入る不具合が出ました。IMEがオフ（半角）なら起きません。
+
+## 原因
+
+IMEで変換している最中（compositionの最中）にも、`onChange`が呼ばれます。そこで入力欄の値を書き換えると、IMEが持っている「未確定の文字列」と入力欄の値が食い違い、確定したときに未確定の文字列がもう一度挿入されます。
+
+## 対策：変換中は書き換えず、確定してから正規化する
+
+変換中は入力されたまま表示し、**変換が確定した時点（`compositionend`）**で半角化と数字以外の除去を行います。
+
+~~~tsx
+function AmountInput(props: { value: number; onValueChange: (v: number) => void }) {
+  const [draft, setDraft] = useState(String(props.value));
+  const composingRef = useRef(false);
+
+  const commit = (raw: string) => {
+    const normalized = raw.normalize("NFKC")
+      .replace(/[−‐-―ー]/g, "-")
+      .replace(/,/g, "")
+      .trim();
+    const next = (normalized.startsWith("-") ? "-" : "") + normalized.replace(/\D/g, "");
+    setDraft(next);
+    if (next !== "" && next !== "-") props.onValueChange(Number(next));
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={draft}
+      onCompositionStart={() => { composingRef.current = true; }}
+      onCompositionEnd={(e) => { composingRef.current = false; commit(e.currentTarget.value); }}
+      onChange={(e) => {
+        if (composingRef.current || (e.nativeEvent as InputEvent).isComposing) {
+          setDraft(e.target.value);
+          return;
+        }
+        commit(e.target.value);
+      }}
+      onBlur={(e) => { composingRef.current = false; commit(e.currentTarget.value); }}
+    />
+  );
+}
+~~~
+
+## ポイント
+
+- 変換中も`setDraft(入力されたままの値)`は必要です。制御コンポーネントなので、しないと入力が表示されません。止めるのは書き換え（正規化）だけです
+- 「正規化した結果が数字でなければ無視する（return）」という作りも危険です。変換中の値が弾かれ続け、IMEと食い違います。数字以外は**取り除く**ほうが安全です
+- Chromiumのイベントの順番は、`input`（`isComposing`がtrue）、`compositionend`の順です。確定後の`input`は来ないので、`compositionend`で必ず確定の処理をします
+- `inputMode="numeric"`を付けても、WindowsのIMEは自動ではオフになりません。オンのまま入力される前提で作ります
+
+## 関連記事
+
+- [Electronアプリの入力欄のdatalistを、絞り込み付きの自作プルダウンに置き換える](/articles/electron/datalist-custom-picker)
+- [GASでスプレッドシート検索の全角・半角と大文字小文字を吸収する方法](/articles/gas/normalize-search)

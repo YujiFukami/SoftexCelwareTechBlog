@@ -1,0 +1,50 @@
+---
+title: "横に広い表の下に置いた右寄せボタンが、画面の外に隠れる問題"
+category: "vanillajs"
+slug: "sticky-right-button-wide-table"
+tags: ["CSS", "JavaScript", "position: sticky", "スクロール", "UI"]
+description: "表の下に右寄せで置いた「行を追加」ボタンが、表が画面より広いと画面の外に出てしまう問題の対処です。position: stickyで画面の右端に留め、追加後のスクロールは縦だけにする方法を説明します。"
+date: "2026-11-27"
+---
+
+表の下に「＋ 行を追加」ボタンを右寄せ（`justify-content: flex-end`）で置きました。ところが、表が画面より広い（横スクロールがある）と、ボタンが表の右端、つまり画面の外に出てしまい、横にスクロールしないと見つかりませんでした。
+
+さらに、行を追加した後に`scrollIntoView({ block: "nearest" })`でボタンを見せようとすると、横方向にもスクロールして、表の左の列（日付など）が見えなくなりました。
+
+## 対処1：ボタンをposition: stickyにする
+
+ボタンに`position: sticky; right: 16px;`を付けます。本来の位置が画面の右外にあるときは、画面の右端に留まります。
+
+~~~html
+<div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+  <button id="btn-add" style="position: sticky; right: 16px;">＋ 明細追加</button>
+</div>
+~~~
+
+## 対処2：追加後のスクロールは縦だけにする
+
+縦にスクロールする親要素を探して、`scrollTop`を直接足します。
+
+~~~js
+const btn = document.getElementById("btn-add");
+let scroller = btn.parentElement;
+while (scroller && !(scroller.scrollHeight > scroller.clientHeight &&
+       /(auto|scroll)/.test(getComputedStyle(scroller).overflowY))) {
+  scroller = scroller.parentElement;
+}
+if (scroller) {
+  const over = btn.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom;
+  if (over > 0) scroller.scrollTop += over + 16;
+}
+~~~
+
+`scrollIntoView`は、`inline`を指定しても、要素が画面より広い場合や画面の外にある場合は横にも動きます。縦だけ動かしたいときは、`scrollTop`を直接操作します。
+
+## テストで気づきにくい理由
+
+<Term>Playwright</Term>の`page.click()`は、クリックする前に要素を画面内まで自動でスクロールします。そのため、テストでは「ボタンが画面の外にある」ことに気づきにくくなります。クリックの前に、`getBoundingClientRect()`の`right`と`innerWidth`を比べて確かめます。
+
+## 関連記事
+
+- [区切り線のドラッグで、Canvasのプレビューも追従させる](/articles/vanillajs/splitter-drag-canvas-preview-resize)
+- [Electronアプリの入力欄のdatalistを、絞り込み付きの自作プルダウンに置き換える](/articles/electron/datalist-custom-picker)

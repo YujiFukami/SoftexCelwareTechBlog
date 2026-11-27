@@ -181,6 +181,22 @@ def read_pcm16_mono(path):
 
 補助CLIが終了コード0を返しても、文字起こしが省略されるケースがあります。終了コードだけでなく成果物の存在・件数を確認し、字幕や場面選びへ使う前に、固有名詞と時刻を元音声で照合します。
 
+## GPUで大きなモデルを使うときのDLLの場所
+
+長い打ち合わせ（約55分）で固有名詞も拾いたいときは、GPUで`large-v3`を使いました（RTX 3060 Tiで確認）。`WhisperModel("large-v3", device="cuda", compute_type="float16")`です。
+
+`device="cuda"`にすると、`Library cublas64_12.dll is not found or cannot be loaded`で止まることがあります。必要なDLLは、pipで入れたNVIDIAのパッケージの中にありますが、PATHが通っていないだけでした。実行前に、Pythonの`site-packages\nvidia\cublas\bin`と`site-packages\nvidia\cudnn\bin`をPATHに足します。
+
+~~~bash
+P="$(python -c 'import site; print(site.getsitepackages()[-1])')/nvidia"
+export PATH="$P/cublas/bin:$P/cudnn/bin:$PATH"
+python -I transcribe.py audio.wav transcript.txt
+~~~
+
+`initial_prompt`に、その業界でよく使う言葉を並べておくと、聞き違いが減りました。
+
+画面の中身は、`ffmpeg -vf "fps=1/60,scale=960:-1"`で1分ごとに切り出し、`tile=4x4`で一覧にすると、どの時間に何を映していたかが数枚で分かります。
+
 ## 話者分離は失敗しても全体を止めない
 
 話者分離は便利ですが、依存関係やモデル条件が重くなりがちです。初期版では、話者分離に失敗しても文字起こし結果は出力します。

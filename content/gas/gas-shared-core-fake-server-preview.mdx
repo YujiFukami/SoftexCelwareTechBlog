@@ -1,0 +1,78 @@
+---
+title: "GAS・画面・Node.jsで同じ判定部品を使い、偽のサーバーで画面を確かめる"
+category: "gas"
+slug: "gas-shared-core-fake-server-preview"
+tags: ["GAS", "JavaScript", "Node.js", "clasp", "テスト", "ヘッドレスブラウザ"]
+description: "条件の判定や集計を、GASのサーバー、ブラウザの画面、手元のNode.jsの3か所で同じ答えにする作り方です。部品を1ファイルの素のJavaScriptにしてビルドで2つに写し、google.script.runがないときは偽のAPIを呼ぶことで、デプロイせずに画面を確かめます。"
+date: "2026-11-27"
+---
+
+チェック（条件の判定と点数）や集計を、<Term>Google Apps Script</Term>のサーバー、HtmlServiceの画面（ブラウザ）、手元の<Term>Node.js</Term>（AIによる採点やテスト）の3か所で使いたいことがあります。別々に書くと、答えがずれます。
+
+また、GASの画面は、pushして承認してデプロイしないと見られないので、確認に時間がかかります。この2つを解決する作り方です。
+
+## 1. 部品は1ファイルの素のJavaScriptにする
+
+Googleのサービスを使わない、素のJavaScriptで書きます。日付は`"YYYY-MM-DD"`、時刻は`"H:MM"`の文字列で扱い、タイムゾーンを持ち込まずに「壁時計の分」で計算します。
+
+~~~js
+var K1 = (function () {
+  /* 判定と集計の処理 */
+  return { check: check, buildQueue: buildQueue };
+})();
+if (typeof module !== "undefined" && module.exports) module.exports = K1;
+~~~
+
+## 2. ビルドで2つに写す
+
+ビルド用のスクリプトで、サーバー用の`dist/Core.js`と、`<script>`で包んだ画面用の`dist/CoreJs.html`を作ります。`.clasp.json`の`rootDir`を`dist`にして、claspでpushします。画面は`<?!= include("CoreJs"); ?>`で読み込みます。
+
+これで、GAS、ブラウザ、Node.jsで必ず同じ答えになります。「サーバーでもチェック」した結果が画面と一致することも示せます。
+
+## 3. サーバーの呼び出しを1つの関数にまとめる
+
+`google.script.run`がない環境では、偽のAPI（`window.FAKE_API`）を呼ぶようにします。
+
+~~~js
+function gs(fn) {
+  var a = [].slice.call(arguments, 1);
+  return new Promise(function (ok, ng) {
+    if (window.google && google.script) {
+      var r = google.script.run.withSuccessHandler(ok).withFailureHandler(ng);
+      r[fn].apply(r, a);
+    } else {
+      setTimeout(function () {
+        try { ok(window.FAKE_API[fn].apply(null, a)); } catch (e) { ng(e); }
+      }, 30);
+    }
+  });
+}
+~~~
+
+## 4. 試し用のページを作る
+
+スクリプトで、`Index.html`の`<?!= include("X"); ?>`を中身に置き換え、偽のAPI（共通の部品とダミーデータで答える）を差し込んで、`preview/index.html`に書き出します。タブを押す、JSONを貼るなどの操作も差し込めます。
+
+## 5. ヘッドレスのChromeで撮る
+
+~~~bash
+"C:/Program Files/Google/Chrome/Application/chrome.exe" --headless=new --disable-gpu --hide-scrollbars \
+  --window-size=1400,1000 --virtual-time-budget=5000 \
+  --screenshot=C:/work/out/preview.png "file:///C:/work/preview/index.html"
+~~~
+
+- `--screenshot=`の保存先は、スラッシュ区切りのフルパスで書く（Git Bashで`C:\...`と書くと保存されない）
+- `--dump-dom`で描画後のDOMを出すと、点数などの値を検索して確かめられる
+- スマホの画面は`--window-size=420,900`で撮る
+
+## 注意点
+
+- `google.script.run`から呼ぶ関数は、名前の末尾に`_`を付けない（付けると呼べない）
+- `clasp create-script`は作成直後にcloneするので、`dist/appsscript.json`が既定の内容で上書きされる。ビルドし直してからpushする
+- `clasp push`はファイルを全部置き換える。他の人が用意したスクリプトに入れるときは、先に別のフォルダで`clasp clone`して中身を確かめる
+
+## 関連記事
+
+- [claspでGASを安全にpushし、既存のWebアプリURLを維持して再デプロイする](/articles/gas/clasp-gas-push-redeploy-safe)
+- [GAS Webアプリのログイン：URLの振り分け、ハッシュ化したパスワード、通行証、ソフト削除](/articles/gas/gas-url-split-hashed-password-session)
+- [サーバーなしでEdgeのヘッドレス撮影をし、操作後の画面の状態を作って確認する](/articles/vanillajs/edge-headless-inject-state-screenshot)

@@ -1,0 +1,72 @@
+---
+title: "GASのWebアプリで、役所の様式のxlsxにそのまま書き込んでExcelを出す（ExcelJS）"
+category: "gas"
+slug: "gas-exceljs-official-form-xlsx"
+tags: ["GAS", "ExcelJS", "Excel", "帳票", "openpyxl", "Google Drive"]
+description: "様式が決まっていて、まったく同じ形で出したい帳票を、GASのシステムから出す方法です。スプレッドシートを経由せず、様式のxlsxをブラウザのExcelJSで読み込んで書き込むので、罫線や結合、印刷設定が崩れません。"
+date: "2026-11-27"
+---
+
+役所に提出する記録票のように、様式が決まっていて、まったく同じ形で出したい帳票があります。これを<Term>Google Apps Script</Term>で作ったシステムから出す方法です。
+
+様式をGoogleスプレッドシートに変換して書き込み、xlsxに戻すと、罫線、結合、文字の大きさ、印刷の設定が少しずつ崩れます。また、GASのサーバーだけでは、xlsxを直接書けません。
+
+## 全体の流れ
+
+1. **様式を用意する**：今使っているExcelのブックから帳票のシートだけを抜き出し、書き込み欄を空にしたxlsxを作る
+2. **置き場所**：様式のxlsxをGoogle Driveに置き、設定にファイルIDを持つ
+3. **書き込み**：ブラウザ（画面）で<Term>ExcelJS</Term>を使って書き込む
+4. **出力**：ダウンロードのリンクを出し、同時にDriveの月ごとのフォルダにも保存する
+
+## 1. 様式を用意する
+
+<Term>openpyxl</Term>で、他のシートを削除し、外部を指す名前（`#REF`を含むもの）を消し、書き込み欄を空にします。
+
+- **帳票のシートに図形がないことを先に確かめる**：openpyxlは、図形や条件付き書式の一部を保存時に落とします。xlsxをZIPとして開き、`xl/worksheets/_rels/sheetN.xml.rels`に`drawing`がないかで確かめられます
+- **書き込む位置**：元のVBAが使っている、シートの名前付き範囲から位置を取り、JSONにしておきます
+
+様式のxlsxはビルドでbase64にしてスクリプトに入れておき、初期化のときにDriveの「様式」フォルダへ置きます。本番では、Driveのファイルを差し替えるだけで様式を更新できます。
+
+## 2. 書き込む
+
+サーバーのAPIが様式をbase64で返し、画面でExcelJSの`wb.xlsx.load`で読み込んで、セルに書き込みます。書き込みの関数は共通の部品に置き、画面とNode.jsのテストで同じものを使います。
+
+- **日付と時刻はExcelの通し番号で書く**：日付は「1970年1月1日からの日数＋25569」、時刻は「分÷1440」。セルの表示形式は様式のまま残る
+- **結合したマスの途中には書かない**：`cell.isMerged && cell.master.address !== cell.address`なら飛ばす。結合の先頭に書き直すと、見出しを上書きしてしまう。実際に、番号欄の見出しを数字で潰しかけた
+- **1桁ずつのマス**：番号を1桁ずつ書く欄は、見出しの結合のすぐ右から、1列ずつの結合を数えて位置を決める
+- **行が入りきらない月**：シートを複製して2枚目を作る
+
+~~~js
+const ws = wb.addWorksheet(name + "_1");
+const m = JSON.parse(JSON.stringify(src.model));
+m.id = ws.id;
+m.name = ws.name;
+ws.model = m;
+~~~
+
+- **使わなかったシート**は`wb.removeWorksheet(ws.id)`で消し、その人に出すものだけを残す
+- **base64への変換**：大きなデータを一度に`String.fromCharCode`へ渡すと失敗するので、0x8000バイトずつ区切ってから`btoa`する
+- **権限**：`appsscript.json`に`https://www.googleapis.com/auth/drive`を足す。足したら、持ち主が一度承認する
+
+## 3. 出力する
+
+`wb.xlsx.writeBuffer()`でxlsxを作り、Blobにしてダウンロードのリンクを出します。あわせて、base64でサーバーに送り、Driveの月ごとのフォルダに保存して、「ファイルを開く」「フォルダを開く」のリンクを出します。
+
+## 確かめ方
+
+- Node.jsで架空のデータを書き込んで保存し、openpyxlで値と表示形式（日付、時間）を読んで確かめる
+- 見た目は、ExcelでPDFにしてから画像にして、目で確かめる。合計の式が効いていることも確認する
+
+## ExcelをCOMで動かすときの注意
+
+様式を作る作業でExcelをCOMで操作する場合は、次の点に注意します。
+
+- 見えないExcelでシートを`Copy()`すると、新しいブックが`ActiveWorkbook`にならないことがある。そのまま`SaveAs`すると、**元のブック全体（実データ入り）を保存してしまう**。保存の前に、シートの数と名前を必ず確かめる。シートの抜き出しは、できるだけopenpyxlで行う
+- 裏で動かしているExcelに、ユーザーがダブルクリックで開いたファイルが入り込むことがある。`IgnoreRemoteRequests = $true`にする。終わるときは、他のブックが開いていたらExcelを終了せず、自分が開いたブックだけを閉じる
+- 実データ入りのブックをコピーして使った場合は、使い終わったらすぐに消す
+
+## 関連記事
+
+- [GAS・画面・Node.jsで同じ判定部品を使い、偽のサーバーで画面を確かめる](/articles/gas/gas-shared-core-fake-server-preview)
+- [GASでテンプレートシートを複製して複数ページPDFを作る方法](/articles/gas/template-sheet-multi-page-pdf)
+- [PowerShellのCOMテストで非表示のExcelを残さない後片付け](/articles/powershell/excel-com-test-process-cleanup)

@@ -1,0 +1,57 @@
+---
+title: "「今日の日付」をtoISOStringで作ると、朝9時より前は前日になる"
+category: "vanillajs"
+slug: "today-date-toisostring-utc-pitfall"
+tags: ["JavaScript", "日付", "タイムゾーン", "Playwright", "バグ対策"]
+description: "new Date().toISOString().slice(0, 10)で今日の日付を作ると、日本では0時から8時59分の間、前日の日付になります。ローカル時刻で組み立てる関数への置き換えと、Playwrightの時計機能で朝の状態を再現して確かめる方法を説明します。"
+date: "2026-11-27"
+---
+
+<Term>JavaScript</Term>で「今日の日付」を`YYYY-MM-DD`の形で作るとき、次のように書くことがあります。
+
+~~~js
+const today = new Date().toISOString().slice(0, 10);  // split("T")[0] も同じ
+~~~
+
+`toISOString()`は**協定世界時（UTC）の日付**を返します。日本（UTC+9）では、**0時から8時59分の間、前日の日付**になります。
+
+## 気づきにくい理由
+
+- 例えば、11月26日の朝7時30分に明細を追加すると、日付が11月25日で入る
+- 昼間にしかテストしないと気づかない。利用者の朝の作業で発覚しやすい
+- 入力欄の初期値だけでなく、「今日の日付が入っていたら未入力とみなす」判定や、ファイル名（`backup_2026-11-25.db`）も同じようにずれる
+
+## ローカル時刻で組み立てる関数に置き換える
+
+~~~js
+// dateUtil.js
+export function todayLocal() {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+~~~
+
+置き換え漏れを防ぐため、`toISOString`でコード全体を検索し、日付として使っている箇所をすべて直します。この事例では、明細の日付、登録日の初期値、未保存のチェック、保存ファイルとCSVのファイル名の5か所が該当しました。
+
+`<input type="date">`の`value`も`YYYY-MM-DD`のローカルの日付なので、この関数の結果をそのまま入れられます。
+
+## 時刻を変えずに朝の状態を再現して確かめる
+
+<Term>Playwright</Term>の時計の機能で時刻を固定してから、画面を読み込み直します。
+
+~~~js
+await page.clock.install({ time: new Date("2026-11-26T07:30:00+09:00") });
+await page.reload();
+// 追加した行の日付が 2026-11-26 なら正しい（修正前は 2026-11-25 になる）
+~~~
+
+## サーバー側の日付にも注意
+
+GASやVercelなどのサーバーで日付を作る場合、サーバーのタイムゾーンがUTCのことがよくあります。サーバー側では、`Asia/Tokyo`を明示して日付を作る対策が別に必要です。
+
+## 関連記事
+
+- [GASでスプレッドシートの日付を安全にフォーマットする方法](/articles/gas/date-format-safe)
+- [VS Codeの拡張機能からPlaywrightでElectronアプリを起動できないときの対処](/articles/electron/playwright-electron-run-as-node)

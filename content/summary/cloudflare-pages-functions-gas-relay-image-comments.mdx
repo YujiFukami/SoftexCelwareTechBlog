@@ -1,0 +1,69 @@
+---
+title: "Cloudflare Pages FunctionsでGASを中継し、ログインなしで画像に書き込んでコメントできるページを作る"
+category: "summary"
+slug: "cloudflare-pages-functions-gas-relay-image-comments"
+tags: ["Cloudflare Pages", "GAS", "SVG", "JavaScript", "セキュリティ", "テスト"]
+description: "お客様にログインさせず、ページごとの秘密のリンクだけで、画像に枠や矢印、吹き出しを書き込んでコメントしてもらう仕組みです。Cloudflare Pages FunctionsでGASを中継する構成、リンクの鍵の扱い、書き込みを割合の座標のJSONで持つ方法を説明します。"
+date: "2026-11-27"
+---
+
+お客様にログインさせずに、ページごとの秘密のリンクだけでコメントしてもらい、画像の「この辺」を枠や矢印、吹き出しで指してもらいたい、という要望から作った仕組みです。
+
+## 置き場所の選び方
+
+Vercelの無料のHobbyプランは、2026年11月時点の公式のガイドラインで、個人的な非商用の利用に限られています。お客様の仕事に使う道具には、有料のProプランが必要です。
+
+そこで、<Term>Cloudflare Pages</Term>とPages Functionsを使いました。構成は、Vercelで作った「素のHTMLとAPI関数でGASを中継する」形のまま移せます。利用条件や無料の枠は変わることがあるので、使う前に公式の情報で確認してください。
+
+## 構成
+
+- `public/`：静的なファイル（ビルドなし）
+- `functions/api/*.js`：API。`export async function onRequestPost({ request, env, params, waitUntil })`の形で書く
+- `lib/`：共通の部品。`functions`の外に置くとURLにならず、importすればビルド時にまとめられる
+
+`/p/<鍵>`で画面を返すのは`functions/p/[[key]].js`で、`env.ASSETS.fetch(new URL("/page", request.url))`を返します。`page.html`は`/page`で配信されます（`/page.html`を取ると308で転送され、回り道になります）。
+
+- 静的ファイルの守りのヘッダーは`public/_headers`に書く。ただし**関数の返事には効かない**ので、関数でも同じヘッダー（CSP、noindex、no-referrer）を付ける
+- 無料の枠では、関数1回あたりのCPU時間に上限があるが、**GASの応答を待つ時間はCPU時間に数えない**
+- `caches.default`でGASの応答を15秒キャッシュし、コメントを受け付けたらキャッシュを消す
+
+## リンクの鍵はハッシュだけを保存する
+
+リンクの鍵は関数で作ります。`crypto.getRandomValues`で24バイトを作り、base64urlで32文字にします。GAS（スプレッドシート）には**ハッシュだけ**を保存し、鍵そのものは作った時の返事に1回だけ載せます。作り直すと、前のリンクは無効になります。
+
+## 書き込みは絵ではなく小さなJSONで持つ
+
+画像への書き込みは、絵として保存せず、図形のJSONとして持ちます。
+
+~~~json
+{
+  "img": "ファイルID",
+  "shapes": [
+    { "t": "rect", "x": 0.12, "y": 0.30, "w": 0.25, "h": 0.10 },
+    { "t": "arrow", "x1": 0.60, "y1": 0.20, "x2": 0.45, "y2": 0.35 },
+    { "t": "bubble", "px": 0.50, "py": 0.40, "x": 0.70, "y": 0.55, "text": "ここを変えたい" }
+  ]
+}
+~~~
+
+座標は、画像の幅と高さに対する割合（0〜1）で持ちます。表示するときは、`<svg viewBox="0 0 1000 H" preserveAspectRatio="none">`（Hは1000×縦÷横）を画像に重ねて描き直します。吹き出しの文字は、割合の位置に置いたHTMLの箱（`transform: translate(-50%, -50%)`）で描きます。画面の大きさが変わってもずれません。
+
+サーバーでは、図形の種類、数、座標の範囲、「そのページの画像か」を検査します。
+
+## 試し方
+
+1. 偽のGAS（Node.jsの`vm`で本物の`.gs`を読み込む）をHTTPで立てる
+2. `npx wrangler pages dev public --binding GAS_API_URL=http://127.0.0.1:xxxx/exec --binding GAS_API_TOKEN=...`で、Cloudflareの本物の実行環境で関数を動かしてAPIを試す
+3. 普段の確認は、Node.jsのHTTPサーバーで`functions/*.js`を同じ呼ばれ方で動かし（`env.ASSETS.fetch`も真似る）、ヘッドレスのChromeで操作して撮る
+
+## つまずきどころ
+
+- **確認ダイアログで止まる**：DevTools Protocolでクリックした先で`confirm()`が出ると、`Runtime.evaluate`が返らず、試しが止まりました。`Page.javascriptDialogOpening`を受けて`Page.handleJavaScriptDialog`で応答し、出た文を記録します
+- **セレクタの当たり方**：`#lb .lbtop .tb:last-child`のような指定は、入れ子の別の箱の「最後の子」に先に当たり、隠れていた「全部消す」ボタンを押していました。ボタンには専用のクラスを付けて指定します
+- **偽のGASのキャッシュ**：試しの途中でキャッシュを全部消すと、管理者の通行証まで消えました。消すのは回数の上限のキーだけにします
+
+## 関連記事
+
+- [素のHTMLとVercelのAPI関数で、GASのスプレッドシートDBを中継する](/articles/nextjs/vercel-api-functions-gas-relay)
+- [GAS Webアプリのログイン：URLの振り分け、ハッシュ化したパスワード、通行証、ソフト削除](/articles/gas/gas-url-split-hashed-password-session)
+- [Cloudflare Workersでログイン不要のAI相談APIを公開するときの守り方](/articles/summary/cloudflare-workers-anonymous-ai-api)

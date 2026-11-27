@@ -1,0 +1,75 @@
+---
+title: "依頼者向けレポートを、ライブラリなしでExcel（複数シート）とA4縦のPDFで出す"
+category: "vanillajs"
+slug: "client-report-excel-sheets-a4-pdf"
+tags: ["JavaScript", "Excel", "PDF", "CSS印刷", "SpreadsheetML", "ビルド不要"]
+description: "ビルドなしの1ファイルのWebアプリから、データをコピーして使う人向けのExcelと、読むだけの人向けのPDFを出す方法です。SpreadsheetMLで複数シートのブックを書き出し、名前付きページでレポートだけをA4縦で印刷します。"
+date: "2026-11-27"
+---
+
+ビルドなしの1ファイルのWebアプリ（打ち合わせ用のモックアップ）で、「区画と期間を選ぶとレポートが出る」機能を作りました。レポートは、**データをコピーして使う人向けのExcel**と、**読むだけの人向けのPDF**の両方で渡します。
+
+条件は2つありました。SheetJSなどのライブラリを使わずに、シートが分かれたExcelを出すこと。アプリ本体の印刷（日報）はA4横のまま、レポートだけをA4縦にすることです。
+
+## Excel：SpreadsheetMLで書き出す
+
+Excel 2003のXML形式（SpreadsheetML）なら、1つのXMLに`<Worksheet>`を並べるだけで、シートが分かれたブックになります。
+
+~~~js
+function exportXls(name, sheets) {  // sheets: [[シート名, 2次元配列], ...]
+  const x = (v) => String(v ?? "").replace(/[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const cell = (v) => {
+    const s = String(v ?? "");
+    const isNum = s !== "" && !/\//.test(s) && !isNaN(+s.replace(/,/g, ""));
+    return `<Cell><Data ss:Type="${isNum ? "Number" : "String"}">${x(isNum ? s.replace(/,/g, "") : s)}</Data></Cell>`;
+  };
+  const body = sheets.map(([nm, rows]) =>
+    `<Worksheet ss:Name="${x(nm)}"><Table>${rows.map((r) => `<Row>${r.map(cell).join("")}</Row>`).join("")}</Table></Worksheet>`
+  ).join("");
+  const xml = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>` +
+    `<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">${body}</Workbook>`;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([xml], { type: "application/vnd.ms-excel" }));
+  a.download = name;
+  a.click();
+}
+~~~
+
+- 数値は`ss:Type="Number"`、それ以外は`String`にする。カンマ区切りの数値はカンマを外してから数値にし、`/`を含む日付は文字列のままにする
+- 拡張子を`.xls`にするとExcelで開ける。ただし、開くときに「ファイル形式と拡張子が一致しない」という確認が出ることがある。本番では`.xlsx`にする予定であることを画面に書いておく
+
+## PDF：画面のプレビューを印刷してPDFに保存する
+
+レポートは画面上に「紙」の形（幅794px、A4を96dpiで表した幅）でプレビューし、印刷ボタンは`window.print()`を呼ぶだけにします。**名前付きページ**を使うと、レポートだけを縦向きにできます（Chrome、Edgeの85以降）。
+
+~~~css
+.rpaper { width: 794px; page: rp; }
+
+@media print {
+  nav, .topbar, .noprint, .toast { display: none !important; }
+  @page { size: A4 landscape; margin: 10mm; }     /* アプリ全体（日報）は横 */
+  @page rp { size: A4 portrait; margin: 12mm; }   /* レポートだけ縦 */
+  .rpaper { border: 0; width: auto; padding: 0; margin: 0; }
+  .rpaper h4 { break-after: avoid; }
+  .rpchart { break-inside: avoid; }
+}
+~~~
+
+グラフを`<svg viewBox="0 0 330 190" width="100%">`のように作っておくと、画面でも紙でも幅に合わせて縮みます。
+
+## 使い分けのポイント
+
+- 依頼者の使い方で形が決まるので、両方を用意して打ち合わせで選んでもらう
+- 日ごとの全列のデータはExcelだけに入れ、PDFには「Excel版の別シートに入っています」と書く。PDFが何十ページにもならない
+- 期間の途中で条件（使っている資材など）が変わる場合は、開始日付きの変更履歴を持ち、レポートに「Aから、12月1日からB」のように出す
+
+## 確認の方法
+
+<Term>Playwright</Term>でEdgeを使い、`page.pdf({ preferCSSPageSize: true })`でPDFを出して、ページ数を数えます。見た目は`emulateMedia({ media: "print" })`にしてスクリーンショットで確かめます。
+
+## 関連記事
+
+- [SheetJSでブラウザからExcelファイルをエクスポートする方法](/articles/nextjs/sheetjs-excel-export)
+- [GAS Webアプリで1レコード1ページの印刷PDFを作る](/articles/gas/gas-webapp-page-break-print)
+- [現状の業務フローを、5W1Hと時系列とデータの流れでHTML1枚に図解する](/articles/vanillajs/business-flow-5w1h-html-diagram)
